@@ -1,0 +1,17 @@
+# Auto-detect text files and normalize line endings
+* text=auto eol=lf
+
+# Explicit binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.wasm binary
+*.glb binary
+*.gltf binary
+*.ktx2 binary
+*.ogg binary
+*.mp3 binary
+*.wav binary

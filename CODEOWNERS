@@ -1,0 +1,15 @@
+# Global owners for all code in VORIXA
+* @akshaykumar33
+
+# Core Engine Architecture
+/src/core/ @akshaykumar33
+/src/rendering/ @akshaykumar33
+/src/input/ @akshaykumar33
+/src/ecs/ @akshaykumar33
+
+# Documentation and ADRs
+/docs/ @akshaykumar33
+/docs/adr/ @akshaykumar33
+
+# CI/CD Workflows
+/.github/ @akshaykumar33

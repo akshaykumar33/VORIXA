@@ -1,0 +1,35 @@
+{
+  "name": "vorixa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Next-generation, web-native, infinite procedural game and experimental game-engine platform",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "benchmark": "node scripts/benchmark.js"
+  },
+  "keywords": [
+    "webgpu",
+    "webgl2",
+    "game-engine",
+    "procedural-generation",
+    "ecs",
+    "infinite-world",
+    "vorixa"
+  ],
+  "author": "Akshay Kumar <akshaykumarpatil33@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@webgpu/types": "^0.1.54",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.7"
+  }
+}
