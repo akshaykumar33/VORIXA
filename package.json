@@ -34,6 +34,6 @@
     "@webgpu/types": "^0.1.54",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
-    "vitest": "^3.0.7"
+    "vitest": "^5.0.1"
   }
 }
