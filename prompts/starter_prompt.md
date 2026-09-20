@@ -1,5 +1,22 @@
 # VORIXA — MASTER REPOSITORY BOOTSTRAP PROMPT
 
+> ## ⚠️ SUPERSEDED FOR ONGOING WORK
+>
+> This prompt bootstrapped the repository (Phase 0) and is retained as **historical record of how
+> VORIXA was founded**. It is no longer the operating prompt.
+>
+> **For all work from Phase 1 onward, use [`master_execution_prompt.md`](master_execution_prompt.md).**
+>
+> Two policies below have been **deliberately rescinded** by the project owner:
+>
+> | Section | Was | Now |
+> | --- | --- | --- |
+> | §15, §28, Final Principle | Minimize dependencies; keep the stack small | **Open stack.** Any library is permitted when it delivers materially better experience or capability. Deliberate choice, not scarcity. |
+> | §15, §24 | UI/UX treated as one concern among many | **UI/UX and complete functionality are mandatory acceptance criteria.** A feature that works but feels bad is not done. |
+>
+> The Prime Directive, architectural boundaries, phased roadmap, ADR system, and security rules
+> below all remain in force.
+
 You are entering a greenfield repository for **VORIXA**, a next-generation, web-native, infinite procedural game and experimental game-engine platform.
 
 Do NOT immediately start generating random gameplay code.
@@ -696,6 +713,10 @@ No feature is considered complete if it catastrophically violates its device-tie
 
 # 15. DESIGN LANGUAGE
 
+> **Amended.** UI/UX is now a *mandatory acceptance criterion*, not a parallel workstream. See
+> `master_execution_prompt.md` §0.1 for the binding Definition of Done. The stack for this layer is
+> ratified in `docs/adr/ADR-0007-ui-layer-stack.md`.
+
 Create a distinctive visual language.
 
 Avoid generic "AI SaaS glassmorphism."
@@ -1210,6 +1231,15 @@ Do not commit gigantic unoptimized assets.
 
 # 28. DEPENDENCY POLICY
 
+> **Amended — the restrictive posture below is rescinded.** The stack is open. Any library is
+> permitted when it delivers a materially better experience or materially more capability, and
+> velocity is a legitimate justification. The evaluation checklist below is retained because a
+> deliberate choice still has to be *deliberate* — but "we could write it ourselves" is no longer a
+> reason to refuse a dependency. Binding policy: `master_execution_prompt.md` §1.
+>
+> The one hard boundary that remains: **the engine core stays framework-free.** Frameworks live in
+> the UI layer, never in the tick or render loop.
+
 Before installing a dependency, evaluate:
 
 * purpose
@@ -1535,6 +1565,10 @@ Provide exact commands needed to start development.
 ---
 
 # FINAL PRINCIPLE
+
+> **Amended.** The warning below is against *undirected accumulation* — adding libraries to look
+> capable. It is **not** an argument for a small stack. Reach for whatever makes the game better;
+> just be able to say why. Binding version: `master_execution_prompt.md` Final Principle.
 
 We are not trying to impress someone with a repository containing:
 

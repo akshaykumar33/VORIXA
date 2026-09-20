@@ -12,6 +12,7 @@ This directory contains the immutable record of fundamental architectural and en
 | [ADR-0004](ADR-0004-normalized-input-abstraction.md) | Normalized Action Bus Input Abstraction | **Accepted** | 2026-09-16 |
 | [ADR-0005](ADR-0005-procedural-world-generation-and-streaming.md) | Procedural Infinite World Generation and Chunk Streaming | **Accepted** | 2026-09-16 |
 | [ADR-0006](ADR-0006-audio-engine-web-audio-api.md) | Web Audio API Native Positional Sound Engine | **Accepted** | 2026-09-16 |
+| [ADR-0007](ADR-0007-ui-layer-stack.md) | UI Layer Stack — React Island over a Framework-Free Engine | **Accepted** | 2026-09-20 |
 
 ## ADR Template Standard
 Every ADR must document:

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit Tests
+        run: pnpm test
+
+      - name: Production Build
+        run: pnpm build
+
+  engine-boundary:
+    name: Engine Boundary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ADR-0007 constraint #1: the engine core must never import a UI framework.
+      # Frameworks belong in src/ui only. A violation here is architectural, not stylistic.
+      - name: Assert engine core is framework-free
+        run: |
+          violations=$(grep -rnE "from ['\"](react|react-dom|svelte|vue|@radix-ui|motion|framer-motion)" \
+            src/core src/ecs src/rendering src/input src/audio 2>/dev/null || true)
+          if [ -n "$violations" ]; then
+            echo "::error::Engine core imports a UI framework — violates ADR-0007 constraint #1"
+            echo "$violations"
+            exit 1
+          fi
+          echo "✓ Engine core is framework-free."

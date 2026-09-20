@@ -12,7 +12,11 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "benchmark": "node scripts/benchmark.js"
+    "benchmark": "node scripts/benchmark.js",
+    "hooks:install": "git config core.hooksPath .githooks && node -e \"process.platform!=='win32'&&require('fs').readdirSync('.githooks').forEach(f=>require('fs').chmodSync('.githooks/'+f,0o755))\"",
+    "verify:secrets": "node scripts/verify-secrets.mjs",
+    "verify": "pnpm verify:secrets --all && pnpm typecheck && pnpm test",
+    "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "keywords": [
     "webgpu",
