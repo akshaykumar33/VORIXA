@@ -7,11 +7,27 @@ Thank you for your interest in contributing to **VORIXA**, the next-generation w
 Every contribution must honor the engineering cycle defined in the project constitution:
 
 ```text
-Research → Define → ADR → Design → Prototype → Benchmark → Implement → Test → Profile → Document → Review → Commit → Continue
+Research → Define → ADR → Design the Experience → Prototype → Benchmark
+  → Implement → Test → Profile → Document → Review → PR → Merge → Continue
 ```
 
-* **No Premature Complexity**: Never introduce heavy libraries (Three.js, Babylon.js, TensorFlow, MediaPipe) without an approved ADR proving necessity.
+### The two non-negotiables
+
+* **UI/UX is an acceptance criterion.** A feature that works but feels bad is not done. Every
+  user-facing change needs considered visuals, motion, loading/empty/error/offline states, keyboard
+  navigation, screen-reader labels, and verified mobile/tablet/desktop behavior.
+* **Functionality ships complete.** No buttons that do nothing, no happy-path-only work, no settings
+  that don't take effect. Cut scope vertically, never horizontally.
+
+### Dependencies
+
+The stack is **open**. Reach for any library that delivers a materially better experience or more
+capability — velocity counts as justification. What you owe in return is a recorded reason, a
+measured bundle cost, and an exit path. Architectural changes still need an ADR.
+
 * **Architectural Boundaries**:
+  - **The engine core stays framework-free** — `src/core`, `src/ecs`, `src/rendering`, `src/input`,
+    `src/audio` import no UI framework. CI enforces this (ADR-0007).
   - Presentation/UI never mutates simulation state directly.
   - Input hardware never touches player movement logic directly; all inputs normalize into commands.
   - Rendering must not contain gameplay rules.
@@ -35,22 +51,56 @@ Allowed Types:
 * `chore`: Maintenance tasks
 
 Allowed Scopes:
-* `repo`, `engine`, `render`, `ecs`, `input`, `audio`, `world`, `ui`, `adr`, `vision`, `ci`, `test`
+* `repo`, `engine`, `render`, `ecs`, `input`, `audio`, `world`, `ui`, `ux`, `adr`, `vision`, `ci`, `test`, `deps`, `security`
+
+Commit messages are validated automatically by the `commit-msg` hook.
 
 ## Development Workflow
 
-1. Clone repository and install dependencies:
+**The full ruleset is [`docs/operations/GIT_WORKFLOW.md`](docs/operations/GIT_WORKFLOW.md). Read it once.**
+
+> **Nothing reaches `main` except through a pull request** — including one-line fixes.
+
+1. Clone and install:
    ```bash
    pnpm install
+   pnpm hooks:install     # enables secret scanning + commit validation. Run once per clone.
    ```
-2. Run local development server:
+2. Branch from an up-to-date `main`:
+   ```bash
+   git checkout main && git pull --ff-only origin main
+   git checkout -b feat/ui-inventory-grid
+   ```
+3. Develop:
    ```bash
    pnpm dev
    ```
-3. Run tests and typechecking:
+4. Gate locally before you push:
    ```bash
-   pnpm test
-   pnpm typecheck
-   pnpm lint
+   pnpm verify            # secret scan + typecheck + tests
    ```
-4. Open a Pull Request following `.github/PULL_REQUEST_TEMPLATE.md`.
+5. Push and open a PR:
+   ```bash
+   git push -u origin feat/ui-inventory-grid
+   gh pr create --fill --base main
+   ```
+   Complete `.github/PULL_REQUEST_TEMPLATE.md` fully. **Attach a screenshot or capture for any
+   visual change** — this is required, not encouraged.
+6. Merge once `quality-gates`, `engine-boundary`, and `secret-scan` are green:
+   ```bash
+   gh pr merge --squash --delete-branch
+   ```
+
+## Codebase Protection
+
+The pre-commit hook blocks commits containing credentials, `.env` files, private keys, files over
+2 MB, conflict markers, or `debugger` statements — and blocks committing on `main` at all.
+
+```bash
+pnpm verify:secrets          # scan staged changes
+pnpm verify:secrets --all    # scan the whole repository
+```
+
+If you ever commit a secret: **rotate the credential first**, then fix history. See
+`GIT_WORKFLOW.md` §2.5. For a genuine false positive, `--no-verify` exists — but you must disclose
+it in the PR and narrow the pattern in the same PR (§2.4).
