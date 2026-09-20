@@ -120,7 +120,7 @@ A task or feature is Done ONLY when **all** of the following hold. No partial cr
 * ❌ **Never fake completion**: Do not claim a system is "optimized" or "production-ready" without verifiable benchmark evidence.
 * ❌ **Never create empty placeholder files**: Do not litter directories with empty `.ts` or `.md` files to give a false impression of progress.
 * ❌ **Never suppress TypeScript errors**: Do not use `@ts-ignore` or `any` casting to bypass compiler errors.
-* ❌ **Never commit secrets**: API keys, tokens, passwords, private certificates, or real `.env` files. If one is ever committed, **rotate it first**, then fix history — see `GIT_WORKFLOW.md` §2.5.
+* ❌ **Never commit secrets**: API keys, tokens, passwords, private certificates, or real `.env` files. If one is ever committed, **rotate it first**, then fix history — see `GIT_WORKFLOW.md` §2.6.
 * ❌ **Never commit directly to `main`**: branch and open a PR, every time.
 * ❌ **Never ship dark patterns**: no manipulative retention mechanics, artificial scarcity, or engagement traps.
 * ❌ **Never trust the client**: XP, currency, inventory, damage, and scores are server-authoritative.

@@ -72,20 +72,30 @@ git checkout -b feat/ui-inventory-grid
 
 ### 1.4 `main` is protected
 
+**Remote branch protection is the authoritative gate.** The local hook is early, friendly feedback
+that fails open; server-side protection fails closed. Do not rely on the hook alone — see §2.6.
+
 `main` must be configured with:
 
 * Require a pull request before merging
-* Require status checks to pass: `quality-gates`, `secret-scan`
+* Require status checks to pass: `Quality Gates`, `Engine Boundary`, `Secret Scan`
 * Require branches to be up to date before merging
 * Require conversation resolution before merging
+* Require linear history
 * Block force pushes
 * Block deletions
 
-Setup, if not yet applied:
+Setup — **this has not been applied yet and must be run once**:
 
 ```bash
 gh api -X PUT repos/akshaykumar33/VORIXA/branches/main/protection \
   --input .github/branch-protection.json
+```
+
+Verify it took:
+
+```bash
+gh api repos/akshaykumar33/VORIXA/branches/main/protection --jq '.required_status_checks.contexts'
 ```
 
 ---
@@ -143,7 +153,28 @@ git commit --no-verify
 CI re-runs the same scan on every PR, so `--no-verify` cannot get a secret to `main` — it only
 defers the conversation to review.
 
-### 2.5 If a secret is already committed
+### 2.5 What the hook does *not* protect you from
+
+The pre-commit hook **fails open**. It silently does nothing when:
+
+* `pnpm hooks:install` has never been run in this clone — git does not enable `core.hooksPath` by itself.
+* `.githooks/` is not present in the current checkout — git skips a hook path that does not exist,
+  with no warning. This bites when you check out a branch or tag predating the hooks.
+* `--no-verify` is passed.
+* A GUI client or IDE commits through a path that ignores hooks.
+
+This is a property of git, not a bug to be fixed here. It is why the layering matters:
+
+| Layer | Catches | Fails |
+| --- | --- | --- |
+| Pre-commit hook | Mistakes, instantly, before they enter history | Open — absent hooks are skipped silently |
+| CI `Secret Scan` | Anything that reached a PR, scanning full history | Closed — a red check blocks merge |
+| Branch protection | Direct pushes and force-pushes to `main` | Closed — enforced server-side |
+
+**Never treat a green pre-commit as proof of anything.** It is a convenience. The PR checks are the
+gate that actually holds.
+
+### 2.6 If a secret is already committed
 
 Treat it as **disclosed the moment it was written to disk**, regardless of push status.
 

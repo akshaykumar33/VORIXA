@@ -102,5 +102,5 @@ pnpm verify:secrets --all    # scan the whole repository
 ```
 
 If you ever commit a secret: **rotate the credential first**, then fix history. See
-`GIT_WORKFLOW.md` §2.5. For a genuine false positive, `--no-verify` exists — but you must disclose
+`GIT_WORKFLOW.md` §2.6. For a genuine false positive, `--no-verify` exists — but you must disclose
 it in the PR and narrow the pattern in the same PR (§2.4).
