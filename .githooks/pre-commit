@@ -1,0 +1,33 @@
+#!/bin/sh
+#
+# VORIXA pre-commit protection.
+# Enabled via `pnpm hooks:install` (sets core.hooksPath=.githooks).
+# Bypass with `git commit --no-verify` — see docs/operations/GIT_WORKFLOW.md §2.4.
+
+set -e
+
+printf '\033[2m→ VORIXA pre-commit: scanning staged changes\033[0m\n'
+
+if ! command -v node >/dev/null 2>&1; then
+  printf '\033[31m✗ node not found on PATH; cannot run the secret scanner.\033[0m\n'
+  printf '  Install Node, or bypass deliberately with --no-verify.\n'
+  exit 1
+fi
+
+# Block committing directly on main — every change goes through a branch and a PR.
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo 'DETACHED')"
+if [ "$branch" = "main" ]; then
+  printf '\033[31m✗ COMMIT BLOCKED — you are on main.\033[0m\n'
+  printf '\n'
+  printf '  Every change reaches main through a branch and a pull request.\n'
+  printf '\n'
+  printf '  Move this work onto a branch:\n'
+  printf '    \033[1mgit checkout -b feat/<scope>-<slug>\033[0m\n'
+  printf '\n'
+  printf '  See docs/operations/GIT_WORKFLOW.md §1\n'
+  exit 1
+fi
+
+node "$(git rev-parse --show-toplevel)/scripts/verify-secrets.mjs"
+
+printf '\033[32m✓\033[0m VORIXA pre-commit: clean.\n'
