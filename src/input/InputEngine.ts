@@ -59,13 +59,22 @@ export class InputEngine {
 
     this.element.addEventListener('mousemove', (e: any) => {
       if (typeof document !== 'undefined' && document.pointerLockElement) {
-        const stateX = this.actions.get(InputAction.LOOK_X)!;
-        const stateY = this.actions.get(InputAction.LOOK_Y)!;
-        stateX.value = e.movementX;
-        stateY.value = e.movementY;
+        // Accumulate rather than overwrite: a browser can deliver several mousemove events
+        // between two animation frames, and overwriting would silently drop all but the last.
+        this.actions.get(InputAction.LOOK_X)!.value += e.movementX;
+        this.actions.get(InputAction.LOOK_Y)!.value += e.movementY;
       }
     });
   }
+
+  /**
+   * Relative axes report movement *since the last frame*, so they must be cleared once consumed.
+   * Digital buttons are level-triggered and must not be.
+   */
+  private static readonly RELATIVE_AXES: readonly InputAction[] = [
+    InputAction.LOOK_X,
+    InputAction.LOOK_Y
+  ];
 
   public getAction(action: InputAction): ActionState {
     return this.actions.get(action) || { value: 0, justPressed: false, justReleased: false };
@@ -84,6 +93,15 @@ export class InputEngine {
       state.justPressed = false;
       state.justReleased = false;
     }
+    // Without this the last mouse delta persists and the camera spins forever after the mouse stops.
+    for (const axis of InputEngine.RELATIVE_AXES) {
+      this.actions.get(axis)!.value = 0;
+    }
+  }
+
+  /** Reads a raw axis value, including negative deltas that `isPressed` cannot express. */
+  public getAxis(action: InputAction): number {
+    return this.actions.get(action)?.value ?? 0;
   }
 
   public setActionState(action: InputAction, value: number): void {

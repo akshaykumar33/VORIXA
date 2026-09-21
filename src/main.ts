@@ -3,6 +3,13 @@ import { WebGPURenderer } from './rendering/WebGPURenderer';
 import { WebGL2Renderer } from './rendering/WebGL2Renderer';
 import { Renderer } from './rendering/Renderer';
 import { Engine } from './core/Engine';
+import { createPointerLockController } from './input/PointerLockController';
+
+/**
+ * Backing-store scale is capped at 2. Beyond that the extra pixels are invisible on the devices
+ * that report them and cost fill rate we would rather spend on frame time.
+ */
+const MAX_RENDER_SCALE = 2;
 
 async function bootstrap(): Promise<void> {
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement;
@@ -35,22 +42,34 @@ async function bootstrap(): Promise<void> {
     renderer = glRenderer;
   }
 
-  // 3. Handle responsive resizing
+  // 3. Instantiate the engine before sizing, so the camera exists to receive the aspect ratio.
+  const engine = new Engine(renderer, capabilities);
+
+  // 4. Handle responsive resizing
+  const scale = Math.min(window.devicePixelRatio || 1, MAX_RENDER_SCALE);
   const handleResize = () => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
-    renderer.resize(width, height);
+    const cssWidth = window.innerWidth;
+    const cssHeight = window.innerHeight;
+    renderer.resize(Math.round(cssWidth * scale), Math.round(cssHeight * scale));
+    // Aspect comes from the CSS box, which is what the player actually sees; the backing store is
+    // the same shape, so a stretched view here would be a bug in one of the two.
+    engine.camera.setAspect(cssWidth, cssHeight);
   };
   window.addEventListener('resize', handleResize);
   handleResize();
 
-  // 4. Instantiate and start Engine
-  const engine = new Engine(renderer, capabilities);
+  // 5. Mouse capture for first-person look. The HUD mirrors the real lock state, so a refused or
+  // Escape-released lock is always visible to the player.
+  const pointerLock = createPointerLockController(canvas);
+  if (pointerLock) {
+    pointerLock.onChange((locked) => {
+      engine.lookCaptured = locked;
+    });
+  }
+
   engine.start();
 
-  // 5. User gesture for spatial audio activation
+  // 6. User gesture for spatial audio activation
   const audioPrompt = document.getElementById('audio-prompt');
   const unlockAudio = async () => {
     const success = await engine.audio.unlock();

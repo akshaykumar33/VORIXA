@@ -81,16 +81,56 @@
       color: #ffb703;
       border: 1px solid #ffb703;
     }
-    .reticle {
+    /* The reticle is dim until the mouse is actually captured, so it never promises aim the
+       player does not yet have. */
+    #reticle {
       position: absolute;
       top: 50%;
       left: 50%;
       width: 8px;
       height: 8px;
-      background: #00f0ff;
+      background: rgba(0, 240, 255, 0.25);
       border-radius: 50%;
-      transform: translate(-50%, -50%);
+      transform: translate(-50%, -50%) scale(0.75);
+      box-shadow: none;
+      transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    }
+    #reticle.is-active {
+      background: #00f0ff;
+      transform: translate(-50%, -50%) scale(1);
       box-shadow: 0 0 10px #00f0ff;
+    }
+    #lock-prompt {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, calc(-50% + 48px));
+      background: rgba(10, 14, 22, 0.82);
+      border: 1px solid rgba(0, 240, 255, 0.45);
+      backdrop-filter: blur(12px);
+      border-radius: 10px;
+      padding: 12px 22px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #00f0ff;
+      text-align: center;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    #lock-prompt .hint {
+      display: block;
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0.02em;
+      color: #94a3b8;
+    }
+    /* Fades rather than disappears: an instant cut here reads as a glitch mid-click. */
+    #lock-prompt.is-hidden {
+      opacity: 0;
+      transform: translate(-50%, calc(-50% + 56px));
     }
     .hud-footer {
       display: flex;
@@ -148,12 +188,17 @@
           <div>Graphics: <span id="metric-backend" class="badge badge-webgpu">PROBING</span></div>
           <div>Tier: <span id="metric-tier" class="accent">PROBING</span></div>
           <div>Resolution: <span id="metric-res" class="accent">--</span></div>
+          <div>Facing: <span id="metric-facing" class="accent">N 0° / 0°</span> | FOV: <span id="metric-fov" class="accent">75°</span></div>
         </div>
       </div>
-      <div class="reticle"></div>
+      <div id="reticle"></div>
+      <div id="lock-prompt">
+        Click to look
+        <span class="hint">Esc releases the cursor</span>
+      </div>
       <div class="hud-footer">
         <div class="controls-card">
-          <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move &bull; <kbd>Space</kbd> Jump &bull; <kbd>Shift</kbd> Dash &bull; Mouse Look
+          <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move &bull; <kbd>Space</kbd> Jump &bull; <kbd>Shift</kbd> Sprint &bull; Mouse Look &bull; <kbd>Esc</kbd> Release
         </div>
         <div class="telemetry-card">
           Pos: <span id="metric-pos" class="accent">X: 0.0 Y: 0.0 Z: 0.0</span>
