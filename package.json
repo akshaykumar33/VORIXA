@@ -16,7 +16,10 @@
     "hooks:install": "git config core.hooksPath .githooks && node -e \"process.platform!=='win32'&&require('fs').readdirSync('.githooks').forEach(f=>require('fs').chmodSync('.githooks/'+f,0o755))\"",
     "verify:secrets": "node scripts/verify-secrets.mjs",
     "verify": "pnpm verify:secrets --all && pnpm typecheck && pnpm test",
-    "prepare": "git config core.hooksPath .githooks || exit 0"
+    "prepare": "git config core.hooksPath .githooks || exit 0",
+    "setup:vision": "node scripts/fetch-vision-assets.mjs",
+    "predev": "node scripts/fetch-vision-assets.mjs",
+    "prebuild": "node scripts/fetch-vision-assets.mjs"
   },
   "keywords": [
     "webgpu",
@@ -31,9 +34,14 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.13.9",
+    "@types/three": "^0.186.0",
     "@webgpu/types": "^0.1.54",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
     "vitest": "^3.0.7"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "three": "^0.186.0"
   }
 }

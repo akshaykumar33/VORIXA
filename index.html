@@ -3,209 +3,361 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>VORIXA — Next-Gen Procedural Engine</title>
+  <title>VORIXA — Time Attack</title>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      user-select: none;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
     html, body {
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background-color: #06070a;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
-      color: #f0f4f8;
+      background: #06070a;
+      color: #e8eef5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      cursor: default;
     }
-    #viewport-container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
+
+    :root {
+      --accent: #00f0ff;
+      --warn: #ffb703;
+      --good: #00f59b;
+      --bad: #ff0055;
+      --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
     }
-    canvas#render-canvas {
-      display: block;
-      width: 100%;
-      height: 100%;
-    }
-    #hud-overlay {
+
+    #viewport { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    canvas#render-canvas { display: block; width: 100%; height: 100%; }
+    canvas#overlay-canvas {
       position: absolute;
-      top: 0;
-      left: 0;
+      inset: 0;
       width: 100%;
       height: 100%;
       pointer-events: none;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      padding: 20px;
     }
-    .hud-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
+
+    #hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
     }
-    .telemetry-card {
-      background: rgba(10, 14, 22, 0.75);
-      border: 1px solid rgba(0, 240, 255, 0.25);
-      backdrop-filter: blur(12px);
-      border-radius: 8px;
-      padding: 12px 18px;
-      font-family: ui-monospace, "JetBrains Mono", monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+
+    /* ── Speed streaks ─────────────────────────────────────────────────────── */
+    /* Masked to the periphery so they never obscure the platform you are aiming at. */
+    #speed-lines {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 120ms linear;
+      background: repeating-conic-gradient(
+        from 0deg at 50% 50%,
+        transparent 0deg 1.4deg,
+        rgba(0, 240, 255, 0.16) 1.4deg 1.9deg
+      );
+      -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 26%, #000 78%);
+      mask-image: radial-gradient(circle at 50% 50%, transparent 26%, #000 78%);
     }
-    .telemetry-card .accent {
-      color: #00f0ff;
-      font-weight: 600;
+
+    #vignette {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.55) 100%);
     }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
+
+    /* ── Timer ─────────────────────────────────────────────────────────────── */
+    .timer-block {
+      position: absolute;
+      top: 26px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+    #hud-timer {
+      font-family: var(--mono);
+      font-size: 54px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      text-shadow: 0 0 24px rgba(0, 240, 255, 0.35);
+      font-variant-numeric: tabular-nums;
     }
-    .badge-webgpu {
-      background: rgba(0, 240, 255, 0.2);
-      color: #00f0ff;
-      border: 1px solid #00f0ff;
+    .timer-meta {
+      margin-top: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: #7c8da3;
+      display: flex;
+      gap: 18px;
+      justify-content: center;
     }
-    .badge-webgl {
-      background: rgba(255, 183, 3, 0.2);
-      color: #ffb703;
-      border: 1px solid #ffb703;
+    .timer-meta b { color: var(--accent); font-weight: 600; }
+
+    .delta {
+      margin-top: 10px;
+      font-family: var(--mono);
+      font-size: 26px;
+      font-weight: 700;
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 160ms ease, transform 160ms ease;
+      font-variant-numeric: tabular-nums;
     }
-    /* The reticle is dim until the mouse is actually captured, so it never promises aim the
-       player does not yet have. */
+    .delta.show { opacity: 1; transform: translateY(0); }
+    .delta.ahead { color: var(--good); text-shadow: 0 0 18px rgba(0, 245, 155, 0.5); }
+    .delta.behind { color: var(--bad); text-shadow: 0 0 18px rgba(255, 0, 85, 0.45); }
+
+    /* ── Speed ─────────────────────────────────────────────────────────────── */
+    .speed-block {
+      position: absolute;
+      bottom: 38px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      font-family: var(--mono);
+    }
+    #hud-speed {
+      font-size: 40px;
+      font-weight: 700;
+      line-height: 1;
+      color: #e8eef5;
+      font-variant-numeric: tabular-nums;
+    }
+    .speed-unit { font-size: 11px; letter-spacing: 0.22em; color: #7c8da3; margin-top: 4px; }
+
+    /* ── Dash charge ───────────────────────────────────────────────────────── */
+    #hud-dash {
+      position: absolute;
+      bottom: 34px;
+      left: 50%;
+      transform: translateX(calc(-50% + 132px));
+      width: 92px;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      overflow: hidden;
+    }
+    #hud-dash::after {
+      content: '';
+      display: block;
+      height: 100%;
+      width: var(--charge, 0%);
+      background: var(--warn);
+      transition: width 70ms linear;
+    }
+    #hud-dash.ready::after { background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+    #hud-dash.refused { animation: refuse 260ms ease; }
+    @keyframes refuse {
+      0%, 100% { transform: translateX(calc(-50% + 132px)); }
+      25% { transform: translateX(calc(-50% + 126px)); }
+      75% { transform: translateX(calc(-50% + 138px)); }
+    }
+    .dash-label {
+      position: absolute;
+      bottom: 46px;
+      left: 50%;
+      transform: translateX(calc(-50% + 132px));
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      color: #7c8da3;
+    }
+
+    /* ── State chip ────────────────────────────────────────────────────────── */
+    #hud-state {
+      position: absolute;
+      bottom: 104px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.24em;
+      color: var(--accent);
+      opacity: 0;
+      transition: opacity 120ms ease;
+      text-shadow: 0 0 16px rgba(0, 240, 255, 0.5);
+    }
+    #hud-state.show { opacity: 1; }
+
+    /* ── Reticle ───────────────────────────────────────────────────────────── */
     #reticle {
       position: absolute;
       top: 50%;
       left: 50%;
-      width: 8px;
-      height: 8px;
-      background: rgba(0, 240, 255, 0.25);
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
-      transform: translate(-50%, -50%) scale(0.75);
-      box-shadow: none;
-      transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+      background: rgba(232, 238, 245, 0.28);
+      transform: translate(-50%, -50%);
+      transition: background 160ms ease, box-shadow 160ms ease;
     }
     #reticle.is-active {
-      background: #00f0ff;
-      transform: translate(-50%, -50%) scale(1);
-      box-shadow: 0 0 10px #00f0ff;
+      background: #e8eef5;
+      box-shadow: 0 0 8px rgba(0, 240, 255, 0.9);
     }
+
+    /* ── Start prompt ──────────────────────────────────────────────────────── */
     #lock-prompt {
       position: absolute;
       top: 50%;
       left: 50%;
-      transform: translate(-50%, calc(-50% + 48px));
-      background: rgba(10, 14, 22, 0.82);
-      border: 1px solid rgba(0, 240, 255, 0.45);
-      backdrop-filter: blur(12px);
-      border-radius: 10px;
-      padding: 12px 22px;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      color: #00f0ff;
+      transform: translate(-50%, -50%);
+      background: rgba(8, 12, 20, 0.88);
+      border: 1px solid rgba(0, 240, 255, 0.35);
+      border-radius: 14px;
+      padding: 28px 40px;
       text-align: center;
       pointer-events: none;
-      opacity: 1;
-      transition: opacity 0.18s ease, transform 0.18s ease;
+      backdrop-filter: blur(16px);
+      transition: opacity 180ms ease, transform 180ms ease;
     }
-    #lock-prompt .hint {
-      display: block;
-      margin-top: 4px;
+    #lock-prompt.is-hidden { opacity: 0; transform: translate(-50%, -46%); }
+    #lock-prompt h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.3em;
+      color: var(--accent);
+      margin-bottom: 18px;
+    }
+    .keys { display: grid; grid-template-columns: auto auto; gap: 9px 18px; font-size: 13px; }
+    .keys span { color: #9fb0c4; text-align: left; }
+    .keys kbd {
+      font-family: var(--mono);
       font-size: 11px;
-      font-weight: 400;
-      letter-spacing: 0.02em;
-      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      padding: 3px 8px;
+      color: #e8eef5;
+      justify-self: end;
     }
-    /* Fades rather than disappears: an instant cut here reads as a glitch mid-click. */
-    #lock-prompt.is-hidden {
-      opacity: 0;
-      transform: translate(-50%, calc(-50% + 56px));
-    }
-    .hud-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-    }
-    .controls-card {
-      background: rgba(10, 14, 22, 0.75);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(12px);
-      border-radius: 8px;
-      padding: 10px 16px;
+    .prompt-foot {
+      margin-top: 20px;
       font-size: 12px;
-      color: #94a3b8;
+      color: #7c8da3;
+      letter-spacing: 0.05em;
     }
-    .controls-card kbd {
-      background: rgba(255, 255, 255, 0.15);
-      color: #fff;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: inherit;
+    .prompt-foot b { color: var(--accent); }
+    .prompt-gesture {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      line-height: 1.6;
+      color: #6d7d90;
+      max-width: 320px;
     }
-    #audio-prompt {
+    .prompt-gesture b { color: var(--warn); }
+
+    /* ── Finish panel ──────────────────────────────────────────────────────── */
+    #finish-panel {
       position: absolute;
-      bottom: 24px;
+      top: 50%;
       left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 240, 255, 0.15);
-      border: 1px solid #00f0ff;
-      padding: 8px 20px;
-      border-radius: 20px;
+      transform: translate(-50%, -50%) scale(0.96);
+      background: rgba(8, 12, 20, 0.92);
+      border: 1px solid rgba(0, 245, 155, 0.4);
+      border-radius: 16px;
+      padding: 32px 56px;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      backdrop-filter: blur(16px);
+      transition: opacity 200ms ease, transform 200ms ease;
+    }
+    #finish-panel.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    .finish-label {
       font-size: 12px;
-      font-weight: 600;
-      color: #00f0ff;
-      cursor: pointer;
-      pointer-events: auto;
-      transition: all 0.2s ease;
+      letter-spacing: 0.34em;
+      color: var(--good);
+      margin-bottom: 12px;
     }
-    #audio-prompt:hover {
-      background: rgba(0, 240, 255, 0.3);
+    #finish-time {
+      font-family: var(--mono);
+      font-size: 62px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
     }
+    .finish-note { margin-top: 14px; font-size: 13px; color: #9fb0c4; }
+    .finish-note.record {
+      color: var(--good);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-shadow: 0 0 18px rgba(0, 245, 155, 0.5);
+    }
+    .finish-again { margin-top: 22px; font-size: 12px; color: #7c8da3; letter-spacing: 0.08em; }
+    .finish-again b { color: #e8eef5; }
+
+    .corner {
+      position: absolute;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      color: #5d6b7e;
+    }
+    .corner.tl { top: 22px; left: 24px; }
+    .corner.br { bottom: 22px; right: 24px; }
   </style>
 </head>
 <body>
-  <div id="viewport-container">
+  <div id="viewport">
     <canvas id="render-canvas"></canvas>
-    <div id="hud-overlay">
-      <div class="hud-header">
-        <div class="telemetry-card" id="telemetry-left">
-          <div>VORIXA <span class="accent">v0.1.0-alpha</span></div>
-          <div>FPS: <span id="metric-fps" class="accent">--</span> | P95: <span id="metric-p95" class="accent">-- ms</span></div>
-          <div>Sim Ticks: <span id="metric-ticks" class="accent">0</span> | Entities: <span id="metric-entities" class="accent">0</span></div>
+    <!-- 2D instrument layer: route map, speed arc, hand tracking. Drawn above the 3D world. -->
+    <canvas id="overlay-canvas"></canvas>
+
+    <div id="hud">
+      <div id="speed-lines"></div>
+      <div id="vignette"></div>
+
+      <div class="corner tl">VORIXA · COURSE 01</div>
+      <div class="corner br"><b>R</b> RESTART</div>
+
+      <div class="timer-block">
+        <div id="hud-timer">0:00.00</div>
+        <div class="timer-meta">
+          <span>BEST <b id="hud-best">—</b></span>
+          <span>CP <b id="hud-checkpoint">0 / 4</b></span>
         </div>
-        <div class="telemetry-card" id="telemetry-right">
-          <div>Graphics: <span id="metric-backend" class="badge badge-webgpu">PROBING</span></div>
-          <div>Tier: <span id="metric-tier" class="accent">PROBING</span></div>
-          <div>Resolution: <span id="metric-res" class="accent">--</span></div>
-          <div>Facing: <span id="metric-facing" class="accent">N 0° / 0°</span> | FOV: <span id="metric-fov" class="accent">75°</span></div>
-        </div>
+        <div id="hud-delta" class="delta"></div>
       </div>
+
       <div id="reticle"></div>
-      <div id="lock-prompt">
-        Click to look
-        <span class="hint">Esc releases the cursor</span>
+      <div id="hud-state"></div>
+
+      <div class="speed-block">
+        <div id="hud-speed">0</div>
+        <div class="speed-unit">KM / H</div>
       </div>
-      <div class="hud-footer">
-        <div class="controls-card">
-          <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move &bull; <kbd>Space</kbd> Jump &bull; <kbd>Shift</kbd> Sprint &bull; Mouse Look &bull; <kbd>Esc</kbd> Release
+      <div class="dash-label">DASH</div>
+      <div id="hud-dash" class="ready"></div>
+
+      <div id="lock-prompt">
+        <h1>TIME ATTACK</h1>
+        <div class="keys">
+          <span>Move</span><kbd>W A S D</kbd>
+          <span>Jump / Wall-jump</span><kbd>Space</kbd>
+          <span>Dash</span><kbd>Shift</kbd>
+          <span>Slide</span><kbd>Ctrl</kbd>
+          <span>Restart</span><kbd>R</kbd>
+          <span>Hand control (webcam)</span><kbd>G</kbd>
         </div>
-        <div class="telemetry-card">
-          Pos: <span id="metric-pos" class="accent">X: 0.0 Y: 0.0 Z: 0.0</span>
+        <div class="prompt-foot">
+          Click to play — the clock starts when you <b>move</b>
         </div>
+        <div class="prompt-gesture">
+          <b>G</b> enables camera hand control · open palm to run, pinch to dash, fist to jump
+        </div>
+      </div>
+
+      <div id="finish-panel">
+        <div class="finish-label">COURSE CLEAR</div>
+        <div id="finish-time">0:00.00</div>
+        <div id="finish-note" class="finish-note"></div>
+        <div class="finish-again"><b>R</b> to run it again</div>
       </div>
     </div>
-    <div id="audio-prompt">Click viewport to engage spatial audio</div>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

@@ -5,6 +5,9 @@ export enum InputAction {
   STRAFE_RIGHT = 'STRAFE_RIGHT',
   JUMP = 'JUMP',
   DASH = 'DASH',
+  CROUCH = 'CROUCH',
+  RESTART = 'RESTART',
+  GESTURE_TOGGLE = 'GESTURE_TOGGLE',
   LOOK_X = 'LOOK_X',
   LOOK_Y = 'LOOK_Y',
   PAUSE = 'PAUSE'

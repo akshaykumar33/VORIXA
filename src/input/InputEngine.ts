@@ -30,6 +30,11 @@ export class InputEngine {
     this.keyMap.set('Space', InputAction.JUMP);
     this.keyMap.set('ShiftLeft', InputAction.DASH);
     this.keyMap.set('ShiftRight', InputAction.DASH);
+    this.keyMap.set('ControlLeft', InputAction.CROUCH);
+    this.keyMap.set('ControlRight', InputAction.CROUCH);
+    this.keyMap.set('KeyC', InputAction.CROUCH);
+    this.keyMap.set('KeyR', InputAction.RESTART);
+    this.keyMap.set('KeyG', InputAction.GESTURE_TOGGLE);
     this.keyMap.set('Escape', InputAction.PAUSE);
     this.keyMap.set('KeyP', InputAction.PAUSE);
   }
