@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Atmosphere } from './Atmosphere';
 import { GateMaterial } from './GateMaterial';
+import { buildCourseStructures } from './CourseStructures';
 import {
   createSurfaceMaterial,
   resetSurfaceMaterials,
@@ -92,11 +93,16 @@ export class GameRenderer {
   private readonly startedAt = performance.now();
 
   private disposables: { dispose(): void }[] = [];
+  /** One material per surface kind, shared by every box of that kind. */
+  private readonly materialCache = new Map<Box['kind'], THREE.Material>();
 
   public initialize(canvas: HTMLCanvasElement, course: CourseData): void {
     // Clear the animated-surface registry first: re-initialising without this leaves the previous
     // scene's uniforms being ticked forever, which is a slow leak rather than a visible bug.
     resetSurfaceMaterials();
+    // Same reason: cached materials belong to the scene being replaced, and reusing them across a
+    // rebuild would hand out objects that are about to be disposed.
+    this.materialCache.clear();
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -365,6 +371,23 @@ export class GameRenderer {
     this.disposables.push(geometry, material);
   }
 
+  /**
+   * One material per surface kind, not one per box.
+   *
+   * Every box used to build its own material. That is a separate uniform set and a separate
+   * draw-call state change for each of a hundred-odd slabs, all of which are visually identical
+   * within their kind — pure cost for no difference on screen. Sharing also means a tuning change
+   * to a kind takes effect everywhere at once.
+   */
+  private sharedMaterialFor(kind: Box['kind']): THREE.Material {
+    const existing = this.materialCache.get(kind);
+    if (existing) return existing;
+    const material = this.materialFor(kind);
+    this.materialCache.set(kind, material);
+    this.disposables.push(material);
+    return material;
+  }
+
   private buildCourse(course: CourseData): void {
     for (const box of course.boxes) {
       const w = box.maxX - box.minX;
@@ -372,7 +395,7 @@ export class GameRenderer {
       const d = box.maxZ - box.minZ;
 
       const geometry = new THREE.BoxGeometry(w, h, d);
-      const material = this.materialFor(box.kind);
+      const material = this.sharedMaterialFor(box.kind);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(box.minX + w / 2, box.minY + h / 2, box.minZ + d / 2);
 
@@ -381,7 +404,8 @@ export class GameRenderer {
         mesh.receiveShadow = true;
       }
       this.scene.add(mesh);
-      this.disposables.push(geometry, material);
+      // The material is shared and disposed once by the cache; only the geometry is per-box.
+      this.disposables.push(geometry);
 
       // Outlined edges are not decoration: at speed, an unlit platform lip is invisible, and
       // players fall off things they never saw the boundary of.
@@ -396,6 +420,22 @@ export class GameRenderer {
       this.scene.add(line);
       this.disposables.push(edges, lineMaterial);
     }
+
+    this.buildStructures(course);
+  }
+
+  /**
+   * Adds the procedural supports that give the course weight.
+   *
+   * Runs after the boxes so the structure material can reuse the platform material already in the
+   * cache — the legs are made of the same stuff as the thing they hold up, which is both correct
+   * and one fewer shader program.
+   */
+  private buildStructures(course: CourseData): void {
+    const structures = buildCourseStructures(course.boxes, this.sharedMaterialFor('platform'));
+    if (structures.pylons) this.scene.add(structures.pylons);
+    if (structures.skirts) this.scene.add(structures.skirts);
+    this.disposables.push(structures);
   }
 
   private buildGates(course: CourseData): void {

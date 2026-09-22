@@ -30,6 +30,18 @@ const TICK_DURATION = 1 / TICK_RATE;
 /** Beyond this, we stop simulating rather than spiral. A tab regaining focus must not teleport. */
 const MAX_FRAME_DELTA = 0.1;
 
+/**
+ * Time dilation, triggered by a deliberate hard blink.
+ *
+ * 0.4 is slow enough that a difficult jump becomes readable, fast enough that the player is still
+ * playing rather than watching. 1.6 s is about two obstacles at pace — long enough to be worth
+ * spending, short enough that it cannot carry a whole section.
+ */
+const DILATION_SCALE = 0.4;
+const DILATION_DURATION = 1.6;
+/** Ease rate in and out of dilation. */
+const DILATION_EASE = 9;
+
 export class Game {
   private readonly course: CourseData;
   private readonly player = new PlayerController();
@@ -50,6 +62,9 @@ export class Game {
   private readonly overlay = new Overlay2D();
   private gestureEnabled = false;
   private gazeEnabled = false;
+  /** Current simulation speed multiplier. 1 is real time. */
+  private timeScale = 1;
+  private dilationRemaining = 0;
   /** True while the ghost has a valid pose this frame, so the map can plot it. */
   private ghostVisible = false;
 
@@ -201,10 +216,17 @@ export class Game {
     if (this.input.isJustPressed(InputAction.RESTART)) this.restart();
     if (this.input.isJustPressed(InputAction.GESTURE_TOGGLE)) void this.toggleGesture();
     if (this.input.isJustPressed(InputAction.GAZE_TOGGLE)) void this.toggleGaze();
+    if (this.input.isJustPressed(InputAction.TIME_DILATE)) this.triggerDilation();
 
-    this.accumulator += frameDelta;
+    this.updateDilation(frameDelta);
+
+    // The simulation runs on dilated time; the run clock does not. Slowing the world is a
+    // precision aid that costs you real seconds, not a way to buy a better time — if the clock
+    // slowed with the world, holding a blink would be strictly optimal and the whole mechanic
+    // would collapse into an exploit.
+    this.accumulator += frameDelta * this.timeScale;
     while (this.accumulator >= TICK_DURATION) {
-      this.tick(TICK_DURATION);
+      this.tick(TICK_DURATION, TICK_DURATION / this.timeScale);
       this.accumulator -= TICK_DURATION;
     }
 
@@ -212,6 +234,33 @@ export class Game {
     this.input.endFrame();
 
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  /**
+   * Starts a time-dilation window.
+   *
+   * Refuses while one is already running rather than extending it — otherwise a player holding
+   * their eyes shut would stay in slow motion indefinitely, and the ability would stop being a
+   * decision about when to spend it.
+   */
+  private triggerDilation(): void {
+    if (this.dilationRemaining > 0) return;
+    this.dilationRemaining = DILATION_DURATION;
+    this.audio.playSoundEffect(880, 0.18, 'sine');
+  }
+
+  /**
+   * Advances the dilation window and eases the time scale.
+   *
+   * Eased rather than switched: an instant jump to a third speed and back is disorienting and
+   * reads as a frame hitch, which is the opposite of the intended "everything got precise" feel.
+   */
+  private updateDilation(frameDelta: number): void {
+    if (this.dilationRemaining > 0) {
+      this.dilationRemaining = Math.max(0, this.dilationRemaining - frameDelta);
+    }
+    const target = this.dilationRemaining > 0 ? DILATION_SCALE : 1;
+    this.timeScale += (target - this.timeScale) * (1 - Math.exp(-DILATION_EASE * frameDelta));
   }
 
   /** Look is consumed once per frame; applying it per tick would double-apply mouse deltas. */
@@ -241,11 +290,16 @@ export class Game {
       yaw: this.look.yaw,
       jumpPressed: this.input.isJustPressed(InputAction.JUMP),
       dashPressed: this.input.isJustPressed(InputAction.DASH),
-      crouchHeld: this.input.isPressed(InputAction.CROUCH)
+      crouchHeld: this.input.isPressed(InputAction.CROUCH),
+      brake: this.input.getAxis(InputAction.BRAKE)
     };
   }
 
-  private tick(dt: number): void {
+  /**
+   * @param dt     Simulation step, already dilated.
+   * @param realDt Wall-clock equivalent of this step, for anything that must not be slowed.
+   */
+  private tick(dt: number, realDt: number): void {
     const intent = this.buildIntent();
     this.player.update(intent, this.course.boxes, dt);
     this.emitMovementAudio();
@@ -253,7 +307,7 @@ export class Game {
     const body = this.player.body;
     const moving = intent.forward !== 0 || intent.strafe !== 0 || intent.jumpPressed;
 
-    const fell = this.run.update(body.x, body.y, body.z, moving, dt);
+    const fell = this.run.update(body.x, body.y, body.z, moving, realDt);
 
     if (this.run.phase === 'running') {
       this.recorder.sample(this.run.elapsed, body.x, body.y, body.z, this.look.yaw);
@@ -314,7 +368,8 @@ export class Game {
       strafe,
       wallSide: p.wallSide,
       dashing: false,
-      sliding: p.sliding
+      sliding: p.sliding,
+      bank: this.input.getAxis(InputAction.ROLL)
     };
   }
 

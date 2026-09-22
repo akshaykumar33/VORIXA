@@ -47,6 +47,15 @@ export interface RigInput {
   wallSide: number;
   dashing: boolean;
   sliding: boolean;
+  /**
+   * Deliberate banking, -1 to +1, from hand tilt in flight mode. Optional, so keyboard and mouse
+   * play is unchanged.
+   *
+   * Kept separate from the automatic strafe and wall-run lean rather than folded into them: those
+   * are the camera reacting to the world, this is the player steering it, and summing them lets a
+   * bank read on top of a wall-run instead of being overwritten by it.
+   */
+  bank?: number;
 }
 
 const BASE_FOV = 88;
@@ -59,6 +68,13 @@ const FOV_SATURATION_SPEED = MAX_GROUND_SPEED * 2.4;
 const STRAFE_ROLL = 0.028;
 const WALLRUN_ROLL = 0.23;
 const SLIDE_ROLL = 0.035;
+/**
+ * Radians of roll at full deliberate bank.
+ *
+ * Far larger than the automatic leans, because this one is a control the player is consciously
+ * operating — if banking were as subtle as strafe lean it would feel like the input was ignored.
+ */
+const BANK_ROLL = 0.30;
 
 const DEG = Math.PI / 180;
 
@@ -125,6 +141,9 @@ export class CameraRig {
     let targetRoll = -input.strafe * STRAFE_ROLL;
     if (input.wallSide !== 0) targetRoll = input.wallSide * WALLRUN_ROLL;
     else if (input.sliding) targetRoll += -input.strafe * SLIDE_ROLL;
+    // Deliberate bank is added last, so it layers on top of whatever the world is already doing
+    // to the camera rather than being replaced by a wall-run.
+    targetRoll += -(input.bank ?? 0) * BANK_ROLL;
     this.roll += (targetRoll - this.roll) * (1 - Math.exp(-11 * dt));
 
     this.shakeSeed += dt * 47;

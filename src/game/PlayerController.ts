@@ -35,6 +35,12 @@ export const GRAVITY = 26;
 export const MAX_GROUND_SPEED = 9.5;
 const GROUND_ACCEL = 90;
 const FRICTION = 7.5;
+/** Multiplier added to ground friction at full brake. Tuned to stop from top speed in ~0.6 s. */
+const BRAKE_FRICTION_GAIN = 5.5;
+
+function clampUnit(value: number): number {
+  return value < 0 ? 0 : value > 1 ? 1 : value;
+}
 /** Below this, friction kills the last of the speed outright instead of asymptoting toward zero. */
 const STOP_SPEED = 2.5;
 
@@ -81,6 +87,14 @@ export interface MoveIntent {
   jumpPressed: boolean;
   dashPressed: boolean;
   crouchHeld: boolean;
+  /**
+   * Analog braking, 0 to 1. Optional so keyboard play and existing callers are unaffected.
+   *
+   * Air braking is deliberately weaker than ground braking: killing all momentum mid-jump would
+   * turn every mistimed leap into a vertical drop, which is punishing in a way that reads as the
+   * controls failing rather than the player.
+   */
+  brake?: number;
 }
 
 export interface PlayerEvents {
@@ -334,8 +348,19 @@ export class PlayerController {
       }
       if (this.speed < SLIDE_ENTRY_SPEED * 0.55) this.sliding = false;
     } else {
-      this.applyFriction(FRICTION, dt);
-      this.accelerate(wishX, wishZ, wishLength * MAX_GROUND_SPEED, GROUND_ACCEL, dt);
+      // Braking multiplies friction rather than replacing it, so a partly-open palm eases off
+      // instead of acting as an on/off handbrake.
+      const brake = clampUnit(intent.brake ?? 0);
+      this.applyFriction(FRICTION * (1 + brake * BRAKE_FRICTION_GAIN), dt);
+      // A full brake also suppresses acceleration, or holding forward would fight the brake to a
+      // stalemate and the control would feel broken.
+      this.accelerate(
+        wishX,
+        wishZ,
+        wishLength * MAX_GROUND_SPEED * (1 - brake),
+        GROUND_ACCEL,
+        dt
+      );
     }
   }
 
