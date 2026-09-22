@@ -10,7 +10,9 @@ import { RunState } from './RunState';
 import { GhostPlayback, GhostRecorder, loadGhost, saveGhost, type GhostFrame } from './Ghost';
 import { Look } from './Look';
 import { HandTracker } from '../input/HandTracker';
+import { FaceTracker } from '../input/FaceTracker';
 import { applyGestureIntent } from '../input/GestureBridge';
+import { applyGazeIntent } from '../input/GazeBridge';
 import { Overlay2D } from '../ui/Overlay2D';
 import { MAX_GROUND_SPEED } from './PlayerController';
 
@@ -44,8 +46,10 @@ export class Game {
   private readonly hud: GameHUD;
 
   private readonly tracker = new HandTracker();
+  private readonly faceTracker = new FaceTracker();
   private readonly overlay = new Overlay2D();
   private gestureEnabled = false;
+  private gazeEnabled = false;
   /** True while the ghost has a valid pose this frame, so the map can plot it. */
   private ghostVisible = false;
 
@@ -139,22 +143,64 @@ export class Game {
     if (!ok) this.gestureEnabled = this.tracker.status === 'loading';
   }
 
+  public get faceTrackerStatus(): string {
+    return this.faceTracker.status;
+  }
+
+  public get gazeActive(): boolean {
+    return this.gazeEnabled;
+  }
+
+  /**
+   * Gaze control is opt-in and reversible on the same terms as hand control.
+   *
+   * Switching it off has to clear the look axes explicitly. The bus holds the last value written,
+   * so a player who disables gaze mid-turn would otherwise keep rotating forever with no input
+   * device responsible for it.
+   */
+  public async toggleGaze(): Promise<void> {
+    if (this.gazeEnabled) {
+      this.gazeEnabled = false;
+      this.faceTracker.stop();
+      applyGazeIntent(this.input, this.faceTracker.intent, 0);
+      return;
+    }
+    this.gazeEnabled = true;
+    const ok = await this.faceTracker.start();
+    if (!ok) this.gazeEnabled = this.faceTracker.status === 'loading';
+  }
+
   private frame(nowMs: number): void {
     if (!this.running) return;
     const now = nowMs / 1000;
     const frameDelta = Math.min(now - this.lastTime, MAX_FRAME_DELTA);
     this.lastTime = now;
 
-    // Gesture intent is injected into the action bus *before* look and movement are read, so the
+    // Vision intent is injected into the action bus *before* look and movement are read, so the
     // rest of the loop cannot tell a webcam from a keyboard.
+    //
+    // Gaze runs first and, while live, claims the look axes; the hands then fall back to flight
+    // controls instead of steering. Exactly one device writes any given axis per frame — two
+    // would quietly become last-writer-wins, which surfaces as the camera fighting itself.
+    const gazeDriving = this.gazeEnabled && this.faceTracker.isRunning;
+    if (gazeDriving) {
+      applyGazeIntent(this.input, this.faceTracker.update(), frameDelta);
+    }
+
     if (this.gestureEnabled && this.tracker.isRunning) {
-      applyGestureIntent(this.input, this.tracker.update(), frameDelta);
+      applyGestureIntent(
+        this.input,
+        this.tracker.update(),
+        frameDelta,
+        gazeDriving ? 'flight' : 'steer'
+      );
     }
 
     this.consumeLook();
 
     if (this.input.isJustPressed(InputAction.RESTART)) this.restart();
     if (this.input.isJustPressed(InputAction.GESTURE_TOGGLE)) void this.toggleGesture();
+    if (this.input.isJustPressed(InputAction.GAZE_TOGGLE)) void this.toggleGaze();
 
     this.accumulator += frameDelta;
     while (this.accumulator >= TICK_DURATION) {
@@ -215,7 +261,7 @@ export class Game {
 
     if (this.run.justPassedCheckpoint) {
       this.renderer.setCheckpointProgress(this.run.checkpointIndex);
-      this.audio.playSoundEffect(880, 0.09, 'sine');
+      this.audio.playCheckpointChime();
     }
 
     if (fell) {
@@ -241,6 +287,9 @@ export class Game {
 
   private emitMovementAudio(): void {
     const e = this.player.events;
+    if (e.boosted) this.audio.playBoost();
+    if (e.jumpPadLaunched) this.audio.playJumpPad();
+    if (e.hazardHit) this.audio.playHazard();
     if (e.jumped) this.audio.playSoundEffect(520, 0.08, 'square');
     if (e.wallJumped) this.audio.playSoundEffect(700, 0.1, 'square');
     if (e.dashed) this.audio.playSoundEffect(320, 0.16, 'sawtooth');
@@ -275,7 +324,16 @@ export class Game {
     if (this.input.isPressed(InputAction.STRAFE_RIGHT)) strafe += 1;
 
     const events = this.player.events;
-    const rig = this.rig.update(this.rigInput(strafe), events.landed, events.dashed, frameDelta);
+    const rig = this.rig.update(
+      this.rigInput(strafe),
+      events.landed,
+      events.dashed,
+      frameDelta,
+      events.boosted,
+      events.hazardHit
+    );
+
+    this.audio.setSpeedWind(this.player.speed / 26);
 
     this.updateGhost();
     this.renderer.render(rig);
@@ -294,7 +352,10 @@ export class Game {
       trackerError: this.tracker.errorMessage,
       intent: this.gestureEnabled ? this.tracker.intent : null,
       landmarks: this.tracker.landmarks,
-      video: this.tracker.videoElement
+      video: this.tracker.videoElement,
+      gazeEnabled: this.gazeEnabled,
+      gazeStatus: this.faceTracker.status,
+      gazeIntent: this.gazeEnabled ? this.faceTracker.intent : null
     });
 
     this.hud.update({

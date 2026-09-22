@@ -20,9 +20,28 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WASM_SRC = path.join(root, 'node_modules', '@mediapipe', 'tasks-vision', 'wasm');
 const WASM_DEST = path.join(root, 'public', 'wasm');
-const MODEL_DEST = path.join(root, 'public', 'models', 'hand_landmarker.task');
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+/**
+ * Vision models staged into `public/models`.
+ *
+ * The face model carries the iris refinement that gaze steering depends on — without it the
+ * landmark set stops at 468 points and there are no iris landmarks to read at all.
+ */
+const MODELS = [
+  {
+    label: 'hand landmarker',
+    size: '~7.8 MB',
+    dest: path.join(root, 'public', 'models', 'hand_landmarker.task'),
+    url: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+    feature: 'press G will report an error until this succeeds'
+  },
+  {
+    label: 'face landmarker',
+    size: '~3.7 MB',
+    dest: path.join(root, 'public', 'models', 'face_landmarker.task'),
+    url: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+    feature: 'press E will report an error until this succeeds'
+  }
+];
 
 async function exists(target) {
   try {
@@ -55,27 +74,29 @@ async function copyWasm() {
   console.log(`[vision] WASM runtime ready (${copied} file(s) updated).`);
 }
 
-async function fetchModel() {
-  if (await exists(MODEL_DEST)) {
-    console.log('[vision] Hand model already present.');
+async function fetchModel(model) {
+  if (await exists(model.dest)) {
+    console.log(`[vision] ${model.label} model already present.`);
     return;
   }
-  await mkdir(path.dirname(MODEL_DEST), { recursive: true });
-  console.log('[vision] Downloading hand landmarker model (~7.8 MB)...');
+  await mkdir(path.dirname(model.dest), { recursive: true });
+  console.log(`[vision] Downloading ${model.label} model (${model.size})...`);
 
   try {
-    const response = await fetch(MODEL_URL);
+    const response = await fetch(model.url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(MODEL_DEST));
-    console.log('[vision] Hand model ready.');
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(model.dest));
+    console.log(`[vision] ${model.label} model ready.`);
   } catch (err) {
-    // Not fatal: everything except hand control works without it.
+    // Not fatal: everything except this one input mode works without it.
     console.warn(
-      `[vision] Could not download the hand model (${err.message}). ` +
-        'Keyboard and mouse play is unaffected; press G will report an error until this succeeds.'
+      `[vision] Could not download the ${model.label} model (${err.message}). ` +
+        `Keyboard and mouse play is unaffected; ${model.feature}.`
     );
   }
 }
 
 await copyWasm();
-await fetchModel();
+// Sequential rather than parallel: these are large downloads on what may be a modest connection,
+// and racing them makes both slow instead of making either arrive sooner.
+for (const model of MODELS) await fetchModel(model);

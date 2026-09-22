@@ -1,4 +1,5 @@
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
+import { sharedCamera, type CameraSource } from './CameraSource';
 import { GestureMapper, type GestureIntent, type HandLandmarks } from './GestureMapping';
 
 /**
@@ -30,14 +31,19 @@ export class HandTracker {
   public errorMessage = '';
 
   private landmarker: HandLandmarker | null = null;
-  private video: HTMLVideoElement | null = null;
-  private stream: MediaStream | null = null;
   private readonly mapper = new GestureMapper();
   private lastVideoTime = -1;
   private lastUpdate = 0;
+  private acquired = false;
 
   /** Most recent landmarks, for the overlay to draw. Null when no hand is visible. */
   public landmarks: HandLandmarks | null = null;
+
+  /**
+   * The camera is borrowed, not owned. Gaze tracking needs the same stream at the same time, and
+   * two `getUserMedia` calls against one device waste a decode at best and fail outright at worst.
+   */
+  public constructor(private readonly camera: CameraSource = sharedCamera) {}
 
   public get intent(): GestureIntent {
     return this.mapper.intent;
@@ -79,50 +85,41 @@ export class HandTracker {
       return false;
     }
 
-    try {
-      this.status = 'requesting-camera';
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' },
-        audio: false
-      });
-    } catch (err) {
-      const name = (err as Error).name;
-      this.status = name === 'NotAllowedError' ? 'denied' : 'error';
-      this.errorMessage =
-        this.status === 'denied'
-          ? 'Camera permission was declined.'
-          : `Camera unavailable: ${(err as Error).message}`;
+    this.status = 'requesting-camera';
+    const ok = await this.camera.acquire();
+    if (!ok) {
+      // acquire() takes a reference even when it fails, so stop() has to run to give it back.
+      this.acquired = true;
+      this.stop();
+      this.status =
+        this.camera.status === 'denied'
+          ? 'denied'
+          : this.camera.status === 'unsupported'
+            ? 'unsupported'
+            : 'error';
+      this.errorMessage = this.camera.errorMessage;
       return false;
     }
 
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.playsInline = true;
-    video.muted = true;
-    video.srcObject = this.stream;
-    // Kept out of the layout: the camera feed is drawn into the 2D overlay, not shown raw.
-    video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;';
-    document.body.appendChild(video);
-    await video.play();
-
-    this.video = video;
+    this.acquired = true;
     this.status = 'running';
     this.lastUpdate = performance.now();
     return true;
   }
 
   public stop(): void {
-    for (const track of this.stream?.getTracks() ?? []) track.stop();
-    this.stream = null;
-    this.video?.remove();
-    this.video = null;
+    if (this.acquired) {
+      this.camera.release();
+      this.acquired = false;
+    }
     this.landmarks = null;
+    this.lastVideoTime = -1;
     this.mapper.reset();
     this.status = 'idle';
   }
 
   public get videoElement(): HTMLVideoElement | null {
-    return this.video;
+    return this.camera.element;
   }
 
   /**
@@ -137,14 +134,15 @@ export class HandTracker {
     const dt = Math.min((now - this.lastUpdate) / 1000, 0.1);
     this.lastUpdate = now;
 
-    if (!this.landmarker || !this.video || this.status !== 'running') {
+    const video = this.camera.element;
+    if (!this.landmarker || !video || this.status !== 'running') {
       return this.mapper.intent;
     }
 
-    if (this.video.currentTime !== this.lastVideoTime && this.video.readyState >= 2) {
-      this.lastVideoTime = this.video.currentTime;
+    if (video.currentTime !== this.lastVideoTime && video.readyState >= 2) {
+      this.lastVideoTime = video.currentTime;
       try {
-        const result = this.landmarker.detectForVideo(this.video, now);
+        const result = this.landmarker.detectForVideo(video, now);
         this.landmarks = result.landmarks?.[0] ?? null;
       } catch {
         // A dropped frame is not worth tearing the session down; the next one usually succeeds.

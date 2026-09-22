@@ -35,6 +35,7 @@ export class InputEngine {
     this.keyMap.set('KeyC', InputAction.CROUCH);
     this.keyMap.set('KeyR', InputAction.RESTART);
     this.keyMap.set('KeyG', InputAction.GESTURE_TOGGLE);
+    this.keyMap.set('KeyE', InputAction.GAZE_TOGGLE);
     this.keyMap.set('Escape', InputAction.PAUSE);
     this.keyMap.set('KeyP', InputAction.PAUSE);
   }

@@ -8,8 +8,15 @@ export enum InputAction {
   CROUCH = 'CROUCH',
   RESTART = 'RESTART',
   GESTURE_TOGGLE = 'GESTURE_TOGGLE',
+  GAZE_TOGGLE = 'GAZE_TOGGLE',
   LOOK_X = 'LOOK_X',
   LOOK_Y = 'LOOK_Y',
+  /** Open-palm deceleration. Analog 0–1, so easing off is not a binary stop. */
+  BRAKE = 'BRAKE',
+  /** Hand tilt banking. Analog -1 (left) to +1 (right). */
+  ROLL = 'ROLL',
+  /** Deliberate hard blink. Digital, edge-triggered. */
+  TIME_DILATE = 'TIME_DILATE',
   PAUSE = 'PAUSE'
 }
 

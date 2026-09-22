@@ -1,6 +1,8 @@
 import type { HandLandmarks } from '../input/GestureMapping';
 import type { GestureIntent } from '../input/GestureMapping';
 import type { TrackerStatus } from '../input/HandTracker';
+import type { FaceTrackerStatus } from '../input/FaceTracker';
+import type { GazeIntent } from '../input/GazeMapping';
 import type { CourseData } from '../game/Course';
 
 /**
@@ -53,6 +55,9 @@ export interface OverlayState {
   intent: GestureIntent | null;
   landmarks: HandLandmarks | null;
   video: HTMLVideoElement | null;
+  gazeEnabled: boolean;
+  gazeStatus: FaceTrackerStatus;
+  gazeIntent: GazeIntent | null;
 }
 
 export class Overlay2D {
@@ -248,7 +253,75 @@ export class Overlay2D {
 
     if (s.intent?.pinching) this.chip(ctx, x + w - 58, y + h - 36, 'DASH', WARN);
     if (s.intent?.fist) this.chip(ctx, x + w - 112, y + h - 36, 'JUMP', ACCENT);
+
+    this.drawGazeRow(ctx, s, x, y, w);
     ctx.restore();
+  }
+
+  /**
+   * Gaze status, shown whether or not gaze is on.
+   *
+   * A control the player cannot discover may as well not exist, so the row advertises the key
+   * even while idle rather than appearing only once the feature is already running.
+   */
+  private drawGazeRow(
+    ctx: CanvasRenderingContext2D,
+    s: OverlayState,
+    x: number,
+    y: number,
+    w: number
+  ): void {
+    const rowY = y - 10;
+    ctx.font = MONO;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = DIM;
+    ctx.fillText('GAZE  [E]', x + 12, rowY);
+
+    const status = this.gazeStatusLabel(s);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = status.colour;
+    ctx.fillText(status.text, x + w - 12, rowY);
+
+    // A small reticle makes the mapping from eye movement to steering legible — without it a
+    // player who is tracking badly has no way to tell that from the game ignoring them.
+    const gaze = s.gazeIntent;
+    if (!gaze?.present) return;
+
+    const cx = x + w / 2;
+    const cy = rowY - 16;
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = gaze.dilating ? WARN : ACCENT;
+    ctx.beginPath();
+    ctx.arc(cx + gaze.gazeX * 8, cy - gaze.gazeY * 8, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (gaze.dilating) this.chip(ctx, x + 12, cy - 8, 'DILATE', WARN);
+  }
+
+  private gazeStatusLabel(s: OverlayState): { text: string; colour: string } {
+    switch (s.gazeStatus) {
+      case 'running':
+        if (!s.gazeIntent?.present) return { text: 'SHOW FACE', colour: WARN };
+        if (s.gazeIntent.quality < 0.4) return { text: 'MOVE CLOSER', colour: WARN };
+        return { text: 'TRACKING', colour: GOOD };
+      case 'loading':
+        return { text: 'LOADING', colour: DIM };
+      case 'requesting-camera':
+        return { text: 'ALLOW CAMERA', colour: WARN };
+      case 'denied':
+        return { text: 'NO PERMISSION', colour: BAD };
+      case 'unsupported':
+        return { text: 'UNSUPPORTED', colour: BAD };
+      case 'error':
+        return { text: 'ERROR', colour: BAD };
+      default:
+        return { text: 'OFF', colour: DIM };
+    }
   }
 
   private statusLabel(s: OverlayState): { text: string; colour: string } {
