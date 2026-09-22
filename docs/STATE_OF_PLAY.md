@@ -43,6 +43,11 @@ Recent commits on this branch:
   two detectors across alternate frames.
 - **Bundle is 601 kB** (153 kB gzipped), over Vite's 500 kB warning. Mostly three.js. The vision
   runtime already code-splits correctly into its own 154 kB chunk.
+- **Motion-dependent visuals have only been seen at a standstill.** Dust speed-streaking and gate
+  proximity brightening both need the player actually moving. Synthetic keyboard events do not
+  drive the game — pointer lock requires a trusted user gesture — so these were verified as
+  "compiles, renders, costs nothing" and not as "looks right at 200 km/h". Someone needs to play
+  it. Frame budget measured at standstill: 60 fps, 16.6 ms average, 18.1 ms p95.
 
 ---
 
@@ -60,20 +65,28 @@ Run `pnpm dev`, press `E`. Check in this order:
 
 ### 2. Visual overhaul — the current priority
 
-The owner's standard is award-winning, and the scene is not there yet. Atmosphere (sky, horizon,
-ground grid) landed in `245497f` as step one. Remaining, in impact order:
+The owner's standard is award-winning. Three steps done, the rest outstanding.
 
-- **Surface materials.** Platforms are untextured `MeshStandardMaterial` boxes. They need form:
-  fresnel rim light, edge emission, panel-line or grid detail via `onBeforeCompile` so standard
-  lighting is preserved.
-- **Geometry detail.** Everything is a box. Bevels, greebling, or instanced structural detail
-  around the track would do more than any shader.
-- **Animated scene elements.** Pulsing checkpoint gates, reactive particles that respond to
-  player velocity, boost-pad energy.
-- **Real 3D assets.** Nothing is modelled. A ship/craft mesh and track props, DRACO-compressed
-  and KTX2-textured per `skills/creative-webgl-shaders`.
+**Done:**
+
+- **Atmosphere** (`245497f`) — sky dome with gradient and horizon glow, ground plane, analytic
+  distance-faded grid.
+- **Surface materials** (`568a824`) — procedural panel lines, fresnel rim, travelling energy
+  pulses, injected into `MeshStandardMaterial` via `onBeforeCompile`.
+- **Animated scene elements** — checkpoint gates are shader-driven energy curtains that brighten
+  on approach and calm when passed; the dust field wraps around the player in the vertex shader
+  and streaks with speed.
+
+**Remaining, in impact order:**
+
+- **Geometry detail.** Everything is still a box. Bevels, greebling, or instanced structural
+  detail around the track would now do more than any further shader work — this is the single
+  biggest remaining gap.
+- **Real 3D assets.** Nothing is modelled. A craft mesh and track props, DRACO-compressed and
+  KTX2-textured per `skills/creative-webgl-shaders`.
 - **WebGPU path.** ADR-0002 commits to WebGPU primary with WebGL2 fallback; the renderer is
   still WebGL-only. `three/webgpu` plus TSL is the 2026 pattern.
+- **Dynamic resolution scaling**, per the same skill, once there is enough load to need it.
 
 ### 3. Then
 

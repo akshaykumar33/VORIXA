@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Atmosphere } from './Atmosphere';
+import { GateMaterial } from './GateMaterial';
 import {
   createSurfaceMaterial,
   resetSurfaceMaterials,
@@ -50,6 +51,19 @@ const COLOR_GROUND = 0x090b11;
 /** Shadows follow the player rather than covering 200 m of course at unusable resolution. */
 const SHADOW_EXTENT = 34;
 
+/**
+ * Range over which a gate brightens as it approaches, in world units.
+ *
+ * Roughly two gates ahead at course spacing: near enough that the brightening reads as "this one
+ * is next", far enough that the next objective is never invisible.
+ */
+const GATE_FADE_DISTANCE = 110;
+
+/** Depth of the wrapping dust field, in world units. One modulo period. */
+const PARTICLE_SPAN = 180;
+/** Speed, in units per second, that saturates the dust streaking effect. */
+const PARTICLE_SPEED_REFERENCE = 34;
+
 export class GameRenderer {
   private renderer!: THREE.WebGLRenderer;
   private composer!: EffectComposer;
@@ -59,8 +73,14 @@ export class GameRenderer {
   private sun!: THREE.DirectionalLight;
   private ghost!: THREE.Group;
   private gates: THREE.Mesh[] = [];
-  private gateMaterials: THREE.MeshBasicMaterial[] = [];
+  private gateMaterials: GateMaterial[] = [];
   private particles!: THREE.Points;
+  private particleMaterial: THREE.ShaderMaterial | null = null;
+  /** Smoothed camera speed, used only to drive the dust. Not a gameplay value. */
+  private dustSpeed = 0;
+  private lastCameraX = 0;
+  private lastCameraZ = 0;
+  private lastDustSample = performance.now();
   private atmosphere!: Atmosphere;
   /**
    * Shader clock origin.
@@ -261,19 +281,86 @@ export class GameRenderer {
     for (let i = 0; i < count; i++) {
       positions[i * 3 + 0] = (Math.random() - 0.5) * 36;
       positions[i * 3 + 1] = Math.random() * 22 - 2;
-      positions[i * 3 + 2] = -Math.random() * 180 + 10;
+      // Spread evenly across one wrap period; the shader re-centres this on the player.
+      positions[i * 3 + 2] = Math.random() * PARTICLE_SPAN;
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({
-      color: COLOR_ACCENT,
-      size: 0.25,
+
+    /*
+     * Dust that reacts to speed.
+     *
+     * Previously a static point cloud rotating slowly, which conveyed nothing: at 200 km/h the
+     * air looked identical to standing still. Speed in a first-person game is communicated almost
+     * entirely by things passing you, so the dust is the instrument.
+     *
+     * The field wraps around the player inside the vertex shader with a modulo, which means it is
+     * effectively infinite while staying 400 static points and zero per-frame CPU work — no
+     * respawning, no buffer uploads, no allocation in the frame loop.
+     */
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(COLOR_ACCENT) },
+        uSpeed: { value: 0 },
+        uPlayerZ: { value: 0 },
+        uSpan: { value: PARTICLE_SPAN }
+      },
+      vertexShader: /* glsl */ `
+        uniform float uSpeed;
+        uniform float uPlayerZ;
+        uniform float uSpan;
+        varying float vFade;
+
+        void main() {
+          vec3 p = position;
+
+          // Wrap relative to the player so the field always surrounds them. mod() keeps the
+          // result positive, then it is re-centred so half the dust sits ahead and half behind.
+          float rel = mod(p.z - uPlayerZ, uSpan);
+          p.z = uPlayerZ + rel - uSpan * 0.5;
+
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+
+          // Points grow with speed, so the field reads as streaking rather than drifting.
+          // Divided by depth so distant dust does not clump into a solid sheet.
+          //
+          // The base term is deliberately non-trivial: scaling size purely from speed makes the
+          // dust vanish at a standstill, which empties the scene at exactly the moment the player
+          // is looking around deciding where to go.
+          float size = (0.9 + uSpeed * 1.5) * (60.0 / -mv.z);
+          gl_PointSize = clamp(size, 1.5, 16.0);
+
+          // Fade at the far edge of the wrap, or particles visibly pop into existence behind the
+          // player and at the horizon.
+          vFade = 1.0 - smoothstep(uSpan * 0.28, uSpan * 0.5, abs(p.z - uPlayerZ));
+
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uColor;
+        uniform float uSpeed;
+        varying float vFade;
+
+        void main() {
+          // Round, soft-edged point. Square points are an instant tell.
+          vec2 d = gl_PointCoord - 0.5;
+          float r = dot(d, d);
+          if (r > 0.25) discard;
+          float alpha = (1.0 - smoothstep(0.0, 0.25, r)) * vFade * (0.42 + uSpeed * 0.45);
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
       transparent: true,
-      opacity: 0.45,
+      depthWrite: false,
       blending: THREE.AdditiveBlending
     });
 
     this.particles = new THREE.Points(geometry, material);
+    // The wrap keeps the field centred on the player, so frustum culling by its original bounds
+    // would blink it out entirely once they move away from the origin.
+    this.particles.frustumCulled = false;
+    this.particleMaterial = material;
     this.scene.add(this.particles);
     this.disposables.push(geometry, material);
   }
@@ -315,13 +402,7 @@ export class GameRenderer {
     for (const cp of course.checkpoints) {
       if (cp.index === 0) continue;
       const geometry = new THREE.PlaneGeometry(cp.halfWidth * 2, 5);
-      const material = new THREE.MeshBasicMaterial({
-        color: COLOR_ACCENT,
-        transparent: true,
-        opacity: 0.14,
-        side: THREE.DoubleSide,
-        depthWrite: false
-      });
+      const material = new GateMaterial(COLOR_ACCENT);
       const gate = new THREE.Mesh(geometry, material);
       gate.position.set(cp.spawnX, cp.spawnY + 2.5, cp.triggerZ);
       this.scene.add(gate);
@@ -360,11 +441,60 @@ export class GameRenderer {
   }
 
   /** Lights up gates the player has already banked. */
+  /**
+   * Advances the gate shaders and tells each how close the player is.
+   *
+   * Distance is measured along Z alone rather than in full 3D. The course runs down that axis, so
+   * Z distance is what "how far until the next gate" actually means — true euclidean distance
+   * would make a gate dim simply because the player drifted wide, which is the moment they most
+   * need it to be visible.
+   */
+  /**
+   * Feeds player speed and position to the dust field.
+   *
+   * Speed is derived from camera movement rather than taken from the simulation, so the renderer
+   * stays ignorant of gameplay — it reacts to where the camera actually went, which is also
+   * correct during a ghost replay or any future spectator view where there is no local player
+   * velocity to read.
+   */
+  private updateDust(rig: RigOutput): void {
+    const material = this.particleMaterial;
+    if (!material) return;
+
+    const now = performance.now();
+    const dt = Math.min((now - this.lastDustSample) / 1000, 0.1);
+    this.lastDustSample = now;
+
+    if (dt > 0) {
+      const dx = rig.x - this.lastCameraX;
+      const dz = rig.z - this.lastCameraZ;
+      const instant = Math.hypot(dx, dz) / dt;
+      // Smoothed, or the streaking flickers on every frame-time wobble.
+      this.dustSpeed += (instant - this.dustSpeed) * Math.min(1, dt * 8);
+    }
+    this.lastCameraX = rig.x;
+    this.lastCameraZ = rig.z;
+
+    material.uniforms.uSpeed.value = Math.min(this.dustSpeed / PARTICLE_SPEED_REFERENCE, 1);
+    material.uniforms.uPlayerZ.value = rig.z;
+  }
+
+  private updateGates(elapsed: number, playerZ: number): void {
+    for (let i = 0; i < this.gateMaterials.length; i++) {
+      const material = this.gateMaterials[i];
+      material.setTime(elapsed);
+      const gate = this.gates[i];
+      if (!gate) continue;
+      const distance = Math.abs(gate.position.z - playerZ);
+      material.setProximity(1 - Math.min(distance / GATE_FADE_DISTANCE, 1));
+    }
+  }
+
   public setCheckpointProgress(passedIndex: number): void {
     for (let i = 0; i < this.gateMaterials.length; i++) {
       const passed = i + 1 <= passedIndex;
-      this.gateMaterials[i].color.setHex(passed ? COLOR_GOAL : COLOR_ACCENT);
-      this.gateMaterials[i].opacity = passed ? 0.08 : 0.14;
+      this.gateMaterials[i].setColor(passed ? COLOR_GOAL : COLOR_ACCENT);
+      this.gateMaterials[i].setPassed(passed);
     }
   }
 
@@ -388,14 +518,13 @@ export class GameRenderer {
     this.sun.target.position.set(rig.x, rig.y, rig.z);
     this.sun.target.updateMatrixWorld();
 
-    if (this.particles) {
-      this.particles.rotation.y += 0.0003;
-    }
+    this.updateDust(rig);
 
     const elapsed = (performance.now() - this.startedAt) / 1000;
     this.atmosphere.update(elapsed, this.camera.position);
     // One clock for every pulsing surface, rather than each material tracking its own.
     updateSurfaceTime(elapsed);
+    this.updateGates(elapsed, rig.z);
 
     this.composer.render();
   }
