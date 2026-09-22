@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { Atmosphere } from './Atmosphere';
 import type { Box, CourseData } from '../game/Course';
 import type { RigOutput } from '../game/CameraRig';
 
@@ -19,10 +20,25 @@ import type { RigOutput } from '../game/CameraRig';
  *   slate = stand on it · amber = slide under it · cyan = run along it · green = finish
  */
 
-const COLOR_VOID = 0x06070a;
-const COLOR_ACCENT = 0x00f0ff;
-const COLOR_WARN = 0xffb703;
-const COLOR_GOAL = 0x00f59b;
+/*
+ * World palette, sharing the interface's tokens so the 3D scene and the HUD read as one product.
+ *
+ * The previous scheme made structure cyan — which meant the brightest, most saturated colour in
+ * the scene was the floor you were already standing on, and nothing was left to mark where you
+ * should go next. Inverting that is both a visual and a gameplay fix: structure is cold and
+ * neutral, and the signal colour is reserved for things that reward you. Progress literally
+ * lights the course up as you take it.
+ */
+/** Structure: walls, run surfaces, particles, unpassed gates. Cool and deliberately quiet. */
+const COLOR_ACCENT = 0x7d93ab;
+/** Slide under it. */
+const COLOR_WARN = 0xffab1f;
+/** Signal: goal, passed gates, boost. The only chroma in the scene that earns attention. */
+const COLOR_GOAL = 0xd6ff45;
+/** Sky. Zenith is near-void so the course still reads against it; the horizon carries the light. */
+const COLOR_ZENITH = 0x05060a;
+const COLOR_HORIZON = 0x131b2a;
+const COLOR_GROUND = 0x090b11;
 
 /** Shadows follow the player rather than covering 200 m of course at unusable resolution. */
 const SHADOW_EXTENT = 34;
@@ -37,6 +53,9 @@ export class GameRenderer {
   private ghost!: THREE.Group;
   private gates: THREE.Mesh[] = [];
   private gateMaterials: THREE.MeshBasicMaterial[] = [];
+  private particles!: THREE.Points;
+  private atmosphere!: Atmosphere;
+  private readonly clock = new THREE.Clock();
 
   private disposables: { dispose(): void }[] = [];
 
@@ -48,24 +67,37 @@ export class GameRenderer {
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFSoftShadowMap was removed in recent three.js and silently fell back to PCF while logging
+    // a warning on every boot. Asking for what we actually get, and taking the softness from the
+    // light's radius instead.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(COLOR_VOID);
-    // Fog distance is tuned so the far end of the course dissolves rather than popping in, while
-    // the next two obstacles are always fully readable.
-    this.scene.fog = new THREE.Fog(COLOR_VOID, 45, 230);
+    // No flat background colour: the sky dome below draws it, with a gradient and a horizon.
+    // Fog is tinted toward the horizon rather than the void so geometry recedes *into the sky*
+    // instead of dissolving into a black hole in the middle of it.
+    this.scene.fog = new THREE.Fog(COLOR_HORIZON, 55, 260);
 
     this.camera = new THREE.PerspectiveCamera(88, 1, 0.1, 400);
     // YXZ is the first-person order: yaw, then pitch, then roll about the view axis.
     this.camera.rotation.order = 'YXZ';
 
+    this.atmosphere = new Atmosphere({
+      zenith: COLOR_ZENITH,
+      horizon: COLOR_HORIZON,
+      ground: COLOR_GROUND,
+      accent: COLOR_GOAL
+    });
+    this.atmosphere.addTo(this.scene);
+    this.disposables.push(this.atmosphere);
+
     this.buildLighting();
     this.buildCourse(course);
     this.buildGates(course);
     this.buildGhost();
+    this.buildParticles();
 
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
@@ -75,6 +107,11 @@ export class GameRenderer {
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
     this.composer = composer;
+
+    // Shader pre-warm. Without this, every material compiles the first frame it becomes visible,
+    // which lands as a multi-frame hitch partway down the course — the worst possible moment in a
+    // time attack. Compiling the whole scene up front moves that cost into the loading screen.
+    this.renderer.compile(this.scene, this.camera);
   }
 
   private buildLighting(): void {
@@ -120,6 +157,30 @@ export class GameRenderer {
           side: THREE.DoubleSide,
           depthWrite: false
         });
+      case 'boost':
+        return new THREE.MeshStandardMaterial({
+          color: 0x052338,
+          emissive: COLOR_ACCENT,
+          emissiveIntensity: 0.95,
+          roughness: 0.25,
+          metalness: 0.8
+        });
+      case 'jump_pad':
+        return new THREE.MeshStandardMaterial({
+          color: 0x250638,
+          emissive: 0xbf00ff,
+          emissiveIntensity: 1.15,
+          roughness: 0.25,
+          metalness: 0.8
+        });
+      case 'hazard':
+        return new THREE.MeshStandardMaterial({
+          color: 0x3d0b0b,
+          emissive: 0xff1e00,
+          emissiveIntensity: 1.0,
+          roughness: 0.35,
+          metalness: 0.4
+        });
       default:
         return new THREE.MeshStandardMaterial({
           color: 0x1b2230,
@@ -132,7 +193,36 @@ export class GameRenderer {
   private edgeColorFor(kind: Box['kind']): number {
     if (kind === 'ceiling') return COLOR_WARN;
     if (kind === 'goal') return COLOR_GOAL;
+    // Boost is a reward, so it carries the signal colour rather than blending into structure.
+    if (kind === 'boost') return COLOR_GOAL;
+    if (kind === 'jump_pad') return 0xffdd00;
+    if (kind === 'hazard') return 0xff0033;
     return COLOR_ACCENT;
+  }
+
+  private buildParticles(): void {
+    const count = 400;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+
+    for (let i = 0; i < count; i++) {
+      positions[i * 3 + 0] = (Math.random() - 0.5) * 36;
+      positions[i * 3 + 1] = Math.random() * 22 - 2;
+      positions[i * 3 + 2] = -Math.random() * 180 + 10;
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: COLOR_ACCENT,
+      size: 0.25,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending
+    });
+
+    this.particles = new THREE.Points(geometry, material);
+    this.scene.add(this.particles);
+    this.disposables.push(geometry, material);
   }
 
   private buildCourse(course: CourseData): void {
@@ -244,6 +334,12 @@ export class GameRenderer {
     this.sun.position.set(rig.x + 26, rig.y + 46, rig.z + 20);
     this.sun.target.position.set(rig.x, rig.y, rig.z);
     this.sun.target.updateMatrixWorld();
+
+    if (this.particles) {
+      this.particles.rotation.y += 0.0003;
+    }
+
+    this.atmosphere.update(this.clock.getElapsedTime(), this.camera.position);
 
     this.composer.render();
   }
