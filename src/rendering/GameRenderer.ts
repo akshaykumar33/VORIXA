@@ -4,6 +4,11 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Atmosphere } from './Atmosphere';
+import {
+  createSurfaceMaterial,
+  resetSurfaceMaterials,
+  updateSurfaceTime
+} from './SurfaceMaterial';
 import type { Box, CourseData } from '../game/Course';
 import type { RigOutput } from '../game/CameraRig';
 
@@ -33,6 +38,8 @@ import type { RigOutput } from '../game/CameraRig';
 const COLOR_ACCENT = 0x7d93ab;
 /** Slide under it. */
 const COLOR_WARN = 0xffab1f;
+/** Hazard. The only warm-red in the scene, so it never has to compete to be understood. */
+const COLOR_BAD = 0xff4d5e;
 /** Signal: goal, passed gates, boost. The only chroma in the scene that earns attention. */
 const COLOR_GOAL = 0xd6ff45;
 /** Sky. Zenith is near-void so the course still reads against it; the horizon carries the light. */
@@ -55,11 +62,22 @@ export class GameRenderer {
   private gateMaterials: THREE.MeshBasicMaterial[] = [];
   private particles!: THREE.Points;
   private atmosphere!: Atmosphere;
-  private readonly clock = new THREE.Clock();
+  /**
+   * Shader clock origin.
+   *
+   * A timestamp rather than THREE.Clock (deprecated) or THREE.Timer: shader uniforms need one
+   * monotonically increasing number, and reaching for a class that also tracks deltas and
+   * pause state would be borrowing machinery for a job that is one subtraction.
+   */
+  private readonly startedAt = performance.now();
 
   private disposables: { dispose(): void }[] = [];
 
   public initialize(canvas: HTMLCanvasElement, course: CourseData): void {
+    // Clear the animated-surface registry first: re-initialising without this leaves the previous
+    // scene's uniforms being ticked forever, which is a slow leak rather than a visible bug.
+    resetSurfaceMaterials();
+
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
@@ -136,18 +154,28 @@ export class GameRenderer {
   private materialFor(kind: Box['kind']): THREE.Material {
     switch (kind) {
       case 'ceiling':
-        return new THREE.MeshStandardMaterial({
-          color: 0x2a2114,
+        return createSurfaceMaterial({
+          color: 0x241d12,
           emissive: COLOR_WARN,
           emissiveIntensity: 0.22,
-          roughness: 0.7
+          roughness: 0.7,
+          // Tighter panels overhead: the ceiling is passed at speed and close range, so a coarse
+          // grid would read as one flat plane going by.
+          panelScale: 3,
+          rimStrength: 0.5,
+          rimPower: 2.6
         });
       case 'wall':
-        return new THREE.MeshStandardMaterial({
-          color: 0x0d1f28,
+        return createSurfaceMaterial({
+          color: 0x141a23,
           emissive: COLOR_ACCENT,
-          emissiveIntensity: 0.3,
-          roughness: 0.55
+          emissiveIntensity: 0.22,
+          roughness: 0.55,
+          panelScale: 5,
+          // Walls are what you run along, so the rim is strong — it makes the runnable edge
+          // legible from a distance and at a glancing angle, which is exactly how you approach it.
+          rimStrength: 0.75,
+          rimPower: 2.4
         });
       case 'goal':
         return new THREE.MeshBasicMaterial({
@@ -158,34 +186,59 @@ export class GameRenderer {
           depthWrite: false
         });
       case 'boost':
-        return new THREE.MeshStandardMaterial({
-          color: 0x052338,
-          emissive: COLOR_ACCENT,
-          emissiveIntensity: 0.95,
+        return createSurfaceMaterial({
+          color: 0x1a2410,
+          emissive: COLOR_GOAL,
+          emissiveIntensity: 0.85,
           roughness: 0.25,
-          metalness: 0.8
+          metalness: 0.8,
+          panelScale: 2.5,
+          rimStrength: 0.6,
+          // The pulse travels the way you will: seeing the energy run down the pad tells you
+          // which direction it throws you before you commit to it.
+          pulseSpeed: 5.5,
+          pulseStrength: 0.9
         });
       case 'jump_pad':
-        return new THREE.MeshStandardMaterial({
-          color: 0x250638,
-          emissive: 0xbf00ff,
-          emissiveIntensity: 1.15,
+        return createSurfaceMaterial({
+          color: 0x2a1d06,
+          emissive: COLOR_WARN,
+          emissiveIntensity: 1.0,
           roughness: 0.25,
-          metalness: 0.8
+          metalness: 0.8,
+          panelScale: 2.0,
+          rimStrength: 0.7,
+          // Slower and stronger than boost, so the two are distinguishable at a glance even
+          // though both are "active floor".
+          pulseSpeed: 3.0,
+          pulseStrength: 1.2
         });
       case 'hazard':
-        return new THREE.MeshStandardMaterial({
-          color: 0x3d0b0b,
-          emissive: 0xff1e00,
-          emissiveIntensity: 1.0,
+        return createSurfaceMaterial({
+          color: 0x2e0c10,
+          emissive: COLOR_BAD,
+          emissiveIntensity: 0.9,
           roughness: 0.35,
-          metalness: 0.4
+          metalness: 0.4,
+          panelScale: 1.6,
+          rimStrength: 0.9,
+          rimPower: 2.0,
+          // Fast and urgent. Hazards should read as agitated next to everything else.
+          pulseSpeed: 9.0,
+          pulseStrength: 0.7
         });
       default:
-        return new THREE.MeshStandardMaterial({
-          color: 0x1b2230,
+        // Plain floor. The one surface the player spends the whole run on, so it stays quiet —
+        // wide panels for scale, a faint cool rim to give the slab an edge, nothing that competes
+        // with the surfaces that actually mean something.
+        return createSurfaceMaterial({
+          color: 0x161c27,
           roughness: 0.88,
-          metalness: 0.04
+          metalness: 0.04,
+          panelScale: 6,
+          rim: COLOR_ACCENT,
+          rimStrength: 0.3,
+          rimPower: 3.6
         });
     }
   }
@@ -339,7 +392,10 @@ export class GameRenderer {
       this.particles.rotation.y += 0.0003;
     }
 
-    this.atmosphere.update(this.clock.getElapsedTime(), this.camera.position);
+    const elapsed = (performance.now() - this.startedAt) / 1000;
+    this.atmosphere.update(elapsed, this.camera.position);
+    // One clock for every pulsing surface, rather than each material tracking its own.
+    updateSurfaceTime(elapsed);
 
     this.composer.render();
   }
