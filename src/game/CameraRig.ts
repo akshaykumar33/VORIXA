@@ -91,8 +91,17 @@ export class CameraRig {
   }
 
   /** @param landingSpeed Downward speed on touchdown this tick, or 0. */
-  public update(input: RigInput, landingSpeed: number, dashed: boolean, dt: number): RigOutput {
+  public update(
+    input: RigInput,
+    landingSpeed: number,
+    dashed: boolean,
+    dt: number,
+    boosted: boolean = false,
+    hazardHit: boolean = false
+  ): RigOutput {
     if (dashed) this.dashPunch = 1;
+    if (boosted) this.dashPunch = 1.4;
+    if (hazardHit) this.shake = Math.max(this.shake, 0.85);
     if (landingSpeed > 3) {
       const impact = Math.min((landingSpeed - 3) / 18, 1);
       this.landingDip = Math.max(this.landingDip, impact);

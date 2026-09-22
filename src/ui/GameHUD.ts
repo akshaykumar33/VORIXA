@@ -123,7 +123,8 @@ export class GameHUD {
   private updateStateChip(data: HudData): void {
     if (!this.stateEl) return;
     let label = '';
-    if (data.wallRunning) label = 'WALL RUN';
+    if (data.speed > 20) label = 'BOOSTED';
+    else if (data.wallRunning) label = 'WALL RUN';
     else if (data.sliding) label = 'SLIDE';
     else if (!data.grounded) label = 'AIRBORNE';
     this.setText(this.stateEl, label);

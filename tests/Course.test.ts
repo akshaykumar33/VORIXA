@@ -187,3 +187,40 @@ describe('course structure', () => {
     }
   });
 });
+
+describe('interactive course surfaces', () => {
+  it('triggers boost pad and accelerates player forward to high speed', () => {
+    const player = new PlayerController();
+    // Spawn right before the boost pad at z = -17
+    player.reset(0, 0, -17);
+    let boosted = false;
+    let maxSpeed = 0;
+    for (let i = 0; i < 40; i++) {
+      player.update(intent({ forward: 1 }), course.boxes, TICK);
+      if (player.events.boosted) boosted = true;
+      maxSpeed = Math.max(maxSpeed, player.speed);
+    }
+    expect(boosted).toBe(true);
+    expect(maxSpeed).toBeGreaterThan(20);
+  });
+
+  it('triggers jump pad and launches player high into the air', () => {
+    const player = new PlayerController();
+    // Spawn right on the jump pad at x = 3.0, z = -105
+    player.reset(3.0, 0, -105);
+    player.update(intent({ forward: 0 }), course.boxes, TICK);
+    expect(player.events.jumpPadLaunched).toBe(true);
+    expect(player.body.vy).toBeGreaterThan(15);
+  });
+
+  it('triggers hazard obstacle and repels the player backward', () => {
+    const player = new PlayerController();
+    // Spawn overlapping hazard pylon at x = -4.0, z = -104.2, moving towards -Z
+    player.reset(-4.0, 0.5, -104.2);
+    player.body.vz = -10;
+    player.update(intent({ forward: 1 }), course.boxes, TICK);
+    expect(player.events.hazardHit).toBe(true);
+    expect(player.body.vz).toBeGreaterThan(0);
+  });
+});
+

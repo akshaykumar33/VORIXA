@@ -93,6 +93,12 @@ export interface PlayerEvents {
   landed: number;
   /** True on the tick a dash is refused because it is still cooling down. */
   dashRefused: boolean;
+  /** True on the tick the player triggers a speed boost pad. */
+  boosted: boolean;
+  /** True on the tick the player is launched by a jump pad. */
+  jumpPadLaunched: boolean;
+  /** True on the tick the player contacts a hazard. */
+  hazardHit: boolean;
 }
 
 export class PlayerController {
@@ -130,7 +136,10 @@ export class PlayerController {
     slideStarted: false,
     wallRunStarted: false,
     landed: 0,
-    dashRefused: false
+    dashRefused: false,
+    boosted: false,
+    jumpPadLaunched: false,
+    hazardHit: false
   };
 
   public get speed(): number {
@@ -173,6 +182,9 @@ export class PlayerController {
     e.wallRunStarted = false;
     e.landed = 0;
     e.dashRefused = false;
+    e.boosted = false;
+    e.jumpPadLaunched = false;
+    e.hazardHit = false;
   }
 
   public update(intent: MoveIntent, boxes: readonly Box[], dt: number): void {
@@ -243,6 +255,24 @@ export class PlayerController {
     }
 
     if (hit.ceilingHit && b.vy > 0) b.vy = 0;
+
+    if (hit.groundedKind === 'boost') {
+      const boostSpeed = 26;
+      if (b.vz > -boostSpeed) {
+        b.vz = -boostSpeed;
+      }
+      this.events.boosted = true;
+    } else if (hit.groundedKind === 'jump_pad') {
+      b.vy = 18.5;
+      this.grounded = false;
+      this.events.jumpPadLaunched = true;
+    }
+
+    if (hit.hazardHit) {
+      b.vz = Math.max(b.vz + 12, 6);
+      b.vx *= -0.5;
+      this.events.hazardHit = true;
+    }
   }
 
   private updateDash(

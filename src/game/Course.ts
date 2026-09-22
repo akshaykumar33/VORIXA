@@ -15,7 +15,7 @@
  *   - green  `goal`     : the end
  */
 
-export type SurfaceKind = 'platform' | 'ceiling' | 'wall' | 'goal';
+export type SurfaceKind = 'platform' | 'ceiling' | 'wall' | 'goal' | 'boost' | 'jump_pad' | 'hazard';
 
 export interface Box {
   readonly minX: number;
@@ -100,6 +100,8 @@ export function buildCourse(): CourseData {
   // that holding forward builds speed, before anything can punish them for it.
   push(slab(-7, 7, -1, 0, -30, 8));
   push(...rails(7, -30, 8));
+  // Boost pad: introduces the speed boost mechanic early on the straightaway
+  push(slab(-2.5, 2.5, 0, 0.05, -22, -18, 'boost'));
 
   // ── 2. Jump gap, 4 m (z -30 → -34) ─────────────────────────────────────────
   // Comfortably inside a 6.7 m running jump. It exists to teach that gaps are
@@ -135,6 +137,10 @@ export function buildCourse(): CourseData {
   // ── 6. Landing platform (z -98 → -112) ─────────────────────────────────────
   push(slab(-5, 5, -1, 0, -112, -98));
   push(...rails(5, -112, -98));
+  // Jump pad: launches the player high onto the upper stairs
+  push(slab(2.2, 4.4, 0, 0.05, -108, -104, 'jump_pad'));
+  // Hazard pylon: warning obstacle rewarding spatial awareness
+  push(slab(-4.8, -3.2, 0, 1.8, -106, -104, 'hazard'));
 
   // ── 7. Stair climb (z -112 → -130) ─────────────────────────────────────────
   // Gains the 4.5 m the corridor needs, as nine 0.5 m steps rather than three 1.5 m ones.

@@ -1,4 +1,4 @@
-import type { Box } from './Course';
+import type { Box, SurfaceKind } from './Course';
 
 /**
  * Axis-separated swept AABB collision against a static box world.
@@ -34,6 +34,7 @@ const GROUND_PROBE = 0.12;
 
 export interface MoveResult {
   grounded: boolean;
+  groundedKind: SurfaceKind | null;
   /** True if the head hit something this move — used to keep the player down in the slide tunnel. */
   ceilingHit: boolean;
   /** Outward normal of the wall on the player's side: -1, 0, or +1 per axis. */
@@ -43,6 +44,8 @@ export interface MoveResult {
   landingSpeed: number;
   /** True if forward motion was stopped by geometry, for a light crunch cue. */
   blocked: boolean;
+  /** True if the player touched or bumped into a hazard. */
+  hazardHit: boolean;
 }
 
 export interface MutableBody {
@@ -124,9 +127,31 @@ export function canStandAt(boxes: readonly Box[], x: number, y: number, z: numbe
 
 export function isGrounded(boxes: readonly Box[], body: MutableBody): boolean {
   for (const box of boxes) {
+    if (box.kind === 'goal') continue;
     if (overlaps(box, body.x, body.y - GROUND_PROBE, body.z, GROUND_PROBE)) return true;
   }
   return false;
+}
+
+export function getGroundedSurface(boxes: readonly Box[], body: MutableBody): SurfaceKind | null {
+  let found: SurfaceKind | null = null;
+  for (const box of boxes) {
+    if (box.kind === 'goal') continue;
+    if (
+      body.x + PLAYER_HALF_WIDTH > box.minX &&
+      body.x - PLAYER_HALF_WIDTH < box.maxX &&
+      body.z + PLAYER_HALF_WIDTH > box.minZ &&
+      body.z - PLAYER_HALF_WIDTH < box.maxZ &&
+      body.y >= box.minY - GROUND_PROBE &&
+      body.y <= box.maxY + GROUND_PROBE + 0.1
+    ) {
+      if (box.kind === 'boost' || box.kind === 'jump_pad' || box.kind === 'hazard') {
+        return box.kind;
+      }
+      found = box.kind;
+    }
+  }
+  return found;
 }
 
 /**
@@ -142,11 +167,13 @@ export function moveAndCollide(
 ): MoveResult {
   const result: MoveResult = {
     grounded: false,
+    groundedKind: null,
     ceilingHit: false,
     wallNormalX: 0,
     wallNormalZ: 0,
     landingSpeed: 0,
-    blocked: false
+    blocked: false,
+    hazardHit: false
   };
 
   const distance = Math.hypot(body.vx * deltaTime, body.vy * deltaTime, body.vz * deltaTime);
@@ -162,6 +189,7 @@ export function moveAndCollide(
       body.x = candidateX;
       for (const box of boxes) {
         if (!overlaps(box, body.x, body.y, body.z, body.height)) continue;
+        if (box.kind === 'hazard') result.hazardHit = true;
         if (tryStepUp(boxes, body, candidateX, body.z, groundedNow)) break;
         // Snap back to the face we came through; the sign of travel removes any ambiguity
         // about which side we are on.
@@ -182,6 +210,7 @@ export function moveAndCollide(
       body.z = candidateZ;
       for (const box of boxes) {
         if (!overlaps(box, body.x, body.y, body.z, body.height)) continue;
+        if (box.kind === 'hazard') result.hazardHit = true;
         if (tryStepUp(boxes, body, body.x, candidateZ, groundedNow)) break;
         body.z =
           body.vz > 0
@@ -199,12 +228,14 @@ export function moveAndCollide(
       body.y += body.vy * dt;
       for (const box of boxes) {
         if (!overlaps(box, body.x, body.y, body.z, body.height)) continue;
+        if (box.kind === 'hazard') result.hazardHit = true;
         if (body.vy > 0) {
           body.y = box.minY - body.height;
           result.ceilingHit = true;
         } else {
           body.y = box.maxY;
           result.grounded = true;
+          result.groundedKind = box.kind;
           // Report the speed *before* it is cancelled, so the landing can be felt.
           result.landingSpeed = Math.max(result.landingSpeed, -body.vy);
         }
@@ -214,7 +245,13 @@ export function moveAndCollide(
     }
   }
 
-  if (!result.grounded) result.grounded = isGrounded(boxes, body);
+  if (!result.grounded) {
+    result.grounded = isGrounded(boxes, body);
+  }
+  const groundKind = getGroundedSurface(boxes, body);
+  if (groundKind) {
+    result.groundedKind = groundKind;
+  }
 
   // Probe outward for a wall the player is travelling alongside. Wall-running needs contact
   // detection that survives the frame where velocity into the wall has already been zeroed.
