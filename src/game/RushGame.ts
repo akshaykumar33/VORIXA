@@ -1,9 +1,9 @@
 import { InputEngine } from '../input/InputEngine';
 import { InputAction } from '../input/ActionTypes';
-import { AudioEngine } from '../audio/AudioEngine';
+import { RushAudio } from '../audio/RushAudio';
 import { FaceTracker } from '../input/FaceTracker';
 import { HandTracker } from '../input/HandTracker';
-import { RushSim, MAX_HEARTS, MAX_SPEED, type FxRecord } from '../rush/RushSim';
+import { RushSim, MAX_HEARTS, MAX_SPEED, START_SPEED, type RushPhase, type FxRecord } from '../rush/RushSim';
 import { RushControls, type ControlSources } from '../rush/RushControls';
 import { RushRenderer } from '../rendering/rush/RushRenderer';
 import { RushHUD, type DeviceStatus } from '../ui/RushHUD';
@@ -37,7 +37,7 @@ const BEST_KEY = 'vorixa.rush.best';
 
 export class RushGame {
   private readonly input = new InputEngine();
-  private readonly audio = new AudioEngine();
+  private readonly audio = new RushAudio();
   private readonly face = new FaceTracker();
   private readonly hand = new HandTracker();
   private readonly sim: RushSim;
@@ -71,6 +71,8 @@ export class RushGame {
     hand: null
   };
   private wasNitro = false;
+  private lastPhase: RushPhase = 'ready';
+  private lastLane = 0;
 
   public constructor(
     private readonly renderer: RushRenderer,
@@ -119,7 +121,7 @@ export class RushGame {
     const hand = this.handEnabled && this.hand.isRunning ? this.hand.update() : null;
     if (gaze?.dilationStarted && this.slowmo <= 0) {
       this.slowmo = SLOWMO_DURATION;
-      this.audio.playSoundEffect(880, 0.18, 'sine');
+      this.audio.slowmoStart();
     }
 
     const src = this.sources;
@@ -148,7 +150,7 @@ export class RushGame {
     this.slowmo = Math.max(0, this.slowmo - frameDelta);
     const targetScale = this.slowmo > 0 ? SLOWMO_SCALE : 1;
     this.timeScale += (targetScale - this.timeScale) * (1 - Math.exp(-8 * frameDelta));
-    this.audio.setDilation((1 - this.timeScale) / (1 - SLOWMO_SCALE));
+    this.audio.setSlowmo((1 - this.timeScale) / (1 - SLOWMO_SCALE));
 
     if (this.hitStop > 0) {
       this.hitStop -= frameDelta;
@@ -171,9 +173,7 @@ export class RushGame {
       }
     }
 
-    if (this.sim.nitroActive && !this.wasNitro) this.audio.playBoost();
-    this.wasNitro = this.sim.nitroActive;
-    this.audio.setSpeedWind(this.sim.speed / MAX_SPEED + (this.sim.nitroActive ? 0.4 : 0));
+    this.updateAudio();
 
     this.renderer.render(this.sim, intent.aimX, frameDelta);
     this.updateHud(intent.aimX, gaze?.present ? gaze.gazeX : hand?.present ? hand.steerX : null);
@@ -192,7 +192,7 @@ export class RushGame {
     for (let i = 0; i < sim.fxCount; i++) {
       const fx = sim.fx[i];
       this.renderer.effect(fx, sim.z);
-      this.sound(fx);
+      this.audio.play(fx);
       this.popupFor(fx);
       if (fx.type === 'crash') {
         this.hitStop = Math.max(this.hitStop, HIT_STOP_CRASH);
@@ -206,46 +206,19 @@ export class RushGame {
     }
   }
 
-  private sound(fx: FxRecord): void {
-    const a = this.audio;
-    switch (fx.type) {
-      case 'coin':
-        a.playSoundEffect(1318, 0.07, 'square');
-        break;
-      case 'smash':
-        a.playSoundEffect(180, 0.12, 'sawtooth');
-        break;
-      case 'explode':
-        a.playHazard();
-        break;
-      case 'crash':
-        a.playHazard();
-        a.playSoundEffect(90, 0.35, 'sawtooth');
-        break;
-      case 'jump':
-        a.playSoundEffect(420, 0.1, 'triangle');
-        break;
-      case 'ramp':
-        a.playJumpPad();
-        break;
-      case 'land':
-        if (fx.amount > 8) a.playSoundEffect(140, 0.08, 'triangle');
-        break;
-      case 'fire':
-        a.playSoundEffect(740, 0.035, 'square');
-        break;
-      case 'pickup':
-        a.playCheckpointChime();
-        break;
-      case 'enemyFire':
-        a.playSoundEffect(300, 0.14, 'sine');
-        break;
-      case 'gameOver':
-        a.playSoundEffect(220, 0.5, 'sawtooth');
-        break;
-      default:
-        break;
-    }
+  /** Engine, music level and the one-shot cues that follow state changes rather than effects. */
+  private updateAudio(): void {
+    const sim = this.sim;
+    if (sim.nitroActive && !this.wasNitro) this.audio.nitro();
+    this.wasNitro = sim.nitroActive;
+    if (sim.phase === 'running' && this.lastPhase === 'ready') this.audio.go();
+    this.lastPhase = sim.phase;
+    if (sim.lane !== this.lastLane) this.audio.swerve(Math.sign(sim.lane - this.lastLane));
+    this.lastLane = sim.lane;
+
+    const speedT = (sim.speed - START_SPEED) / (MAX_SPEED - START_SPEED);
+    const level = sim.phase === 'over' ? null : sim.phase === 'ready' ? 'title' : sim.nitroActive ? 'nitro' : 'run';
+    this.audio.update(sim.speed, speedT, sim.nitroActive, level);
   }
 
   /** Points float up from where they were earned, so the reward sits on the thing that paid it. */
