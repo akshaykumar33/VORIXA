@@ -76,7 +76,14 @@ export class GameHUD {
 
     this.setText(this.timerEl, formatTime(run.elapsed));
     this.setText(this.bestEl, run.bestTime === null ? '—' : formatTime(run.bestTime));
-    this.setText(this.checkpointEl, `${run.checkpointIndex} / ${run.totalCheckpoints}`);
+    // An endless course has no total, so the counter shows progress alone rather than inventing
+    // a denominator the player can never reach.
+    this.setText(
+      this.checkpointEl,
+      run.totalCheckpoints === null
+        ? `${run.checkpointIndex}`
+        : `${run.checkpointIndex} / ${run.totalCheckpoints}`
+    );
     this.setText(this.speedEl, Math.round(data.speed * 3.6).toString());
 
     this.updateDelta(run);

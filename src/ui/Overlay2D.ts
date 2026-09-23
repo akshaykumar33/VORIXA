@@ -3,7 +3,7 @@ import type { GestureIntent } from '../input/GestureMapping';
 import type { TrackerStatus } from '../input/HandTracker';
 import type { FaceTrackerStatus } from '../input/FaceTracker';
 import type { GazeIntent } from '../input/GazeMapping';
-import type { CourseData } from '../game/Course';
+import type { Checkpoint } from '../game/Course';
 
 /**
  * The 2D instrument layer, drawn on a canvas above the 3D world.
@@ -41,7 +41,13 @@ const BONES: readonly [number, number][] = [
 ];
 
 export interface OverlayState {
-  course: CourseData;
+  /** Z at the top of the route map. */
+  routeStartZ: number;
+  /** Z at the bottom. Finite even on an endless course, which has no finish to point at. */
+  routeEndZ: number;
+  checkpoints: readonly Checkpoint[];
+  /** False on an endless course, where drawing a finish line would be a lie. */
+  hasFinish: boolean;
   playerX: number;
   playerZ: number;
   ghostX: number | null;
@@ -102,8 +108,8 @@ export class Overlay2D {
     const x = this.width - panelW - 26;
     const y = (this.height - panelH) / 2;
 
-    const startZ = s.course.spawnZ;
-    const endZ = s.course.finishZ;
+    const startZ = s.routeStartZ;
+    const endZ = s.routeEndZ;
     const toY = (z: number) => y + ((z - startZ) / (endZ - startZ)) * panelH;
     const toX = (wx: number) => x + panelW / 2 + (wx / 9) * (panelW / 2 - 8);
 
@@ -120,7 +126,7 @@ export class Overlay2D {
     ctx.stroke();
 
     // Checkpoint ticks, filled once banked.
-    for (const cp of s.course.checkpoints) {
+    for (const cp of s.checkpoints) {
       if (cp.index === 0) continue;
       const cy = toY(cp.triggerZ);
       const passed = cp.index <= s.checkpointIndex;
@@ -132,13 +138,16 @@ export class Overlay2D {
       ctx.stroke();
     }
 
-    // Finish line.
-    ctx.strokeStyle = GOOD;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x + 6, y + panelH);
-    ctx.lineTo(x + panelW - 6, y + panelH);
-    ctx.stroke();
+    // Finish line — only where there is one. On an endless course the strip is a rolling window
+    // around the player, so a line at the bottom would promise an end that never arrives.
+    if (s.hasFinish) {
+      ctx.strokeStyle = GOOD;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + panelH);
+      ctx.lineTo(x + panelW - 6, y + panelH);
+      ctx.stroke();
+    }
 
     if (s.ghostX !== null && s.ghostZ !== null) {
       ctx.fillStyle = 'rgba(0, 240, 255, 0.45)';

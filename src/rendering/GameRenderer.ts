@@ -11,7 +11,7 @@ import {
   resetSurfaceMaterials,
   updateSurfaceTime
 } from './SurfaceMaterial';
-import type { Box, CourseData } from '../game/Course';
+import type { Box, Checkpoint, CourseData } from '../game/Course';
 import type { RigOutput } from '../game/CameraRig';
 
 /**
@@ -95,8 +95,17 @@ export class GameRenderer {
   private disposables: { dispose(): void }[] = [];
   /** One material per surface kind, shared by every box of that kind. */
   private readonly materialCache = new Map<Box['kind'], THREE.Material>();
+  /** Streamed segments, keyed by index. Each owns exactly the buffers it created. */
+  private readonly segmentNodes = new Map<
+    number,
+    { group: THREE.Group; owned: { dispose(): void }[]; gate: GateMaterial | null }
+  >();
 
-  public initialize(canvas: HTMLCanvasElement, course: CourseData): void {
+  /**
+   * @param course The authored course, or null for an endless run where geometry arrives later
+   *               through `addCourseSegment` as the streamer produces it.
+   */
+  public initialize(canvas: HTMLCanvasElement, course: CourseData | null): void {
     // Clear the animated-surface registry first: re-initialising without this leaves the previous
     // scene's uniforms being ticked forever, which is a slow leak rather than a visible bug.
     resetSurfaceMaterials();
@@ -138,8 +147,10 @@ export class GameRenderer {
     this.disposables.push(this.atmosphere);
 
     this.buildLighting();
-    this.buildCourse(course);
-    this.buildGates(course);
+    if (course) {
+      this.buildCourse(course);
+      this.buildGates(course);
+    }
     this.buildGhost();
     this.buildParticles();
 
@@ -422,6 +433,92 @@ export class GameRenderer {
     }
 
     this.buildStructures(course);
+  }
+
+  /**
+   * Adds one streamed course segment.
+   *
+   * Everything a segment owns — meshes, edge lines, supports, its gate — goes into a single Group
+   * and a single disposables list, so eviction is one lookup and one loop. Tracking them
+   * individually is how a streaming renderer ends up leaking a few buffers per segment: it works
+   * fine for the first minute and exhausts GPU memory somewhere in the tenth.
+   *
+   * Materials are *not* disposed here. They are shared across every segment by kind, so a segment
+   * that disposed its own materials would black out the rest of the course on its way out.
+   */
+  public addCourseSegment(index: number, boxes: readonly Box[], checkpoint: Checkpoint): void {
+    if (this.segmentNodes.has(index)) return;
+
+    const group = new THREE.Group();
+    const owned: { dispose(): void }[] = [];
+
+    for (const box of boxes) {
+      const w = box.maxX - box.minX;
+      const h = box.maxY - box.minY;
+      const d = box.maxZ - box.minZ;
+
+      const geometry = new THREE.BoxGeometry(w, h, d);
+      const mesh = new THREE.Mesh(geometry, this.sharedMaterialFor(box.kind));
+      mesh.position.set(box.minX + w / 2, box.minY + h / 2, box.minZ + d / 2);
+      if (box.kind !== 'goal') {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
+      group.add(mesh);
+      owned.push(geometry);
+
+      const edges = new THREE.EdgesGeometry(geometry);
+      const lineMaterial = new THREE.LineBasicMaterial({
+        color: this.edgeColorFor(box.kind),
+        transparent: true,
+        opacity: box.kind === 'platform' ? 0.32 : 0.75
+      });
+      const line = new THREE.LineSegments(edges, lineMaterial);
+      line.position.copy(mesh.position);
+      group.add(line);
+      owned.push(edges, lineMaterial);
+    }
+
+    const structures = buildCourseStructures(boxes, this.sharedMaterialFor('platform'));
+    if (structures.pylons) group.add(structures.pylons);
+    if (structures.skirts) group.add(structures.skirts);
+    owned.push(structures);
+
+    // Segment 0's checkpoint is the start line, which is not a gate to fly through.
+    let gate: GateMaterial | null = null;
+    if (checkpoint.index > 0) {
+      const geometry = new THREE.PlaneGeometry(checkpoint.halfWidth * 2, 5);
+      gate = new GateMaterial(COLOR_ACCENT);
+      const mesh = new THREE.Mesh(geometry, gate);
+      mesh.position.set(checkpoint.spawnX, checkpoint.spawnY + 2.5, checkpoint.triggerZ);
+      group.add(mesh);
+      owned.push(geometry, gate);
+      this.gates.push(mesh);
+      this.gateMaterials.push(gate);
+    }
+
+    this.scene.add(group);
+    this.segmentNodes.set(index, { group, owned, gate });
+  }
+
+  /** Evicts a streamed segment, releasing every buffer it owns. */
+  public removeCourseSegment(index: number): void {
+    const node = this.segmentNodes.get(index);
+    if (!node) return;
+
+    this.scene.remove(node.group);
+    for (const item of node.owned) item.dispose();
+    this.segmentNodes.delete(index);
+
+    if (node.gate) {
+      // The gate arrays are parallel; a segment leaving must drop both entries or `updateGates`
+      // starts driving a material whose mesh is gone.
+      const at = this.gateMaterials.indexOf(node.gate);
+      if (at >= 0) {
+        this.gateMaterials.splice(at, 1);
+        this.gates.splice(at, 1);
+      }
+    }
   }
 
   /**

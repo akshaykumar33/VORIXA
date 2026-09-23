@@ -3,7 +3,9 @@ import { InputAction } from '../input/ActionTypes';
 import { AudioEngine } from '../audio/AudioEngine';
 import { GameRenderer } from '../rendering/GameRenderer';
 import { GameHUD } from '../ui/GameHUD';
-import { buildCourse, type CourseData } from './Course';
+import { buildCourse, type Checkpoint, type CourseData } from './Course';
+import { staticCourseSource, type CourseSource } from './CourseSource';
+import { CourseStream } from '../world/CourseStream';
 import { PlayerController, type MoveIntent, DASH_COOLDOWN } from './PlayerController';
 import { CameraRig, type RigInput } from './CameraRig';
 import { RunState } from './RunState';
@@ -42,6 +44,10 @@ const DILATION_DURATION = 1.6;
 /** Ease rate in and out of dilation. */
 const DILATION_EASE = 9;
 
+/** Route-map window on an endless course, in world units either side of the player. */
+const ENDLESS_MAP_BEHIND = 60;
+const ENDLESS_MAP_AHEAD = 240;
+
 export class Game {
   private readonly course: CourseData;
   private readonly player = new PlayerController();
@@ -73,23 +79,90 @@ export class Game {
   private running = false;
   public lookCaptured = false;
 
+  /** Live in endless mode only. Null means the authored course is in play. */
+  private readonly stream: CourseStream | null = null;
+  /** Whichever course shape is driving this run. */
+  private readonly source: CourseSource;
+
+  /**
+   * @param options.endlessSeed When given, the course is generated and streamed from this seed
+   *        instead of using the authored one. The rest of the loop is identical: both shapes are
+   *        a `CourseSource`, so collision, checkpoints and respawn do not know which they have.
+   */
   constructor(
     renderer: GameRenderer,
     input: InputEngine = new InputEngine(),
     audio: AudioEngine = new AudioEngine(),
-    hud: GameHUD = new GameHUD()
+    hud: GameHUD = new GameHUD(),
+    options: { endlessSeed?: number } = {}
   ) {
     this.course = buildCourse();
     this.renderer = renderer;
     this.input = input;
     this.audio = audio;
     this.hud = hud;
-    this.run = new RunState(this.course);
+
+    if (options.endlessSeed !== undefined) {
+      this.stream = new CourseStream(options.endlessSeed);
+      // Populate before the first tick, or the player spawns into empty space and falls through
+      // a world that has not been generated yet.
+      this.stream.update(this.stream.spawnZ);
+      this.syncStreamedGeometry();
+      this.source = this.stream;
+    } else {
+      this.source = staticCourseSource(this.course);
+    }
+
+    this.run = new RunState(this.source);
 
     const stored = loadGhost();
     if (stored) this.ghost = new GhostPlayback(stored);
 
     this.resetToSpawn(true);
+  }
+
+  /**
+   * Pushes the streamer's latest window into the renderer.
+   *
+   * Removals run before additions so a segment index being replaced releases its buffers before
+   * the new one allocates, which keeps the peak lower than the steady state rather than higher.
+   */
+  /**
+   * What the route map should show.
+   *
+   * A finite course maps its whole length, because "how much is left?" has an answer. An endless
+   * one maps a rolling window around the player instead — the same strip, but reading as position
+   * rather than progress, since there is no total to be a fraction of.
+   */
+  private routeView(): {
+    routeStartZ: number;
+    routeEndZ: number;
+    checkpoints: readonly Checkpoint[];
+    hasFinish: boolean;
+  } {
+    if (this.stream) {
+      const z = this.player.body.z;
+      return {
+        routeStartZ: z + ENDLESS_MAP_BEHIND,
+        routeEndZ: z - ENDLESS_MAP_AHEAD,
+        checkpoints: this.stream.checkpoints,
+        hasFinish: false
+      };
+    }
+    return {
+      routeStartZ: this.course.spawnZ,
+      routeEndZ: this.course.finishZ,
+      checkpoints: this.course.checkpoints,
+      hasFinish: true
+    };
+  }
+
+  private syncStreamedGeometry(): void {
+    if (!this.stream) return;
+    for (const segment of this.stream.removed) this.renderer.removeCourseSegment(segment.index);
+    for (const segment of this.stream.added) {
+      this.renderer.addCourseSegment(segment.index, segment.boxes, segment.checkpoint);
+    }
   }
 
   public get courseData(): CourseData {
@@ -98,7 +171,7 @@ export class Game {
 
   private resetToSpawn(full: boolean): void {
     const spot = full
-      ? { x: this.course.spawnX, y: this.course.spawnY, z: this.course.spawnZ }
+      ? { x: this.source.spawnX, y: this.source.spawnY, z: this.source.spawnZ }
       : this.run.respawn;
     this.player.reset(spot.x, spot.y, spot.z);
     if (full) {
@@ -301,7 +374,11 @@ export class Game {
    */
   private tick(dt: number, realDt: number): void {
     const intent = this.buildIntent();
-    this.player.update(intent, this.course.boxes, dt);
+    // The streamer runs before physics, not after: stepping the player through geometry that has
+    // not been generated yet is how a fast run falls through the floor at a segment boundary.
+    if (this.stream?.update(this.player.body.z)) this.syncStreamedGeometry();
+
+    this.player.update(intent, this.source.boxes, dt);
     this.emitMovementAudio();
 
     const body = this.player.body;
@@ -394,7 +471,7 @@ export class Game {
     this.renderer.render(rig);
 
     this.overlay.draw({
-      course: this.course,
+      ...this.routeView(),
       playerX: this.player.body.x,
       playerZ: this.player.body.z,
       ghostX: this.ghostVisible ? this.ghostFrame.x : null,

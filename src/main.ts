@@ -11,17 +11,40 @@ import '@fontsource-variable/jetbrains-mono';
 import { GameRenderer } from './rendering/GameRenderer';
 import { Game } from './game/Game';
 import { buildCourse } from './game/Course';
+import { seedFromString } from './world/Rng';
+
+/** The shared endless world. Fixed so two players on `?endless` are racing the same course. */
+const DEFAULT_ENDLESS_SEED = seedFromString('vorixa-endless-01');
 import { createPointerLockController } from './input/PointerLockController';
 
 function bootstrap(): void {
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
   if (!canvas) throw new Error('Could not locate render canvas #render-canvas.');
 
-  const course = buildCourse();
-  const renderer = new GameRenderer();
-  renderer.initialize(canvas, course);
+  /*
+   * Endless mode is opt-in through the URL, so the authored course stays the default experience.
+   *
+   *   ?endless               a fixed default seed — same world for everyone, which is what makes
+   *                          times comparable without a leaderboard backend
+   *   ?endless=cobalt-drift  a named seed, shareable as text rather than as a number
+   *
+   * Reading it here rather than inside Game keeps the engine free of anything that knows what a
+   * URL is; Game is handed a number.
+   */
+  const params = new URLSearchParams(window.location.search);
+  const endlessParam = params.get('endless');
+  const endlessSeed =
+    endlessParam === null
+      ? undefined
+      : endlessParam === ''
+        ? DEFAULT_ENDLESS_SEED
+        : seedFromString(endlessParam);
 
-  const game = new Game(renderer);
+  const renderer = new GameRenderer();
+  // Endless runs stream their geometry in, so there is no course to build up front.
+  renderer.initialize(canvas, endlessSeed === undefined ? buildCourse() : null);
+
+  const game = new Game(renderer, undefined, undefined, undefined, { endlessSeed });
 
   const overlayCanvas = document.getElementById('overlay-canvas') as HTMLCanvasElement | null;
   if (overlayCanvas) game.attachOverlay(overlayCanvas);
@@ -75,7 +98,7 @@ function bootstrap(): void {
   // teleport, re-read state and nudge constants from the console is worth far more than another
   // round of rebuilds. Stripped from production builds by the bundler.
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>).__vorixa = { game, renderer, course };
+    (window as unknown as Record<string, unknown>).__vorixa = { game, renderer, endlessSeed };
   }
 }
 

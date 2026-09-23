@@ -1,4 +1,4 @@
-import type { CourseData } from './Course';
+import type { CourseSource } from './CourseSource';
 
 /**
  * Run lifecycle: the timer, the checkpoints, and the record.
@@ -25,7 +25,8 @@ export interface RunSnapshot {
   phase: RunPhase;
   elapsed: number;
   checkpointIndex: number;
-  totalCheckpoints: number;
+  /** Null on an endless course, where there is no total to count toward. */
+  totalCheckpoints: number | null;
   bestTime: number | null;
   /** Seconds ahead (negative) or behind (positive) the record at the last checkpoint passed. */
   deltaAtLastSplit: number | null;
@@ -34,7 +35,7 @@ export interface RunSnapshot {
 }
 
 export class RunState {
-  private readonly course: CourseData;
+  private readonly course: CourseSource;
 
   public phase: RunPhase = 'ready';
   public elapsed = 0;
@@ -53,7 +54,7 @@ export class RunState {
   /** Set on the tick the run completes. */
   public justFinished = false;
 
-  constructor(course: CourseData) {
+  constructor(course: CourseSource) {
     this.course = course;
     this.loadRecord();
   }
@@ -80,7 +81,7 @@ export class RunState {
 
   /** Where the player should be placed right now — spawn, or the last checkpoint after a fall. */
   public get respawn(): { x: number; y: number; z: number } {
-    const cp = this.course.checkpoints[this.checkpointIndex];
+    const cp = this.course.checkpointAt(this.checkpointIndex);
     if (!cp) return { x: this.course.spawnX, y: this.course.spawnY, z: this.course.spawnZ };
     return { x: cp.spawnX, y: cp.spawnY, z: cp.spawnZ };
   }
@@ -109,7 +110,7 @@ export class RunState {
 
     // Checkpoints arm in order. Out-of-order or off-course crossings are ignored, so the
     // course cannot be short-cut by falling past a trigger plane.
-    const next = this.course.checkpoints[this.checkpointIndex + 1];
+    const next = this.course.checkpointAt(this.checkpointIndex + 1);
     if (next && z <= next.triggerZ && Math.abs(x - next.spawnX) <= next.halfWidth) {
       this.checkpointIndex++;
       this.splits[this.checkpointIndex] = this.elapsed;
@@ -151,7 +152,7 @@ export class RunState {
       phase: this.phase,
       elapsed: this.elapsed,
       checkpointIndex: this.checkpointIndex,
-      totalCheckpoints: this.course.checkpoints.length - 1,
+      totalCheckpoints: this.course.totalCheckpoints,
       bestTime: this.bestTime,
       deltaAtLastSplit: this.deltaAtLastSplit,
       isNewRecord: this.isNewRecord
