@@ -446,9 +446,17 @@ export class RushHUD {
       [this.el.resume, () => this.onResume()]
     ] as const) {
       chip.addEventListener('mousedown', (e) => e.stopPropagation());
-      chip.addEventListener('keydown', (e) => e.stopPropagation());
+      // Only the keys that press the button itself are held back — otherwise Space would press
+      // the button *and* jump. Every other key (C, R, P, arrows) must still reach the game, or a
+      // focused button silently swallows the controls.
+      chip.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') e.stopPropagation();
+      });
       chip.addEventListener('click', (e) => {
         e.stopPropagation();
+        // A mouse click hands focus back to the game; keyboard activation (detail 0) keeps it,
+        // so keyboard users can keep tabbing through the buttons.
+        if (e.detail > 0) chip.blur();
         action();
       });
     }
