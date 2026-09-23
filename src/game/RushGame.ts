@@ -8,6 +8,7 @@ import { RushControls, type ControlSources } from '../rush/RushControls';
 import { RushRenderer } from '../rendering/rush/RushRenderer';
 import { RushHUD, type DeviceStatus } from '../ui/RushHUD';
 import { BIOME_NAMES, type BiomeId } from '../rush/Zones';
+import { VEHICLES } from '../rendering/rush/Vehicles';
 
 /**
  * Runs Rush: input in, simulation stepped, effects fanned out to picture, sound and HUD.
@@ -35,6 +36,7 @@ const RESTART_GRACE = 0.9;
 const MOUSE_AIM_TIMEOUT = 4;
 
 const BEST_KEY = 'vorixa.rush.best';
+const VEHICLE_KEY = 'vorixa.rush.vehicle';
 
 export class RushGame {
   private readonly input = new InputEngine();
@@ -75,6 +77,7 @@ export class RushGame {
   private lastPhase: RushPhase = 'ready';
   private lastLane = 0;
   private lastBiome: BiomeId = 'meadow';
+  private vehicle = 0;
 
   public constructor(
     private readonly renderer: RushRenderer,
@@ -89,6 +92,9 @@ export class RushGame {
     this.hud.onToggleGaze = () => void this.toggleGaze();
     this.hud.onToggleHand = () => void this.toggleHand();
     this.best = loadBest();
+    this.hud.onCycleVehicle = (step) => this.cycleVehicle(step);
+    this.vehicle = loadVehicle();
+    this.cycleVehicle(0);
 
     window.addEventListener('pointermove', (e) => {
       const width = window.innerWidth || 1;
@@ -189,7 +195,25 @@ export class RushGame {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  /** Cars can only be changed in the garage, on the title screen. */
+  private cycleVehicle(step: number): void {
+    if (this.sim.phase !== 'ready') return;
+    this.vehicle = (this.vehicle + step + VEHICLES.length) % VEHICLES.length;
+    const v = VEHICLES[this.vehicle];
+    this.renderer.setVehicle(v.kind);
+    this.hud.setVehicle(v.name, v.blurb);
+    if (step !== 0) {
+      this.audio.swerve(step);
+      try {
+        window.localStorage.setItem(VEHICLE_KEY, String(this.vehicle));
+      } catch {
+        // The choice simply will not persist.
+      }
+    }
+  }
+
   private handleMetaKeys(): void {
+    if (this.input.isJustPressed(InputAction.CROUCH)) this.cycleVehicle(1);
     if (this.input.isJustPressed(InputAction.GAZE_TOGGLE)) void this.toggleGaze();
     if (this.input.isJustPressed(InputAction.GESTURE_TOGGLE)) void this.toggleHand();
     if (this.input.isJustPressed(InputAction.MUTE_TOGGLE)) this.hud.setMuted(this.audio.toggleMute());
@@ -308,6 +332,15 @@ function deviceStatus(enabled: boolean, status: string, present: boolean): Devic
   if (status === 'loading') return 'loading';
   if (status === 'error') return 'error';
   return present ? 'on' : 'lost';
+}
+
+function loadVehicle(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(VEHICLE_KEY));
+    return Number.isInteger(stored) && stored >= 0 && stored < VEHICLES.length ? stored : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function loadBest(): number {

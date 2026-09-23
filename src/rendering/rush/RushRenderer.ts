@@ -13,9 +13,9 @@ import {
 import { ParticleRenderer } from '../ParticleRenderer';
 import { bend, bent, flat, ink, toon } from './Toon';
 import { Scenery } from './Scenery';
+import { buildVehicle, buildTraffic, TRAFFIC_KINDS, type CarModel, type VehicleKind } from './Vehicles';
 import type { BiomeId } from '../../rush/Zones';
 import {
-  buildCar,
   buildTruck,
   buildBarrier,
   buildCrate,
@@ -25,9 +25,6 @@ import {
   buildHeart,
   buildRamp,
   coinGeometry,
-  PLAYER_PALETTE,
-  TRAFFIC_PALETTES,
-  type CarModel,
   type DroneModel,
   type BarrierModel
 } from './Models';
@@ -74,7 +71,11 @@ export class RushRenderer {
   public readonly camera = new THREE.PerspectiveCamera(64, 1, 0.1, 700);
 
   private readonly scenery = new Scenery();
-  private readonly player = buildCar(PLAYER_PALETTE, true);
+  private player: CarModel = buildVehicle('zippy');
+  /** Seconds left on the driver's fist-pump after a kill. */
+  private cheer = 0;
+  /** Seconds left seeing stars after a crash. */
+  private dizzy = 0;
   private readonly playerBlob: THREE.Mesh;
   private readonly particles = new ParticleRenderer(900);
 
@@ -104,6 +105,10 @@ export class RushRenderer {
   private lastDistance = 0;
   private time = 0;
   private turretYaw = 0;
+  /** 1 on the title screen's showroom orbit, 0 in the chase view; eased between. */
+  private showroom = 1;
+  private readonly orbitPosition = new THREE.Vector3();
+  private readonly orbitTarget = new THREE.Vector3();
 
   private readonly matrix = new THREE.Matrix4();
   private readonly position = new THREE.Vector3();
@@ -188,6 +193,7 @@ export class RushRenderer {
         this.addTrauma(0.12);
         break;
       case 'explode':
+        this.cheer = 0.9;
         p.burst('explode', x, y, z, { intensity: 1.4 });
         p.burst('smoke', x, y + 0.5, z, { intensity: 1.5 });
         this.addTrauma(0.3);
@@ -198,6 +204,8 @@ export class RushRenderer {
         p.burst('smoke', x, y, z + 1, { intensity: 2 });
         this.addTrauma(0.85);
         this.squashVelocity -= 9;
+        this.dizzy = 1.5;
+        this.cheer = 0;
         break;
       case 'jump':
         p.burst('jump', x, 0.1, z + 1.5, { intensity: 1.2 });
@@ -287,7 +295,7 @@ export class RushRenderer {
     // An idle engine shake, so the car is alive even standing on the title screen.
     car.body.position.y = Math.sin(this.time * 38) * 0.015 * (sim.speed > 1 ? 1 : 0.4);
 
-    this.wheelSpin -= (sim.speed * dt) / 0.46;
+    this.wheelSpin -= (sim.speed * dt) / car.wheelRadius;
     for (const wheel of car.wheels) wheel.rotation.x = this.wheelSpin;
 
     const flameOn = sim.nitroActive;
@@ -304,6 +312,8 @@ export class RushRenderer {
       car.turret.rotation.y = this.turretYaw;
     }
 
+    this.animateDriver(sim, dt);
+
     // Blink while invulnerable: the universal "you got hit, you're safe for a moment" signal.
     car.root.visible = sim.invulnerable <= 0 || Math.floor(this.time * 14) % 2 === 0;
 
@@ -315,6 +325,41 @@ export class RushRenderer {
     // Keep the shadow-casting light over the car so its shadow never walks off the map.
     this.sun.position.set(sim.x - 8, 18, 6);
     this.sun.target.position.set(sim.x, 0, 0);
+  }
+
+  /**
+   * The driver is the car's face: they lean into turns, bob with the engine, let their scarf
+   * stream in the wind, punch the air after a kill and see stars after a crash.
+   */
+  private animateDriver(sim: RushSim, dt: number): void {
+    const d = this.player.driver;
+    if (!d) return;
+    const t = this.time;
+    this.cheer = Math.max(0, this.cheer - dt);
+    this.dizzy = Math.max(0, this.dizzy - dt);
+    const wrecked = sim.phase === 'over';
+
+    d.head.rotation.z = -this.roll * 1.3 + (this.dizzy > 0 || wrecked ? Math.sin(t * 11) * 0.3 : 0);
+    d.head.rotation.y = this.turretYaw * 0.6;
+    d.head.position.y = 0.85 + Math.abs(Math.sin(t * 16)) * 0.03 * Math.min(sim.speed / 20, 1);
+    d.stars.visible = this.dizzy > 0 || wrecked;
+    d.stars.rotation.y = t * 6;
+
+    const wind = Math.min(sim.speed / 30, 1.4);
+    d.scarf.forEach((segment, i) => {
+      segment.rotation.x = -0.15 + Math.sin(t * (9 + wind * 8) + i * 1.3) * 0.3 * wind;
+      segment.rotation.y = Math.sin(t * 6.5 + i * 0.9) * 0.3 * wind;
+    });
+
+    const target = this.cheer > 0 ? -0.35 + Math.sin(t * 22) * 0.25 : -2.4;
+    d.arm.rotation.z += (target - d.arm.rotation.z) * (1 - Math.exp(-18 * dt));
+  }
+
+  /** Swaps the player's car. Purely cosmetic: every car shares one collision box. */
+  public setVehicle(kind: VehicleKind): void {
+    this.scene.remove(this.player.root);
+    this.player = buildVehicle(kind);
+    this.scene.add(this.player.root);
   }
 
   private drawEntities(sim: RushSim): void {
@@ -359,7 +404,7 @@ export class RushRenderer {
   }
 
   private poolKey(e: Entity): PoolKey {
-    if (e.kind === 'traffic') return `traffic${e.id % TRAFFIC_PALETTES.length}`;
+    if (e.kind === 'traffic') return `traffic${TRAFFIC_KINDS[e.id % TRAFFIC_KINDS.length]}${e.id % 6}`;
     if (e.kind === 'truck') return `truck${e.id % 3}`;
     return e.kind;
   }
@@ -388,7 +433,7 @@ export class RushRenderer {
     const actor: Actor = { root, blob, lift: 0 };
     switch (e.kind) {
       case 'traffic': {
-        const car = buildCar(TRAFFIC_PALETTES[e.id % TRAFFIC_PALETTES.length], false);
+        const car = buildTraffic(TRAFFIC_KINDS[e.id % TRAFFIC_KINDS.length], e.id);
         root.add(car.root);
         actor.car = car;
         break;
@@ -441,7 +486,7 @@ export class RushRenderer {
     switch (e.kind as EntityKind) {
       case 'traffic':
         if (actor.car) {
-          for (const w of actor.car.wheels) w.rotation.x = -(e.z / 0.46);
+          for (const w of actor.car.wheels) w.rotation.x = -(e.z / actor.car.wheelRadius);
           actor.car.body.position.y = Math.abs(Math.sin(t * 9 + e.id)) * 0.05;
         }
         break;
@@ -520,6 +565,17 @@ export class RushRenderer {
     this.cameraTarget.x += (sim.x * 0.75 - this.cameraTarget.x) * follow;
     this.cameraTarget.y += (0.4 + sim.y * 0.35 - this.cameraTarget.y) * follow;
     this.cameraTarget.z = -20;
+
+    // The title screen is a showroom: the camera sweeps around the car in close three-quarter
+    // views (never in front of it, where the road behind is unbuilt), then glides into the chase
+    // position when the run starts.
+    const inShowroom = sim.phase === 'ready' ? 1 : 0;
+    this.showroom += (inShowroom - this.showroom) * (1 - Math.exp(-2.2 * dt));
+    const a = Math.sin(this.time * 0.32) * 1.05;
+    this.orbitPosition.set(sim.x + Math.sin(a) * 7.2, 2.6, Math.cos(a) * 7.2);
+    this.orbitTarget.set(sim.x, 1.9, 0);
+    this.cameraPosition.lerp(this.orbitPosition, this.showroom);
+    this.cameraTarget.lerp(this.orbitTarget, this.showroom);
 
     // Field of view opens with speed — the cheapest, strongest speed cue there is.
     const speedT = THREE.MathUtils.clamp((sim.speed - START_SPEED) / (MAX_SPEED - START_SPEED), 0, 1);

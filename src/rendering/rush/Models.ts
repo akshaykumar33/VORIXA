@@ -10,141 +10,14 @@ import { hazardTexture, chevronTexture, crateTexture, trailerTexture } from './T
  * rounded with oversized wheels and lights: the proportions of a toy, which is what reads as
  * "cartoon" far more than any shader does.
  *
- * Builders return the parts the renderer animates (wheels to spin, a body to squash, flames to
- * flicker) alongside the root, so animation never has to search the scene graph by name.
+ * Builders return the parts the renderer animates alongside the root, so animation never has to
+ * search the scene graph by name. Cars live in `Vehicles.ts`.
  */
 
 const rounded = (w: number, h: number, d: number, r = 0.18) => new RoundedBoxGeometry(w, h, d, 3, r);
 
-export interface CarModel {
-  root: THREE.Group;
-  /** Everything above the wheels: squashed, rolled and pitched as a unit. */
-  body: THREE.Group;
-  wheels: THREE.Mesh[];
-  flames: THREE.Mesh[];
-  /** The roof blaster, turned toward the crosshair. Absent on traffic. */
-  turret: THREE.Group | null;
-}
-
-export interface CarPalette {
-  paint: number;
-  trim: number;
-  stripe: number;
-}
-
-export const PLAYER_PALETTE: CarPalette = { paint: 0xff5a36, trim: 0xffd23f, stripe: 0xfff7e0 };
-
-export const TRAFFIC_PALETTES: CarPalette[] = [
-  { paint: 0x2ec4b6, trim: 0xfff7e0, stripe: 0x1d1b33 },
-  { paint: 0xffc93c, trim: 0xff5a36, stripe: 0x1d1b33 },
-  { paint: 0x9b6bff, trim: 0xfff7e0, stripe: 0xffd23f },
-  { paint: 0xf7f3e8, trim: 0x3d8bff, stripe: 0x3d8bff },
-  { paint: 0x5ad16b, trim: 0xfff7e0, stripe: 0xfff7e0 }
-];
-
 const TYRE = 0x2b2d42;
 const GLASS = 0x9fe3ff;
-
-export function buildCar(palette: CarPalette, armed: boolean): CarModel {
-  const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
-
-  const chassis = part(rounded(1.9, 0.62, 3.8, 0.24), palette.paint, { outline: 0.06 });
-  chassis.position.y = 0.62;
-  body.add(chassis);
-
-  const cabin = part(rounded(1.5, 0.6, 1.9, 0.22), GLASS, { outline: 0.05 });
-  cabin.position.set(0, 1.15, 0.3);
-  body.add(cabin);
-
-  const roof = part(rounded(1.58, 0.16, 1.6, 0.07), palette.paint, { outline: 0.04 });
-  roof.position.set(0, 1.47, 0.34);
-  body.add(roof);
-
-  const stripe = part(new THREE.BoxGeometry(0.34, 0.04, 1.3), palette.stripe, { outline: 0, shadow: false });
-  stripe.position.set(0, 0.95, -1.15);
-  body.add(stripe);
-
-  const bumper = part(rounded(1.95, 0.24, 0.3, 0.1), palette.trim, { outline: 0.04 });
-  bumper.position.set(0, 0.42, -1.9);
-  body.add(bumper);
-  const rearBumper = bumper.clone();
-  rearBumper.position.z = 1.9;
-  body.add(rearBumper);
-
-  // Big round headlights are most of what gives a cartoon car a face.
-  const lampGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.1, 16).rotateX(Math.PI / 2);
-  for (const x of [-0.6, 0.6]) {
-    const lamp = new THREE.Mesh(lampGeometry, flat(0xfff6c8));
-    lamp.position.set(x, 0.72, -1.92);
-    outline(lamp, 0.04);
-    body.add(lamp);
-    const tail = new THREE.Mesh(lampGeometry, flat(0xff3b4e));
-    tail.position.set(x, 0.72, 1.92);
-    body.add(tail);
-  }
-
-  const spoiler = part(rounded(1.8, 0.1, 0.45, 0.04), palette.trim, { outline: 0.04 });
-  spoiler.position.set(0, 1.25, 1.75);
-  body.add(spoiler);
-  for (const x of [-0.6, 0.6]) {
-    const strut = part(new THREE.BoxGeometry(0.1, 0.3, 0.1), TYRE, { outline: 0 });
-    strut.position.set(x, 1.05, 1.75);
-    body.add(strut);
-  }
-
-  const wheels: THREE.Mesh[] = [];
-  const tyreGeometry = new THREE.CylinderGeometry(0.46, 0.46, 0.4, 18).rotateZ(Math.PI / 2);
-  const hubGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.42, 10).rotateZ(Math.PI / 2);
-  for (const [x, z] of [[-0.98, -1.2], [0.98, -1.2], [-0.98, 1.2], [0.98, 1.2]]) {
-    const wheel = part(tyreGeometry, TYRE, { outline: 0.05 });
-    const hub = new THREE.Mesh(hubGeometry, toon(palette.trim));
-    // A notch on the hub makes the spin visible; a plain disc looks stationary.
-    const notch = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.08, 0.3), toon(0xfff7e0));
-    wheel.add(hub, notch);
-    wheel.position.set(x, 0.46, z);
-    root.add(wheel);
-    wheels.push(wheel);
-  }
-
-  const flames: THREE.Mesh[] = [];
-  const flameGeometry = new THREE.ConeGeometry(0.2, 1.1, 10).rotateX(Math.PI / 2).translate(0, 0, 0.55);
-  for (const x of [-0.45, 0.45]) {
-    const flame = new THREE.Mesh(flameGeometry, flat(0xffa62b));
-    const core = new THREE.Mesh(flameGeometry, flat(0xfff3b0));
-    core.scale.setScalar(0.55);
-    flame.add(core);
-    flame.position.set(x, 0.45, 2.02);
-    flame.visible = false;
-    body.add(flame);
-    flames.push(flame);
-  }
-
-  let turret: THREE.Group | null = null;
-  if (armed) {
-    turret = new THREE.Group();
-    const base = part(new THREE.CylinderGeometry(0.34, 0.4, 0.2, 14), TYRE, { outline: 0.04 });
-    turret.add(base);
-    for (const x of [-0.16, 0.16]) {
-      const barrel = part(new THREE.CylinderGeometry(0.08, 0.08, 0.9, 8).rotateX(Math.PI / 2), 0x8a8fa8, { outline: 0.03 });
-      barrel.position.set(x, 0.14, -0.4);
-      turret.add(barrel);
-    }
-    turret.position.set(0, 1.62, 0.3);
-    body.add(turret);
-  }
-
-  root.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh && o.parent !== null && (o as THREE.Mesh).material !== undefined) {
-      // Shadows only from solid parts; lamps and flames cast none.
-      const mesh = o as THREE.Mesh;
-      if (mesh.material instanceof THREE.MeshBasicMaterial) mesh.castShadow = false;
-    }
-  });
-
-  return { root, body, wheels, flames, turret };
-}
 
 export function buildTruck(livery: string, cabColor: number): THREE.Group {
   const root = new THREE.Group();

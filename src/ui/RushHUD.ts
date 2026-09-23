@@ -165,26 +165,27 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
   inset: 0; left: 0; top: 0; transform: none; width: auto; padding: 0; background: none; box-shadow: none;
   border-radius: 0; animation: none; pointer-events: none;
 }
-#rush-hud .title .logo {
-  position: absolute; left: 50%; top: max(18px, 5vh); transform: translateX(-50%);
-  font-size: clamp(44px, min(10vw, 13vh), 96px); animation: rush-in 0.6s cubic-bezier(.3,1.5,.5,1);
+/* Logo, tagline and prompt flow in one column, so no screen height can make them collide. */
+#rush-hud .title .head {
+  position: absolute; left: 50%; top: max(14px, 4vh); transform: translateX(-50%);
+  width: min(620px, calc(100vw - 32px)); display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
+#rush-hud .title .logo { font-size: clamp(40px, min(10vw, 12vh), 96px); animation: rush-in 0.6s cubic-bezier(.3,1.5,.5,1); }
 #rush-hud .title .tagline {
-  position: absolute; left: 50%; top: calc(max(18px, 5vh) + clamp(100px, min(21vw, 28vh), 200px)); transform: translateX(-50%);
-  width: min(560px, calc(100vw - 32px)); margin: 0; color: #fff; opacity: 1;
+  margin: 0; color: #fff; opacity: 1;
   font-family: 'Lilita One', system-ui, sans-serif; font-weight: 400; font-size: clamp(16px, 2.2vw, 20px);
   -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; text-shadow: 0 3px 0 var(--ink);
 }
-#rush-hud .title .cta { position: absolute; left: 0; right: 0; top: 46%; margin: 0; font-size: clamp(20px, 3vw, 28px); }
+#rush-hud .title .cta { margin: 0; font-size: clamp(20px, 3vw, 28px); }
+/* Controls sit in a column on the right so the car, centre stage in the showroom, is never covered. */
 #rush-hud .title .controls {
-  position: absolute; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%);
-  width: min(760px, calc(100vw - 32px)); grid-template-columns: repeat(4, 1fr);
+  position: absolute; right: 16px; top: 50%; transform: translateY(-40%); width: 210px; gap: 8px;
+  grid-template-columns: 1fr;
 }
 #rush-hud .title .control { padding: 8px 10px; }
 #rush-hud .title .control h3 { font-size: 16px; }
 #rush-hud .title .control p { font-size: 11.5px; }
-#rush-hud.ready .nitro, #rush-hud.ready .devices .lanes { display: none; }
-#rush-hud.ready .devices { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 118px); }
+#rush-hud.ready .nitro, #rush-hud.ready .devices .lanes, #rush-hud.ready .score-block { display: none; }
 #rush-hud .banner {
   position: absolute; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; white-space: nowrap;
   opacity: 0; pointer-events: none;
@@ -199,6 +200,19 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
   80% { opacity: 1; transform: translateX(-50%) scale(1); }
   100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.95); }
 }
+#rush-hud .garage {
+  position: absolute; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; pointer-events: auto;
+}
+#rush-hud .garage button {
+  font: inherit; font-size: 20px; width: 40px; height: 40px; border: none; border-radius: 50%; cursor: pointer;
+  background: var(--cream); color: var(--ink); box-shadow: 0 0 0 3px var(--ink), 0 4px 0 3px var(--ink);
+}
+#rush-hud .garage button:active { transform: translateY(2px); box-shadow: 0 0 0 3px var(--ink), 0 1px 0 3px var(--ink); }
+#rush-hud .garage button:focus-visible { outline: 3px solid var(--sky); outline-offset: 4px; }
+#rush-hud .garage .car { min-width: 190px; text-align: center; }
+#rush-hud .garage .car b { display: block; font-weight: 400; font-size: 26px; color: #fff; }
+#rush-hud .garage .car small { display: block; font-size: 14px; color: var(--cream); -webkit-text-stroke: 3px var(--ink); }
 @keyframes rush-pop { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.5); } 20% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
 @keyframes rush-bump { 50% { transform: scale(1.35); } }
 @keyframes rush-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -208,9 +222,11 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   #rush-hud *, #rush-hud *::before, #rush-hud *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
-@media (max-width: 560px) {
-  #rush-hud .controls, #rush-hud .title .controls { grid-template-columns: 1fr 1fr; }
-  #rush-hud.ready .devices { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 200px); }
+@media (max-width: 900px) {
+  #rush-hud .controls { grid-template-columns: 1fr 1fr; }
+  /* No room for the column on a phone; the tagline and the chips carry the essentials. */
+  #rush-hud .title .controls { display: none; }
+  #rush-hud.ready .devices { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 76px); }
   #rush-hud .devices { bottom: 70px; }
 }
 `;
@@ -236,15 +252,22 @@ const MARKUP = `
     <div class="lanes" hidden><i></i><i></i><i></i><b></b></div>
   </div>
   <section class="card title" aria-labelledby="rush-logo">
+    <div class="head">
     <h1 class="logo toon" id="rush-logo">VORIXA<span>RUSH</span></h1>
     <p class="tagline">Dodge traffic, smash crates, blast drones. Three hearts. How far can you go?</p>
+    <div class="cta toon">Press Space, an arrow key or click to start</div>
+    </div>
     <div class="controls">
       <div class="control"><h3>Keys</h3><p>A / D or ← → change lane<br>Space jump · Shift nitro<br>J fire</p></div>
       <div class="control"><h3>Mouse</h3><p>Move to aim<br>Hold click to fire</p></div>
       <div class="control"><h3>Eyes · E</h3><p>Look at a lane to steer there<br>Hard blink: slow-mo</p></div>
       <div class="control"><h3>Hands · G</h3><p>Palm left/right steers<br>Fist jumps · pinch fires<br>Raise open hand: nitro</p></div>
     </div>
-    <div class="cta toon">Press Space, an arrow key or click to start</div>
+    <div class="garage" role="group" aria-label="Choose your car">
+      <button class="prev" type="button" aria-label="Previous car">◀</button>
+      <div class="car toon" aria-live="polite"><b>Zippy</b><small>Open-top racer · C to switch</small></div>
+      <button class="next" type="button" aria-label="Next car">▶</button>
+    </div>
   </section>
   <section class="card over" hidden aria-live="polite">
     <h2 class="logo toon" style="font-size:clamp(44px,8vw,68px)">WRECKED!</h2>
@@ -272,6 +295,8 @@ export class RushHUD {
 
   public onToggleGaze: () => void = () => {};
   public onToggleHand: () => void = () => {};
+  /** -1 or +1: the player asked for the previous or next car. */
+  public onCycleVehicle: (step: number) => void = () => {};
 
   public constructor(container: HTMLElement) {
     const style = document.createElement('style');
@@ -294,7 +319,7 @@ export class RushHUD {
       nitro: '.nitro', nitroFill: '.nitro .fill', crosshair: '.crosshair', title: '.card.title',
       over: '.card.over', record: '.record', oScore: '.o-score', oBest: '.o-best', oDist: '.o-dist',
       oKills: '.o-kills', gaze: '.chip.gaze', hand: '.chip.hand', lanes: '.lanes', laneDot: '.lanes b',
-      flash: '.flash', speed: '.speed', muted: '.muted', banner: '.banner', bannerName: '.banner b'
+      flash: '.flash', speed: '.speed', muted: '.muted', carName: '.garage .car b', carBlurb: '.garage .car small', carPrev: '.garage .prev', carNext: '.garage .next', banner: '.banner', bannerName: '.banner b'
     })) {
       this.el[key] = q(selector);
     }
@@ -310,7 +335,12 @@ export class RushHUD {
 
     // The chips are real buttons. Their presses must not also reach the game, where a mouse
     // press is "fire" and would start the race behind the player's back.
-    for (const [chip, action] of [[this.el.gaze, () => this.onToggleGaze()], [this.el.hand, () => this.onToggleHand()]] as const) {
+    for (const [chip, action] of [
+      [this.el.gaze, () => this.onToggleGaze()],
+      [this.el.hand, () => this.onToggleHand()],
+      [this.el.carPrev, () => this.onCycleVehicle(-1)],
+      [this.el.carNext, () => this.onCycleVehicle(1)]
+    ] as const) {
       chip.addEventListener('mousedown', (e) => e.stopPropagation());
       chip.addEventListener('keydown', (e) => e.stopPropagation());
       chip.addEventListener('click', (e) => {
@@ -391,6 +421,11 @@ export class RushHUD {
     p.style.animation = 'none';
     void p.offsetWidth;
     p.style.animation = '';
+  }
+
+  public setVehicle(name: string, blurb: string): void {
+    this.el.carName.textContent = name;
+    this.el.carBlurb.textContent = `${blurb} · C to switch`;
   }
 
   /** Announces a new world. */
