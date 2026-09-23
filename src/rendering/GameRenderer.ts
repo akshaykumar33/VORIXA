@@ -16,6 +16,7 @@ import {
 } from './SurfaceMaterial';
 import type { Box, Checkpoint, CourseData } from '../game/Course';
 import type { RigOutput } from '../game/CameraRig';
+import type { RivalPose } from '../game/Rivals';
 
 /**
  * Presentation layer, built on Three.js.
@@ -71,6 +72,17 @@ function clampRange(value: number, lo: number, hi: number): number {
   return value < lo ? lo : value > hi ? hi : value;
 }
 
+/**
+ * Rival craft size.
+ *
+ * Slightly larger than the ghost, so a rival ahead reads as another craft rather than as a replay
+ * of the player — the two must never be confused, since one is a route to follow and the other is
+ * traffic to avoid.
+ */
+const RIVAL_SCALE = new THREE.Vector3(1.15, 1.15, 1.15);
+/** Instance capacity for traffic. The pack may run fewer; it may never run more. */
+const MAX_RIVALS = 12;
+
 /** Depth of the wrapping dust field, in world units. One modulo period. */
 const PARTICLE_SPAN = 180;
 /** Speed, in units per second, that saturates the dust streaking effect. */
@@ -122,6 +134,13 @@ export class GameRenderer {
   private readonly startedAt = performance.now();
 
   private disposables: { dispose(): void }[] = [];
+  private rivals: THREE.InstancedMesh | null = null;
+  /** Scratch objects for writing rival instances. Reused so the frame loop never allocates. */
+  private readonly rivalMatrix = new THREE.Matrix4();
+  private readonly rivalPosition = new THREE.Vector3();
+  private readonly rivalQuaternion = new THREE.Quaternion();
+  private readonly rivalEuler = new THREE.Euler();
+  private readonly rivalColor = new THREE.Color();
   private dressingCache: DressingMaterials | null = null;
   /**
    * Dynamic resolution controller.
@@ -191,6 +210,7 @@ export class GameRenderer {
       this.buildGates(course);
     }
     this.buildGhost();
+    this.buildRivals(MAX_RIVALS);
     this.buildParticles();
 
     this.craft = new PlayerCraft({
@@ -687,6 +707,66 @@ export class GameRenderer {
    * The yaw delta is wrapped into [-PI, PI]: crossing the +/-PI seam produces a ~6.28 rad jump
    * that would otherwise snap the ghost onto its back for a frame.
    */
+  /**
+   * Builds the rival traffic mesh.
+   *
+   * One `InstancedMesh` sized to the maximum rival count, so the entire pack is a single draw
+   * call and adding traffic costs a matrix write rather than a scene-graph node.
+   *
+   * Additive and depth-write disabled: rivals are craft the player flies *through* the airspace
+   * of, and a solid opaque one would occlude the platform behind it at exactly the moment the
+   * player needs to see where they are landing. Additive also makes the fade-in free — scaling
+   * the instance colour toward black is indistinguishable from fading toward transparent.
+   */
+  private buildRivals(maxCount: number): void {
+    const geometry = createCraftSilhouette();
+    const material = new THREE.MeshBasicMaterial({
+      // White, because per-instance colour multiplies this. Tinting here would tint twice.
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+
+    this.rivals = new THREE.InstancedMesh(geometry, material, maxCount);
+    this.rivals.frustumCulled = false;
+    // Start every instance hidden: the mesh is sized for the maximum, and un-set matrices default
+    // to the identity, which would park a craft at the origin until the first update.
+    this.rivals.count = 0;
+    this.scene.add(this.rivals);
+    this.disposables.push(geometry, material);
+  }
+
+  /**
+   * Pushes the current rival poses.
+   *
+   * `count` is set to the live pose count rather than leaving unused instances parked off-screen,
+   * so the GPU never processes traffic that is not there.
+   */
+  public setRivalPoses(poses: readonly RivalPose[]): void {
+    if (!this.rivals) return;
+
+    const limit = Math.min(poses.length, this.rivals.instanceMatrix.count);
+    for (let i = 0; i < limit; i++) {
+      const pose = poses[i];
+      this.rivalPosition.set(pose.x, pose.y, pose.z);
+      // YXZ so roll is applied about the craft's own travel axis rather than the world's.
+      this.rivalEuler.set(0, pose.yaw, pose.roll, 'YXZ');
+      this.rivalQuaternion.setFromEuler(this.rivalEuler);
+      this.rivalMatrix.compose(this.rivalPosition, this.rivalQuaternion, RIVAL_SCALE);
+      this.rivals.setMatrixAt(i, this.rivalMatrix);
+      // Fade lives in the instance colour, which additive blending turns into transparency.
+      this.rivalColor.setHex(COLOR_GOAL).multiplyScalar(pose.opacity);
+      this.rivals.setColorAt(i, this.rivalColor);
+    }
+
+    this.rivals.count = limit;
+    this.rivals.instanceMatrix.needsUpdate = true;
+    if (this.rivals.instanceColor) this.rivals.instanceColor.needsUpdate = true;
+  }
+
   public setGhostPose(x: number, y: number, z: number, yaw: number): void {
     this.ghost.visible = true;
     this.ghost.position.set(x, y, z);

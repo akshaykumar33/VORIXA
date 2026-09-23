@@ -6,6 +6,7 @@ import { GameHUD } from '../ui/GameHUD';
 import { buildCourse, type Checkpoint, type CourseData } from './Course';
 import { staticCourseSource, type CourseSource } from './CourseSource';
 import { CourseStream } from '../world/CourseStream';
+import { RivalPack } from './Rivals';
 import { PlayerController, type MoveIntent, DASH_COOLDOWN } from './PlayerController';
 import { CameraRig, type RigInput } from './CameraRig';
 import { RunState } from './RunState';
@@ -43,6 +44,9 @@ const DILATION_SCALE = 0.4;
 const DILATION_DURATION = 1.6;
 /** Ease rate in and out of dilation. */
 const DILATION_EASE = 9;
+
+/** Traffic seed for the authored course. Fixed so repeat attempts face identical rivals. */
+const AUTHORED_TRAFFIC_SEED = 0x5641;
 
 /** Route-map window on an endless course, in world units either side of the player. */
 const ENDLESS_MAP_BEHIND = 60;
@@ -83,6 +87,8 @@ export class Game {
   private readonly stream: CourseStream | null = null;
   /** Whichever course shape is driving this run. */
   private readonly source: CourseSource;
+  /** Rival traffic. Present in both modes. */
+  private readonly rivalPack: RivalPack;
 
   /**
    * @param options.endlessSeed When given, the course is generated and streamed from this seed
@@ -112,6 +118,10 @@ export class Game {
     } else {
       this.source = staticCourseSource(this.course);
     }
+
+    // Traffic in both modes. The authored course gets a fixed seed so its rivals are the same
+    // every run — a time trial whose traffic reshuffles is not a fair comparison between attempts.
+    this.rivalPack = new RivalPack(options.endlessSeed ?? AUTHORED_TRAFFIC_SEED);
 
     this.run = new RunState(this.source);
 
@@ -476,6 +486,12 @@ export class Game {
     );
 
     this.audio.setSpeedWind(this.player.speed / 26);
+
+    // Traffic runs on dilated time: rivals that kept full pace through a dilation would turn the
+    // ability into a handicap, since the one thing it is for is buying you a moment on them.
+    this.renderer.setRivalPoses(
+      this.rivalPack.update(frameDelta * this.timeScale, this.player.body.z)
+    );
 
     this.renderer.setCraftState({
       speed: Math.min(this.player.speed / (MAX_GROUND_SPEED * 2.6), 1),
