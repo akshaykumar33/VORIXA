@@ -134,7 +134,8 @@
       font-weight: 700;
       letter-spacing: -0.02em;
       line-height: 1;
-      text-shadow: 0 0 24px var(--accent-glow);
+      /* Dark contact shadow first: over a bright sky, a glow alone leaves white digits on pale blue. */
+      text-shadow: 0 2px 10px rgba(8, 12, 30, 0.55), 0 0 24px var(--accent-glow);
       font-variant-numeric: tabular-nums;
     }
     .timer-meta {
@@ -286,6 +287,9 @@
       max-width: min(34rem, 60vw);
       text-align: left;
       pointer-events: none;
+      /* Own stacking context, so the ::before panel sits behind the text but above the canvas.
+         Without it, z-index: -1 dropped the panel behind the WebGL view entirely. */
+      isolation: isolate;
       transition:
         opacity var(--dur-mid) var(--ease-in),
         transform var(--dur-mid) var(--ease-in),
@@ -298,17 +302,21 @@
     }
 
     /* The scrim. Large, soft, and anchored to the corner the type occupies. */
+    /*
+     * A frosted panel rather than a soft corner scrim. The scrim only worked while the world was
+     * dark; over a bright daylight scene it left grey text on pale stone, well under WCAG contrast.
+     * The panel guarantees a dark ground for the type whatever the camera is looking at.
+     */
     #lock-prompt::before {
       content: '';
       position: absolute;
-      inset: -14vh -22vw -18vh -18vw;
+      inset: -28px -34px;
       z-index: -1;
-      background: radial-gradient(
-        ellipse at 22% 78%,
-        rgba(7, 8, 11, 0.94) 0%,
-        rgba(7, 8, 11, 0.78) 38%,
-        rgba(7, 8, 11, 0) 72%
-      );
+      background: rgba(12, 16, 32, 0.74);
+      backdrop-filter: blur(14px) saturate(1.2);
+      -webkit-backdrop-filter: blur(14px) saturate(1.2);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
       pointer-events: none;
     }
 

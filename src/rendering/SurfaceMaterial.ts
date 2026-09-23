@@ -118,19 +118,45 @@ const DETAIL_CHUNK = /* glsl */ `
 `;
 
 /**
- * Builds a standard material carrying the procedural detail above.
+ * The shared light ramp for cel shading.
  *
- * The returned material is a plain `MeshStandardMaterial` in every respect that matters to the
- * rest of the renderer — it shadows, fogs and tone-maps identically — so nothing downstream needs
- * to know it was patched.
+ * Three hard bands — shadow, mid, lit — sampled with nearest filtering so the steps stay crisp.
+ * This is the whole of the "toon" look: where a physically based material fades smoothly from lit
+ * to shadowed, this snaps between flat tones, which is what makes simple geometry read as a drawn
+ * style rather than as untextured boxes. Award-winning browser games like Messenger get their look
+ * from exactly this, not from polygon count.
+ *
+ * One texture for every surface, so the whole world shares a single lighting language.
  */
-export function createSurfaceMaterial(params: SurfaceParams): THREE.MeshStandardMaterial {
+let toonRamp: THREE.DataTexture | null = null;
+
+function rampTexture(): THREE.DataTexture {
+  if (!toonRamp) {
+    // Shadow tone deliberately well above black: cel-shaded worlds keep shadows coloured and
+    // readable, and a near-black band would bring back the dark, heavy look this replaces.
+    const bands = new Uint8Array([120, 190, 255]);
+    toonRamp = new THREE.DataTexture(bands, bands.length, 1, THREE.RedFormat);
+    toonRamp.minFilter = THREE.NearestFilter;
+    toonRamp.magFilter = THREE.NearestFilter;
+    toonRamp.generateMipmaps = false;
+    toonRamp.needsUpdate = true;
+  }
+  return toonRamp;
+}
+
+/**
+ * Builds a cel-shaded material carrying the procedural detail above.
+ *
+ * `MeshToonMaterial` exposes the same shader hooks as the standard material — `normal`,
+ * `vViewPosition`, `diffuseColor` and `totalEmissiveRadiance` all exist at the injection point —
+ * so panel lines, rim light and pulses carry over unchanged. `roughness` and `metalness` are
+ * accepted for compatibility and ignored: a toon surface has no specular model to feed.
+ */
+export function createSurfaceMaterial(params: SurfaceParams): THREE.MeshToonMaterial {
   const {
     color,
     emissive = 0x000000,
     emissiveIntensity = 0,
-    roughness = 0.8,
-    metalness = 0.05,
     panelScale = 4,
     panelStrength = 1,
     rim,
@@ -140,12 +166,11 @@ export function createSurfaceMaterial(params: SurfaceParams): THREE.MeshStandard
     pulseStrength = 0
   } = params;
 
-  const material = new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshToonMaterial({
     color,
     emissive,
     emissiveIntensity,
-    roughness,
-    metalness
+    gradientMap: rampTexture()
   });
 
   const time: THREE.IUniform<number> = { value: 0 };

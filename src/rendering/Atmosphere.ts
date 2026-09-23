@@ -20,8 +20,12 @@ import * as THREE from 'three';
  * scale with course length.
  */
 
-/** Rendered behind everything; large enough that the player never approaches its shell. */
-const SKY_RADIUS = 900;
+/**
+ * Rendered behind everything, and it must sit *inside* the camera far plane (400). It was 900 for a
+ * long time, which clipped the entire dome: the sky gradient never drew, and the black behind it
+ * passed for a night sky until the world turned to daylight and the sky stayed black.
+ */
+const SKY_RADIUS = 360;
 /**
  * The paddock floor.
  *

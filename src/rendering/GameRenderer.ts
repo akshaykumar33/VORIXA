@@ -36,6 +36,20 @@ import type { RivalPose } from '../game/Rivals';
  */
 
 /*
+ * Art direction: a bright, cel-shaded daylight world.
+ *
+ * The previous look was dark neon on grey boxes, which reads as a tech demo — the eye has nothing
+ * to hold on to and every primitive looks like exactly what it is. Award-winning browser games
+ * make the opposite choice: Messenger (Abeto) is built largely from simple shapes and wins on
+ * cel shading, ink outlines and a warm, saturated palette. Style, not polygon count, is what turns
+ * a box into a deliberate object.
+ *
+ * The functional colour language is kept — each surface still says what it wants you to do — but
+ * moved into a lit, readable world:
+ *   cream stone = stand on it · teal = run along it · amber = slide under it · lime = go faster
+ *
+ * Earlier palette notes, still true in spirit:
+ *
  * World palette, sharing the interface's tokens so the 3D scene and the HUD read as one product.
  *
  * The previous scheme made structure cyan — which meant the brightest, most saturated colour in
@@ -45,17 +59,21 @@ import type { RivalPose } from '../game/Rivals';
  * lights the course up as you take it.
  */
 /** Structure: walls, run surfaces, particles, unpassed gates. Cool and deliberately quiet. */
-const COLOR_ACCENT = 0x7d93ab;
+const COLOR_ACCENT = 0x2f7fe0;
 /** Slide under it. */
-const COLOR_WARN = 0xffab1f;
+const COLOR_WARN = 0xffa62b;
 /** Hazard. The only warm-red in the scene, so it never has to compete to be understood. */
-const COLOR_BAD = 0xff4d5e;
+const COLOR_BAD = 0xff4a5c;
 /** Signal: goal, passed gates, boost. The only chroma in the scene that earns attention. */
-const COLOR_GOAL = 0xd6ff45;
+const COLOR_GOAL = 0xb8f23c;
 /** Sky. Zenith is near-void so the course still reads against it; the horizon carries the light. */
-const COLOR_ZENITH = 0x05060a;
-const COLOR_HORIZON = 0x131b2a;
-const COLOR_GROUND = 0x090b11;
+const COLOR_ZENITH = 0x3f8ff0;
+const COLOR_HORIZON = 0xffd6a8;
+const COLOR_GROUND = 0x7cb86a;
+/** Grid lines on the ground: a darker green, so the grid reads as field markings, not neon. */
+const COLOR_GROUND_LINES = 0x3e7a3a;
+/** Outline ink. Not black: a deep blue-violet keeps lines crisp without looking like a wireframe. */
+const COLOR_INK = 0x1c1f3a;
 
 /** Shadows follow the player rather than covering 200 m of course at unusable resolution. */
 const SHADOW_EXTENT = 34;
@@ -86,6 +104,9 @@ function clampRange(value: number, lo: number, hi: number): number {
 const RIVAL_SCALE = new THREE.Vector3(1.15, 1.15, 1.15);
 /** Instance capacity for traffic. The pack may run fewer; it may never run more. */
 const MAX_RIVALS = 12;
+
+/** Outline thickness in world units. Thick enough to read at 60 m, thin enough not to cartoonify. */
+const INK_THICKNESS = 0.06;
 
 /** Follow-camera tracking rate, per second. Higher is tighter. */
 const FOLLOW_RATE = 9;
@@ -170,6 +191,8 @@ export class GameRenderer {
   private readonly rivalEuler = new THREE.Euler();
   private readonly rivalColor = new THREE.Color();
   private dressingCache: DressingMaterials | null = null;
+  /** Shared outline material. One for the whole world, so every contour is the same ink. */
+  private ink: THREE.MeshBasicMaterial | null = null;
   /**
    * Dynamic resolution controller.
    *
@@ -211,13 +234,13 @@ export class GameRenderer {
     // light's radius instead.
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.0;
 
     this.scene = new THREE.Scene();
     // No flat background colour: the sky dome below draws it, with a gradient and a horizon.
     // Fog is tinted toward the horizon rather than the void so geometry recedes *into the sky*
     // instead of dissolving into a black hole in the middle of it.
-    this.scene.fog = new THREE.Fog(COLOR_HORIZON, 55, 260);
+    this.scene.fog = new THREE.Fog(COLOR_HORIZON, 130, 380);
 
     this.camera = new THREE.PerspectiveCamera(88, 1, 0.1, 400);
     // YXZ is the first-person order: yaw, then pitch, then roll about the view axis.
@@ -227,7 +250,7 @@ export class GameRenderer {
       zenith: COLOR_ZENITH,
       horizon: COLOR_HORIZON,
       ground: COLOR_GROUND,
-      accent: COLOR_GOAL
+      accent: COLOR_GROUND_LINES
     });
     this.atmosphere.addTo(this.scene);
     this.disposables.push(this.atmosphere);
@@ -271,7 +294,7 @@ export class GameRenderer {
     composer.addPass(new RenderPass(this.scene, this.camera));
     // Bloom is what makes the neon read as light rather than as paint. Kept restrained: a high
     // threshold means only the emissive accents bloom, not the whole scene.
-    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.62, 0.5, 0.72);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.32, 0.4, 0.96);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
     this.composer = composer;
@@ -283,10 +306,10 @@ export class GameRenderer {
   }
 
   private buildLighting(): void {
-    const hemi = new THREE.HemisphereLight(0x6f8ec0, 0x0a0c10, 1.1);
+    const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x8a7550, 0.95);
     this.scene.add(hemi);
 
-    this.sun = new THREE.DirectionalLight(0xdfe9ff, 2.1);
+    this.sun = new THREE.DirectionalLight(0xfff0d4, 1.9);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const cam = this.sun.shadow.camera;
@@ -305,9 +328,9 @@ export class GameRenderer {
     switch (kind) {
       case 'ceiling':
         return createSurfaceMaterial({
-          color: 0x241d12,
+          color: 0xffc46b,
           emissive: COLOR_WARN,
-          emissiveIntensity: 0.22,
+          emissiveIntensity: 0.05,
           roughness: 0.7,
           // Tighter panels overhead: the ceiling is passed at speed and close range, so a coarse
           // grid would read as one flat plane going by.
@@ -317,9 +340,9 @@ export class GameRenderer {
         });
       case 'wall':
         return createSurfaceMaterial({
-          color: 0x141a23,
+          color: 0x3cc0ad,
           emissive: COLOR_ACCENT,
-          emissiveIntensity: 0.22,
+          emissiveIntensity: 0.05,
           roughness: 0.55,
           panelScale: 5,
           // Walls are what you run along, so the rim is strong — it makes the runnable edge
@@ -337,9 +360,9 @@ export class GameRenderer {
         });
       case 'boost':
         return createSurfaceMaterial({
-          color: 0x1a2410,
+          color: 0xb8f23c,
           emissive: COLOR_GOAL,
-          emissiveIntensity: 0.85,
+          emissiveIntensity: 0.35,
           roughness: 0.25,
           metalness: 0.8,
           panelScale: 2.5,
@@ -351,9 +374,9 @@ export class GameRenderer {
         });
       case 'jump_pad':
         return createSurfaceMaterial({
-          color: 0x2a1d06,
+          color: 0xff8c3a,
           emissive: COLOR_WARN,
-          emissiveIntensity: 1.0,
+          emissiveIntensity: 0.3,
           roughness: 0.25,
           metalness: 0.8,
           panelScale: 2.0,
@@ -365,9 +388,9 @@ export class GameRenderer {
         });
       case 'hazard':
         return createSurfaceMaterial({
-          color: 0x2e0c10,
+          color: 0xff5a6a,
           emissive: COLOR_BAD,
-          emissiveIntensity: 0.9,
+          emissiveIntensity: 0.3,
           roughness: 0.35,
           metalness: 0.4,
           panelScale: 1.6,
@@ -382,7 +405,7 @@ export class GameRenderer {
         // wide panels for scale, a faint cool rim to give the slab an edge, nothing that competes
         // with the surfaces that actually mean something.
         return createSurfaceMaterial({
-          color: 0x161c27,
+          color: 0xd8ccb1,
           roughness: 0.88,
           metalness: 0.04,
           panelScale: 6,
@@ -393,15 +416,6 @@ export class GameRenderer {
     }
   }
 
-  private edgeColorFor(kind: Box['kind']): number {
-    if (kind === 'ceiling') return COLOR_WARN;
-    if (kind === 'goal') return COLOR_GOAL;
-    // Boost is a reward, so it carries the signal colour rather than blending into structure.
-    if (kind === 'boost') return COLOR_GOAL;
-    if (kind === 'jump_pad') return 0xffdd00;
-    if (kind === 'hazard') return 0xff0033;
-    return COLOR_ACCENT;
-  }
 
   private buildParticles(): void {
     const count = 400;
@@ -503,6 +517,48 @@ export class GameRenderer {
    * within their kind — pure cost for no difference on screen. Sharing also means a tuning change
    * to a kind takes effect everywhere at once.
    */
+  /**
+   * A cel-shading outline for one box, drawn as an inverted hull.
+   *
+   * The earlier outlines were `LineSegments`, and WebGL draws lines one pixel wide on every
+   * platform that matters. At a distance they vanished; up close they read as hairline glitches
+   * crossing the floor. Cel-shaded games draw contours the other way: a slightly larger copy of the
+   * shape, rendered back faces only in flat ink, so only the rim that sticks out past the object
+   * shows.
+   *
+   * For a box the thickness can be exact. Scaling each axis by (size + 2t) / size grows every face
+   * outward by the same world distance, where a uniform scale would give thin outlines on the long
+   * sides and fat ones on the short. The geometry is shared with the box — only the transform
+   * differs — so each outline costs a draw call and no memory.
+   */
+  private inkHull(
+    geometry: THREE.BufferGeometry,
+    source: THREE.Mesh,
+    w: number,
+    h: number,
+    d: number
+  ): THREE.Mesh {
+    const hull = new THREE.Mesh(geometry, this.inkMaterial());
+    hull.position.copy(source.position);
+    hull.scale.set(
+      (w + INK_THICKNESS * 2) / Math.max(w, 1e-3),
+      (h + INK_THICKNESS * 2) / Math.max(h, 1e-3),
+      (d + INK_THICKNESS * 2) / Math.max(d, 1e-3)
+    );
+    // Never casts: a shadow from the outline would double every shadow in the scene.
+    hull.castShadow = false;
+    hull.receiveShadow = false;
+    return hull;
+  }
+
+  private inkMaterial(): THREE.MeshBasicMaterial {
+    if (!this.ink) {
+      this.ink = new THREE.MeshBasicMaterial({ color: COLOR_INK, side: THREE.BackSide });
+      this.disposables.push(this.ink);
+    }
+    return this.ink;
+  }
+
   private sharedMaterialFor(kind: Box['kind']): THREE.Material {
     const existing = this.materialCache.get(kind);
     if (existing) return existing;
@@ -533,16 +589,7 @@ export class GameRenderer {
 
       // Outlined edges are not decoration: at speed, an unlit platform lip is invisible, and
       // players fall off things they never saw the boundary of.
-      const edges = new THREE.EdgesGeometry(geometry);
-      const lineMaterial = new THREE.LineBasicMaterial({
-        color: this.edgeColorFor(box.kind),
-        transparent: true,
-        opacity: box.kind === 'platform' ? 0.32 : 0.75
-      });
-      const line = new THREE.LineSegments(edges, lineMaterial);
-      line.position.copy(mesh.position);
-      this.scene.add(line);
-      this.disposables.push(edges, lineMaterial);
+      if (box.kind !== 'goal') this.scene.add(this.inkHull(geometry, mesh, w, h, d));
     }
 
     this.buildStructures(course);
@@ -586,16 +633,7 @@ export class GameRenderer {
       group.add(mesh);
       owned.push(geometry);
 
-      const edges = new THREE.EdgesGeometry(geometry);
-      const lineMaterial = new THREE.LineBasicMaterial({
-        color: this.edgeColorFor(box.kind),
-        transparent: true,
-        opacity: box.kind === 'platform' ? 0.32 : 0.75
-      });
-      const line = new THREE.LineSegments(edges, lineMaterial);
-      line.position.copy(mesh.position);
-      group.add(line);
-      owned.push(edges, lineMaterial);
+      if (box.kind !== 'goal') group.add(this.inkHull(geometry, mesh, w, h, d));
     }
 
     const structures = buildCourseStructures(boxes, this.sharedMaterialFor('platform'));
@@ -645,11 +683,11 @@ export class GameRenderer {
    */
   private dressingMaterials(): DressingMaterials {
     if (!this.dressingCache) {
-      const tower = new THREE.MeshBasicMaterial({ color: 0x161d29 });
+      const tower = createSurfaceMaterial({ color: 0xb9cde6, panelScale: 6, panelStrength: 0.6, rimStrength: 0.15 });
       const beacon = new THREE.MeshBasicMaterial({ color: COLOR_GOAL });
       // Darker than the towers and unaffected by fog: a monolith that fades into the horizon is
       // not a horizon occupant, it is a smudge.
-      const monolith = new THREE.MeshBasicMaterial({ color: 0x0d121b, fog: true });
+      const monolith = new THREE.MeshToonMaterial({ color: 0x93acd0 });
       this.dressingCache = { tower, beacon, monolith };
       this.disposables.push(tower, beacon, monolith);
     }
