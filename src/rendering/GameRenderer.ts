@@ -7,6 +7,7 @@ import { Atmosphere } from './Atmosphere';
 import { GateMaterial } from './GateMaterial';
 import { createCraftSilhouette, PlayerCraft, type CraftState } from './PlayerCraft';
 import { buildCourseStructures } from './CourseStructures';
+import { buildSetDressing, type DressingMaterials } from './SetDressing';
 import {
   createSurfaceMaterial,
   resetSurfaceMaterials,
@@ -120,6 +121,7 @@ export class GameRenderer {
   private readonly startedAt = performance.now();
 
   private disposables: { dispose(): void }[] = [];
+  private dressingCache: DressingMaterials | null = null;
   /** One material per surface kind, shared by every box of that kind. */
   private readonly materialCache = new Map<Box['kind'], THREE.Material>();
   /** Streamed segments, keyed by index. Each owns exactly the buffers it created. */
@@ -482,7 +484,13 @@ export class GameRenderer {
    * Materials are *not* disposed here. They are shared across every segment by kind, so a segment
    * that disposed its own materials would black out the rest of the course on its way out.
    */
-  public addCourseSegment(index: number, boxes: readonly Box[], checkpoint: Checkpoint): void {
+  public addCourseSegment(
+    index: number,
+    boxes: readonly Box[],
+    checkpoint: Checkpoint,
+    /** Present for streamed segments; the authored course is dressed separately. */
+    dressing?: { seed: number; minZ: number; maxZ: number }
+  ): void {
     if (this.segmentNodes.has(index)) return;
 
     const group = new THREE.Group();
@@ -520,6 +528,18 @@ export class GameRenderer {
     if (structures.skirts) group.add(structures.skirts);
     owned.push(structures);
 
+    if (dressing) {
+      const dressed = buildSetDressing(
+        dressing.seed,
+        index,
+        dressing.minZ,
+        dressing.maxZ,
+        this.dressingMaterials()
+      );
+      for (const mesh of dressed.meshes) group.add(mesh);
+      owned.push(dressed);
+    }
+
     // Segment 0's checkpoint is the start line, which is not a gate to fly through.
     let gate: GateMaterial | null = null;
     if (checkpoint.index > 0) {
@@ -535,6 +555,30 @@ export class GameRenderer {
 
     this.scene.add(group);
     this.segmentNodes.set(index, { group, owned, gate });
+  }
+
+  /**
+   * Materials for set dressing, built once and shared by every segment.
+   *
+   * Created lazily rather than in `initialize` so the authored course never pays for materials it
+   * has no decoration to use.
+   *
+   * Towers are unlit on purpose: they sit outside the shadow cascade and well into the fog, where
+   * a standard material's lighting contributes nothing visible while still costing a full PBR
+   * evaluation per fragment. A flat colour that the fog then tints is both cheaper and, at that
+   * distance, indistinguishable.
+   */
+  private dressingMaterials(): DressingMaterials {
+    if (!this.dressingCache) {
+      const tower = new THREE.MeshBasicMaterial({ color: 0x161d29 });
+      const beacon = new THREE.MeshBasicMaterial({ color: COLOR_GOAL });
+      // Darker than the towers and unaffected by fog: a monolith that fades into the horizon is
+      // not a horizon occupant, it is a smudge.
+      const monolith = new THREE.MeshBasicMaterial({ color: 0x0d121b, fog: true });
+      this.dressingCache = { tower, beacon, monolith };
+      this.disposables.push(tower, beacon, monolith);
+    }
+    return this.dressingCache;
   }
 
   /** Evicts a streamed segment, releasing every buffer it owns. */

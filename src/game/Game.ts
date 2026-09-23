@@ -122,12 +122,6 @@ export class Game {
   }
 
   /**
-   * Pushes the streamer's latest window into the renderer.
-   *
-   * Removals run before additions so a segment index being replaced releases its buffers before
-   * the new one allocates, which keeps the peak lower than the steady state rather than higher.
-   */
-  /**
    * What the route map should show.
    *
    * A finite course maps its whole length, because "how much is left?" has an answer. An endless
@@ -157,11 +151,21 @@ export class Game {
     };
   }
 
+  /**
+   * Pushes the streamer's latest window into the renderer.
+   *
+   * Removals run before additions so a segment index being replaced releases its buffers before
+   * the new one allocates, which keeps the peak lower than the steady state rather than higher.
+   */
   private syncStreamedGeometry(): void {
     if (!this.stream) return;
     for (const segment of this.stream.removed) this.renderer.removeCourseSegment(segment.index);
     for (const segment of this.stream.added) {
-      this.renderer.addCourseSegment(segment.index, segment.boxes, segment.checkpoint);
+      this.renderer.addCourseSegment(segment.index, segment.boxes, segment.checkpoint, {
+        seed: segment.seed,
+        minZ: segment.minZ,
+        maxZ: segment.maxZ
+      });
     }
   }
 

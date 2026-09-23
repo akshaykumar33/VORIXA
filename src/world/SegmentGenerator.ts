@@ -74,6 +74,8 @@ function rails(halfWidth: number, z0: number, z1: number): Box[] {
 
 export interface Segment {
   readonly index: number;
+  /** The world seed this came from, so downstream decoration stays tied to the same world. */
+  readonly seed: number;
   readonly boxes: readonly Box[];
   /** One checkpoint per segment, placed on the entry connector. */
   readonly checkpoint: Checkpoint;
@@ -142,6 +144,7 @@ export function generateSegment(seed: number, index: number): Segment {
 
   return {
     index,
+    seed,
     boxes,
     checkpoint: {
       index,
