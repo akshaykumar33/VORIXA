@@ -294,8 +294,14 @@ export class Game {
     if (this.input.isJustPressed(InputAction.GESTURE_TOGGLE)) void this.toggleGesture();
     if (this.input.isJustPressed(InputAction.GAZE_TOGGLE)) void this.toggleGaze();
     if (this.input.isJustPressed(InputAction.TIME_DILATE)) this.triggerDilation();
+    if (this.input.isJustPressed(InputAction.MUTE_TOGGLE)) {
+      this.hud.setMuted(this.audio.toggleMute());
+    }
 
     this.updateDilation(frameDelta);
+    // Audio follows the simulation clock. Slow motion with a full-bandwidth mix reads as a bug —
+    // the world crawls while the soundtrack carries on, and the brain trusts its ears.
+    this.audio.setDilation((1 - this.timeScale) / (1 - DILATION_SCALE));
 
     // The simulation runs on dilated time; the run clock does not. Slowing the world is a
     // precision aid that costs you real seconds, not a way to buy a better time — if the clock

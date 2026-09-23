@@ -32,6 +32,7 @@ export class GameHUD {
   private deltaEl: HTMLElement | null = null;
   private speedEl: HTMLElement | null = null;
   private checkpointEl: HTMLElement | null = null;
+  private mutedEl: HTMLElement | null = null;
   private dashEl: HTMLElement | null = null;
   private stateEl: HTMLElement | null = null;
   private lockPromptEl: HTMLElement | null = null;
@@ -54,6 +55,7 @@ export class GameHUD {
     this.deltaEl = byId('hud-delta');
     this.speedEl = byId('hud-speed');
     this.checkpointEl = byId('hud-checkpoint');
+    this.mutedEl = byId('hud-muted');
     this.dashEl = byId('hud-dash');
     this.stateEl = byId('hud-state');
     this.lockPromptEl = byId('lock-prompt');
@@ -62,6 +64,19 @@ export class GameHUD {
     this.finishTimeEl = byId('finish-time');
     this.finishNoteEl = byId('finish-note');
     this.speedLinesEl = byId('speed-lines');
+  }
+
+  /**
+   * Shows or hides the muted badge.
+   *
+   * Called on change rather than every frame: this is one of the few HUD values that is not a
+   * per-frame number, and toggling `hidden` at 120 Hz would thrash the accessibility tree that
+   * `aria-live` depends on.
+   */
+  public setMuted(muted: boolean): void {
+    const el = this.mutedEl;
+    if (!el) return;
+    if (el.hidden !== !muted) el.hidden = !muted;
   }
 
   private setText(el: HTMLElement | null, text: string): void {

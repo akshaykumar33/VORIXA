@@ -1,8 +1,27 @@
+/** Where the mute preference lives. A setting that forgets itself is not a setting. */
+const MUTE_KEY = 'vorixa.audio.muted';
+/** Master level when audible. */
+const MASTER_LEVEL = 0.65;
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private isUnlocked: boolean = false;
+
+  private muted = false;
+  /** True while the tab is hidden. Separate from `muted` so the two cannot clobber each other. */
+  private ducked = false;
+  private visibilityHandler: (() => void) | null = null;
+
+  /**
+   * Time-dilation filter.
+   *
+   * Slow motion without audio treatment reads as a bug: the world crawls while the soundtrack
+   * carries on at full pace, and the brain trusts its ears. Rolling the whole bus off at the top
+   * end is what makes dilation feel like an effect rather than a frame-rate problem.
+   */
+  private dilationFilter: BiquadFilterNode | null = null;
 
   // Speed wind procedural synth
   private windNoiseSource: AudioBufferSourceNode | null = null;
@@ -25,12 +44,105 @@ export class AudioEngine {
       this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
 
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(0.65, this.ctx.currentTime);
 
-      this.compressor.connect(this.masterGain);
+      // Everything runs through the dilation filter before the master, so a single node treats
+      // the whole mix rather than each voice having to know about slow motion.
+      this.dilationFilter = this.ctx.createBiquadFilter();
+      this.dilationFilter.type = 'lowpass';
+      this.dilationFilter.frequency.setValueAtTime(20000, this.ctx.currentTime);
+      this.dilationFilter.Q.setValueAtTime(0.7, this.ctx.currentTime);
+
+      this.compressor.connect(this.dilationFilter);
+      this.dilationFilter.connect(this.masterGain);
       this.masterGain.connect(this.ctx.destination);
+
+      this.muted = this.loadMutePreference();
+      this.applyMasterLevel(0);
+      this.watchVisibility();
     } catch {
       this.ctx = null;
+    }
+  }
+
+  private loadMutePreference(): boolean {
+    try {
+      return window.localStorage.getItem(MUTE_KEY) === '1';
+    } catch {
+      // Private browsing and blocked storage both throw here. A missing preference is not worth
+      // failing audio over.
+      return false;
+    }
+  }
+
+  /**
+   * Suspends audio while the tab is hidden.
+   *
+   * A game left in a background tab otherwise keeps its wind loop running indefinitely, which is
+   * both rude and a steady drain. Suspending the context stops the audio thread outright rather
+   * than merely turning the volume down.
+   */
+  private watchVisibility(): void {
+    if (typeof document === 'undefined' || this.visibilityHandler) return;
+    this.visibilityHandler = () => {
+      this.ducked = document.hidden;
+      if (!this.ctx) return;
+      if (document.hidden) {
+        void this.ctx.suspend();
+      } else if (this.isUnlocked) {
+        void this.ctx.resume();
+      }
+      this.applyMasterLevel(0.05);
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+
+  /** Ramps rather than steps: an instant gain change on a running signal is an audible click. */
+  private applyMasterLevel(rampSeconds: number): void {
+    if (!this.ctx || !this.masterGain) return;
+    const target = this.muted || this.ducked ? 0 : MASTER_LEVEL;
+    const now = this.ctx.currentTime;
+    this.masterGain.gain.cancelScheduledValues(now);
+    this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
+    this.masterGain.gain.linearRampToValueAtTime(target, now + Math.max(rampSeconds, 0.001));
+  }
+
+  public get isMuted(): boolean {
+    return this.muted;
+  }
+
+  /** @returns the new muted state, so callers can update a label without re-reading. */
+  public toggleMute(): boolean {
+    this.muted = !this.muted;
+    this.applyMasterLevel(0.08);
+    try {
+      window.localStorage.setItem(MUTE_KEY, this.muted ? '1' : '0');
+    } catch {
+      // Preference simply will not persist. Not worth surfacing to the player mid-run.
+    }
+    return this.muted;
+  }
+
+  /**
+   * Rolls the mix off during time dilation.
+   *
+   * @param amount 0 for normal, 1 for fully dilated.
+   */
+  public setDilation(amount: number): void {
+    if (!this.ctx || !this.dilationFilter) return;
+    const clamped = amount < 0 ? 0 : amount > 1 ? 1 : amount;
+    // Exponential in frequency, because pitch perception is logarithmic — a linear sweep spends
+    // most of its travel in a range the ear barely registers.
+    const cutoff = 20000 * Math.pow(420 / 20000, clamped);
+    const now = this.ctx.currentTime;
+    this.dilationFilter.frequency.cancelScheduledValues(now);
+    this.dilationFilter.frequency.setTargetAtTime(cutoff, now, 0.08);
+  }
+
+  /** Releases the visibility listener. */
+  public dispose(): void {
+    if (this.visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
     }
   }
 

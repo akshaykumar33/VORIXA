@@ -9,6 +9,7 @@ export enum InputAction {
   RESTART = 'RESTART',
   GESTURE_TOGGLE = 'GESTURE_TOGGLE',
   GAZE_TOGGLE = 'GAZE_TOGGLE',
+  MUTE_TOGGLE = 'MUTE_TOGGLE',
   LOOK_X = 'LOOK_X',
   LOOK_Y = 'LOOK_Y',
   /** Open-palm deceleration. Analog 0–1, so easing off is not a binary stop. */
