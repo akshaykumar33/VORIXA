@@ -276,6 +276,7 @@ export class Game {
       this.recorder.start();
     }
     this.rig.reset(this.rigInput(0));
+    this.renderer.snapCamera();
   }
 
   public start(): void {
@@ -506,6 +507,7 @@ export class Game {
       const spot = this.run.respawn;
       this.player.reset(spot.x, spot.y, spot.z);
       this.rig.reset(this.rigInput(0));
+      this.renderer.snapCamera();
       this.audio.playSoundEffect(150, 0.22, 'sawtooth');
     }
 
@@ -579,6 +581,18 @@ export class Game {
     this.renderer.setRivalPoses(
       this.rivalPack.update(frameDelta * this.timeScale, this.player.body.z)
     );
+
+    // The runner the third-person camera follows. Body position is the feet, per the rig's own
+    // contract, so the model stands on the floor rather than hovering at eye height.
+    this.renderer.setAvatarPose({
+      x: this.player.body.x,
+      y: this.player.body.y,
+      z: this.player.body.z,
+      yaw: this.look.yaw,
+      speed: this.player.speed,
+      grounded: this.player.grounded,
+      sliding: this.player.sliding
+    });
 
     this.renderer.setCraftState({
       speed: Math.min(this.player.speed / (MAX_GROUND_SPEED * 2.6), 1),

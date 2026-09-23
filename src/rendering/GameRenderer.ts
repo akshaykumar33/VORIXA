@@ -11,6 +11,8 @@ import { buildSetDressing, type DressingMaterials } from './SetDressing';
 import { ResolutionScaler } from './ResolutionScaler';
 import { SpectatorCrowd } from './Spectators';
 import { PropScatter } from './Props';
+import { PlayerAvatar, type AvatarPose } from './PlayerAvatar';
+import { DEFAULT_FOLLOW, followCamera, smoothToward } from './ThirdPerson';
 import {
   createSurfaceMaterial,
   resetSurfaceMaterials,
@@ -85,6 +87,9 @@ const RIVAL_SCALE = new THREE.Vector3(1.15, 1.15, 1.15);
 /** Instance capacity for traffic. The pack may run fewer; it may never run more. */
 const MAX_RIVALS = 12;
 
+/** Follow-camera tracking rate, per second. Higher is tighter. */
+const FOLLOW_RATE = 9;
+
 /** Depth of the wrapping dust field, in world units. One modulo period. */
 const PARTICLE_SPAN = 180;
 /** Speed, in units per second, that saturates the dust streaking effect. */
@@ -138,6 +143,23 @@ export class GameRenderer {
   private disposables: { dispose(): void }[] = [];
   private readonly crowd = new SpectatorCrowd();
   private readonly props = new PropScatter();
+  private readonly avatar = new PlayerAvatar();
+  /**
+   * Third-person follow camera, on by default.
+   *
+   * First-person never showed a character, so most of every frame was floor — the main reason the
+   * world read as geometry rather than a place. Gameplay still runs in eye space; only the view
+   * moves. First person remains available for players who prefer it.
+   */
+  public thirdPerson = true;
+  private readonly avatarPose: AvatarPose = {
+    x: 0, y: 0, z: 0, yaw: 0, speed: 0, grounded: true, sliding: false
+  };
+  /** Scratch vectors for the follow camera, reused so the frame loop never allocates. */
+  private readonly followPosition = { x: 0, y: 0, z: 0 };
+  private readonly followTarget = { x: 0, y: 0, z: 0 };
+  private readonly smoothedCamera = new THREE.Vector3();
+  private cameraPrimed = false;
   /** Seed for spectator placement, set before initialize so the crowd matches the world. */
   public crowdSeed = 1;
   private rivals: THREE.InstancedMesh | null = null;
@@ -237,6 +259,13 @@ export class GameRenderer {
     this.scene.add(this.props.object);
     void this.props.load(this.crowdSeed);
     this.disposables.push(this.props);
+
+    this.scene.add(this.avatar.object);
+    void this.avatar.load();
+    this.disposables.push(this.avatar);
+    // The cockpit frame is a first-person device; seen from behind it would float in front of the
+    // camera with nothing attached to it.
+    this.craft.hull.visible = !this.thirdPerson;
 
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
@@ -854,6 +883,51 @@ export class GameRenderer {
   }
 
   /**
+   * Positions the follow camera behind the runner.
+   *
+   * Position is smoothed and the aim is not. Smoothing both makes the camera drift off the line
+   * the player is steering along; smoothing neither makes every landing and wall-kick jolt the
+   * whole frame. Lagging the body while aiming true reads as a camera operator keeping up.
+   *
+   * The first frame snaps rather than easing in, or every run opens with the camera sweeping in
+   * from the world origin.
+   */
+  private placeFollowCamera(rig: RigOutput, dt: number): void {
+    followCamera(rig, rig.yaw, rig.pitch, DEFAULT_FOLLOW, this.followPosition, this.followTarget);
+
+    if (!this.cameraPrimed) {
+      this.smoothedCamera.set(this.followPosition.x, this.followPosition.y, this.followPosition.z);
+      this.cameraPrimed = true;
+    } else {
+      this.smoothedCamera.x = smoothToward(this.smoothedCamera.x, this.followPosition.x, FOLLOW_RATE, dt);
+      this.smoothedCamera.y = smoothToward(this.smoothedCamera.y, this.followPosition.y, FOLLOW_RATE, dt);
+      this.smoothedCamera.z = smoothToward(this.smoothedCamera.z, this.followPosition.z, FOLLOW_RATE, dt);
+    }
+
+    this.camera.position.copy(this.smoothedCamera);
+    this.camera.lookAt(this.followTarget.x, this.followTarget.y, this.followTarget.z);
+    // Keep a little of the rig's roll so wall-runs and banks still tilt the world.
+    this.camera.rotateZ(rig.roll * 0.5);
+  }
+
+  /** Pushes the runner's pose. Copied in place so the render loop stays allocation-free. */
+  public setAvatarPose(pose: AvatarPose): void {
+    const p = this.avatarPose;
+    p.x = pose.x;
+    p.y = pose.y;
+    p.z = pose.z;
+    p.yaw = pose.yaw;
+    p.speed = pose.speed;
+    p.grounded = pose.grounded;
+    p.sliding = pose.sliding;
+  }
+
+  /** Re-snaps the camera, for respawns — easing across a teleport reads as a camera fly-through. */
+  public snapCamera(): void {
+    this.cameraPrimed = false;
+  }
+
+  /**
    * Pushes the player's current state to the craft.
    *
    * Taken from the game layer rather than derived from `RigOutput`, because brake and boost are
@@ -905,8 +979,19 @@ export class GameRenderer {
   }
 
   public render(rig: RigOutput): void {
-    this.camera.position.set(rig.x, rig.y, rig.z);
-    this.camera.rotation.set(rig.pitch, rig.yaw, rig.roll);
+    const now = performance.now();
+    const frameMs = now - this.lastFrameAt;
+    const frameDelta = Math.min(frameMs / 1000, 0.1);
+    this.lastFrameAt = now;
+
+    if (this.thirdPerson) {
+      this.placeFollowCamera(rig, frameDelta);
+    } else {
+      this.camera.position.set(rig.x, rig.y, rig.z);
+      this.camera.rotation.set(rig.pitch, rig.yaw, rig.roll);
+    }
+    this.avatar.setVisible(this.thirdPerson);
+    this.avatar.update(this.avatarPose, frameDelta);
     if (this.camera.fov !== rig.fov) {
       this.camera.fov = rig.fov;
       this.camera.updateProjectionMatrix();
@@ -918,11 +1003,6 @@ export class GameRenderer {
     this.sun.target.updateMatrixWorld();
 
     this.updateDust(rig);
-
-    const now = performance.now();
-    const frameMs = now - this.lastFrameAt;
-    const frameDelta = Math.min(frameMs / 1000, 0.1);
-    this.lastFrameAt = now;
 
     // Dynamic resolution. Returns non-null only on the frames the scale actually moves, so the
     // buffer reallocation happens a handful of times per session rather than every frame.

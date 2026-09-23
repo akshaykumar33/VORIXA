@@ -80,3 +80,7 @@ dist-ssr/
 Thumbs.db
 public/models/
 public/wasm/
+
+# Raw art-pack downloads (zips, FBX, full-res textures). Only the compressed output in
+# public/ is committed; the sources are large and re-downloadable.
+assets-src/

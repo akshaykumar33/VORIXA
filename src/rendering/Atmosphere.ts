@@ -139,9 +139,11 @@ const GROUND_FRAGMENT = /* glsl */ `
     float pulse = sin(dist * 0.02 - uTime * 1.1) * 0.5 + 0.5;
 
     vec3 colour = uGround;
-    colour += uAccent * fine * 0.16 * fade;
-    colour += uAccent * coarse * 0.30 * fade;
-    colour += uAccent * coarse * pulse * 0.10 * fade;
+    // Quiet on purpose. The floor used to sit 46 m down where a bright grid read as distant texture;
+    // at 20 m it fills the lower frame, and at the old strength it outshone the track itself.
+    colour += uAccent * fine * 0.05 * fade;
+    colour += uAccent * coarse * 0.11 * fade;
+    colour += uAccent * coarse * pulse * 0.05 * fade;
 
     gl_FragColor = vec4(colour, 1.0);
   }
