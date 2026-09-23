@@ -39,6 +39,15 @@ const RESTART_GRACE = 0.9;
 /** The mouse stops owning the crosshair after this long without moving. */
 const MOUSE_AIM_TIMEOUT = 4;
 
+/** Words and colours for trick popups. */
+const TRICK_POPUPS: Partial<Record<FxRecord['type'], { text: string; color: string }>> = {
+  nearMiss: { text: 'CLOSE CALL!', color: '#3fa7ff' },
+  jumpOver: { text: 'JUMPED IT!', color: '#5ad16b' },
+  flip: { text: 'FLIP!', color: '#ff5fa8' },
+  sloppyLanding: { text: 'SLOPPY LANDING', color: '#ff4d5e' },
+  takedown: { text: 'TAKEDOWN!', color: '#ffd23f' }
+};
+
 const BEST_KEY = 'vorixa.rush.best';
 const VEHICLE_KEY = 'vorixa.rush.vehicle';
 
@@ -341,6 +350,15 @@ export class RushGame {
 
   /** Points float up from where they were earned, so the reward sits on the thing that paid it. */
   private popupFor(fx: FxRecord): void {
+    const trick = TRICK_POPUPS[fx.type];
+    if (trick) {
+      const at = this.renderer.projectPoint(fx.x, fx.y + 1.5, fx.z - this.sim.z, this.crosshair);
+      if (!at) return;
+      this.hud.popup(fx.amount > 0 ? `${trick.text} +${fx.amount}` : trick.text, this.crosshair.x, this.crosshair.y, trick.color);
+      // A takedown gets a beat of slow motion: the moment to savour.
+      if (fx.type === 'takedown' && this.slowmo <= 0) this.slowmo = 0.45;
+      return;
+    }
     if (fx.type !== 'explode' && fx.type !== 'smash' && fx.type !== 'pickup') return;
     const at = this.renderer.projectPoint(fx.x, fx.y + 1.5, fx.z - this.sim.z, this.crosshair);
     if (!at) return;

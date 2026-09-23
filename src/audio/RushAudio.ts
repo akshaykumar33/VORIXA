@@ -436,6 +436,28 @@ export class RushAudio {
         // A descending "bwow" — a warning, not an attack yet.
         this.sweep('sawtooth', 700 * vary, 180, now, 0.25, 0.14, out, pan);
         break;
+      case 'nearMiss':
+        this.noiseHit(now, 0.22, 0.3, 'bandpass', 2400 * vary, out, pan, 500);
+        this.sweep('sine', 900 * vary, 1500, now, 0.12, 0.12, out, pan);
+        break;
+      case 'jumpOver':
+        this.sweep('square', 600, 1200, now, 0.12, 0.1, out, pan);
+        break;
+      case 'flip':
+        [0, 4, 7, 12, 16].forEach((interval, i) =>
+          this.tone('square', midiToHz(72 + interval), now + i * 0.045, 0.08, 0.12, out, 6000, 0.002, 0, pan)
+        );
+        break;
+      case 'sloppyLanding':
+        this.sweep('sine', 110, 40, now, 0.25, 0.7, out, pan);
+        this.tone('square', 196, now + 0.05, 0.25, 0.1, out, 1500, 0.005, 7, pan);
+        break;
+      case 'takedown':
+        this.explosion(now, 1.3, pan);
+        this.tone('square', 784, now + 0.08, 0.1, 0.12, out, 5000, 0.002, 0, pan);
+        this.tone('square', 1047, now + 0.16, 0.18, 0.12, out, 5000, 0.002, 0, pan);
+        this.duck(0.6, 0.35);
+        break;
       case 'gameOver': {
         // The sad trombone: four falling notes, the last one wobbling.
         this.musicLevel = null;

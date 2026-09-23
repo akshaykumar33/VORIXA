@@ -260,3 +260,82 @@ describe('scoring', () => {
     expect(sim.score).toBeGreaterThan(0);
   });
 });
+
+describe('tricks', () => {
+  function events(sim: RushSim, seconds: number, i: RushIntent = intent()): string[] {
+    const seen: string[] = [];
+    const ticks = Math.round(seconds / DT);
+    for (let n = 0; n < ticks; n++) {
+      sim.update(i, DT);
+      for (let f = 0; f < sim.fxCount; f++) seen.push(sim.fx[f].type);
+    }
+    return seen;
+  }
+
+  it('threading past traffic in the next lane is a close call that feeds nitro', () => {
+    const sim = running();
+    sim.nitro = 0.2;
+    // Right lane edge sits 3.2 - 1.0 - 0.95 = 1.25 m away: too far. Offset it to a hair's gap.
+    sim.spawn('traffic', PLAYER_EDGE_GAP(0.4), sim.z + 20, 0, 5);
+    const seen = events(sim, 1.5);
+    expect(seen).toContain('nearMiss');
+    expect(sim.nearMisses).toBe(1);
+    expect(sim.nitro).toBeGreaterThan(0.2);
+  });
+
+  it('a comfortable pass is not a close call', () => {
+    const sim = running();
+    sim.spawn('traffic', LANE_WIDTH, sim.z + 20, 0, 5);
+    expect(events(sim, 1.5)).not.toContain('nearMiss');
+  });
+
+  it('clearing a barrier in the air pays a jump-over, once', () => {
+    const sim = running();
+    sim.spawn('barrier', 0, sim.z + sim.speed * 0.25);
+    sim.update(intent({ jump: true }), DT);
+    const seen = events(sim, 1);
+    expect(seen.filter((t) => t === 'jumpOver')).toHaveLength(1);
+    expect(sim.hearts).toBe(MAX_HEARTS);
+  });
+
+  it('a flip off a ramp completes in the air and pays nitro', () => {
+    const sim = running();
+    sim.nitro = 0;
+    sim.spawn('ramp', 0, sim.z + 4);
+    // Ride onto the ramp, then flip near the top of the arc.
+    events(sim, 0.4);
+    const seen = [...events(sim, DT, intent({ jump: true })), ...events(sim, 1.5)];
+    expect(seen).toContain('flip');
+    expect(seen).not.toContain('sloppyLanding');
+    expect(sim.flips).toBe(1);
+    expect(sim.nitro).toBeGreaterThan(0.2);
+  });
+
+  it('landing mid-flip is sloppy: speed lost, hearts kept', () => {
+    const sim = running();
+    sim.update(intent({ jump: true }), DT);
+    // Wait for the height a flip needs, then start one too late to finish before touchdown.
+    let guard = 0;
+    while (!(sim.vy < 0 && sim.y < 1.5 && sim.y > 1.2) && guard++ < 200) sim.update(intent(), DT);
+    const before = sim.speed;
+    const seen = [...events(sim, DT, intent({ jump: true })), ...events(sim, 1)];
+    expect(seen).toContain('sloppyLanding');
+    expect(sim.speed).toBeLessThan(before);
+    expect(sim.hearts).toBe(MAX_HEARTS);
+  });
+
+  it('a nitro ram through traffic is a takedown worth more than a shot', () => {
+    const sim = running();
+    sim.nitro = 1;
+    sim.spawn('traffic', 0, sim.z + 10, 0, 5);
+    const before = sim.score;
+    const seen = events(sim, 0.8, intent({ nitro: true }));
+    expect(seen).toContain('takedown');
+    expect(sim.score - before).toBeGreaterThanOrEqual(250);
+  });
+});
+
+/** Lateral position that leaves `gap` metres between the car and traffic in the right lane. */
+function PLAYER_EDGE_GAP(gap: number): number {
+  return 0.95 + 1.0 + gap;
+}

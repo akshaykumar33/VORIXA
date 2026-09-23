@@ -41,14 +41,18 @@ export class ParticleRenderer {
     this.pool.burst(kind, x, y, z, options);
   }
 
-  public update(dt: number): void {
+  /**
+   * @param nearZ Particles beyond this z (toward a camera looking down -z) are not drawn. A burst
+   *              that drifts back into the lens fills the screen with giant blobs.
+   */
+  public update(dt: number, nearZ = Infinity): void {
     const pool = this.pool;
     pool.update(dt);
 
     let drawn = 0;
     for (let i = 0; i < pool.capacity; i++) {
       const size = pool.displaySize(i);
-      if (size <= 0) continue;
+      if (size <= 0 || pool.z[i] > nearZ) continue;
       this.position.set(pool.x[i], pool.y[i], pool.z[i]);
       this.scale.setScalar(size);
       this.matrix.compose(this.position, this.rotation, this.scale);

@@ -4,6 +4,7 @@ import {
   MAX_SPEED,
   START_SPEED,
   KIND_SHAPE,
+  FLIP_DURATION,
   aimAt,
   type RushSim,
   type Entity,
@@ -268,6 +269,32 @@ export class RushRenderer {
       case 'enemyFire':
         p.burst('dash', x, y - 0.4, z, { intensity: 0.5 });
         break;
+      case 'nearMiss':
+        // A rush of air off the side you slipped past.
+        p.burst('dash', x, 1, z, { dirX: 0, dirZ: 1, intensity: 0.8 });
+        this.addTrauma(0.06);
+        break;
+      case 'jumpOver':
+        p.burst('coin', x, y, z, { intensity: 1.2 });
+        break;
+      case 'flip':
+        p.burst('coin', x, y + 0.6, z - 1, { intensity: 2 });
+        this.cheer = 0.9;
+        break;
+      case 'sloppyLanding':
+        p.burst('land', x, 0.1, z, { intensity: 2 });
+        p.burst('smoke', x, 0.4, z, { intensity: 1.2 });
+        this.addTrauma(0.45);
+        this.squashVelocity -= 12;
+        this.dizzy = 1;
+        break;
+      case 'takedown':
+        p.burst('explode', x, y, z, { intensity: 2 });
+        p.burst('smoke', x, y + 0.5, z, { intensity: 1.8 });
+        p.burst('checkpoint', x, y + 1, z, { intensity: 0.7 });
+        this.addTrauma(0.6);
+        this.cheer = 1.1;
+        break;
       case 'gameOver':
         p.burst('explode', x, y + 0.6, z, { intensity: 2 });
         p.burst('smoke', x, y + 1, z, { intensity: 2 });
@@ -286,7 +313,8 @@ export class RushRenderer {
     this.lastDistance = sim.z;
     // Particles live in the world, and the world moved toward the camera.
     this.particles.pool.shift(0, 0, travelled);
-    this.particles.update(frameDelta);
+    // The chase camera sits about 9.5 m behind the car; keep bursts out of the last few metres.
+    this.particles.update(frameDelta, 5);
 
     // The road swings gently left and right. Driven by distance, so it stops when the car does.
     bend.side.value = Math.sin(sim.z * 0.0021) * 0.0011 + Math.sin(sim.z * 0.0007 + 1.3) * 0.0006;
@@ -313,6 +341,16 @@ export class RushRenderer {
   private drawPlayer(sim: RushSim, aimX: number, dt: number): void {
     const car = this.player;
     car.root.position.set(sim.x, sim.y, 0);
+    // A flip rotates the whole car about its middle (not its wheels), nose over tail.
+    if (sim.flipTime >= 0) {
+      const a = -(sim.flipTime / FLIP_DURATION) * Math.PI * 2;
+      const r = 0.9;
+      car.root.rotation.x = a;
+      car.root.position.y += r - r * Math.cos(a);
+      car.root.position.z = -r * Math.sin(a);
+    } else {
+      car.root.rotation.x = 0;
+    }
 
     // Squash and stretch: a damped spring driven by kicks from jumps and landings.
     const k = 220;

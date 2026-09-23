@@ -46,6 +46,18 @@ const BULLET_LIFE = 1.1;
 const AIM_ASSIST_RADIUS = 2.8;
 const AIM_RANGE = 95;
 
+/**
+ * Asphalt-style tricks. A close call is passing something with less than this much air between
+ * the bodywork, sideways; it pays a little and tops up nitro, which rewards threading traffic.
+ */
+export const NEAR_MISS_GAP = 0.9;
+/** A flip takes this long. Starting one too close to the ground is the risk. */
+export const FLIP_DURATION = 0.55;
+/** Height needed to start a flip: ramp launches clear it, ordinary hops only just. */
+const FLIP_MIN_HEIGHT = 1.2;
+/** Speed kept after landing mid-flip. */
+const SLOPPY_LANDING_KEEP = 0.75;
+
 /** Seconds a kill or smash keeps the combo alive. */
 const COMBO_WINDOW = 2.5;
 const MAX_COMBO = 5;
@@ -109,6 +121,8 @@ export interface Entity {
   timer: number;
   /** Kind-specific: the drone's hover offset ahead of the car. */
   offset: number;
+  /** Set once the car has gone past it, so a close call or jump-over is counted once. */
+  passed: boolean;
 }
 
 export interface Bullet {
@@ -135,7 +149,13 @@ export type FxType =
   | 'ramp'
   | 'pickup'
   | 'enemyFire'
-  | 'gameOver';
+  | 'gameOver'
+  | 'nearMiss'
+  | 'jumpOver'
+  | 'flipStart'
+  | 'flip'
+  | 'sloppyLanding'
+  | 'takedown';
 
 export interface FxRecord {
   type: FxType;
@@ -194,6 +214,10 @@ export class RushSim {
   private comboTimer = 0;
   public elapsed = 0;
   public kills = 0;
+  public nearMisses = 0;
+  public flips = 0;
+  /** Seconds into the current flip, or -1 when not flipping. The renderer spins the car by it. */
+  public flipTime = -1;
 
   public readonly entities: Entity[] = [];
   public readonly bullets: Bullet[] = [];
@@ -216,7 +240,7 @@ export class RushSim {
   public constructor(private seed = 1) {
     this.rng = createRng(seed);
     for (let i = 0; i < ENTITY_CAPACITY; i++) {
-      this.entities.push({ id: 0, kind: 'coin', alive: false, x: 0, y: 0, z: 0, vz: 0, hp: 0, age: 0, timer: 0, offset: 0 });
+      this.entities.push({ id: 0, kind: 'coin', alive: false, x: 0, y: 0, z: 0, vz: 0, hp: 0, age: 0, timer: 0, offset: 0, passed: false });
     }
     for (let i = 0; i < BULLET_CAPACITY; i++) {
       this.bullets.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, life: 0, targetId: 0 });
@@ -239,6 +263,8 @@ export class RushSim {
     this.nitro = 0.5;
     this.nitroActive = false;
     this.score = this.coins = this.kills = 0;
+    this.nearMisses = this.flips = 0;
+    this.flipTime = -1;
     this.combo = 1;
     this.comboTimer = 0;
     this.elapsed = 0;
@@ -295,6 +321,7 @@ export class RushSim {
       e.age = 0;
       e.timer = 1.4;
       e.offset = 0;
+      e.passed = false;
       return e;
     }
     return null;
@@ -322,7 +349,11 @@ export class RushSim {
     if (this.phase === 'running') this.elapsed += dt;
     this.steer(intent, dt);
     this.drive(intent, dt);
-    if (intent.jump && this.grounded && this.phase === 'running') this.jump(JUMP_VELOCITY, 'jump');
+    if (intent.jump && this.phase === 'running') {
+      if (this.grounded) this.jump(JUMP_VELOCITY, 'jump');
+      else this.startFlip();
+    }
+    this.advanceFlip(dt);
     this.integrateVertical(dt);
 
     if (this.phase === 'running') {
@@ -331,7 +362,10 @@ export class RushSim {
     }
     this.updateEntities(dt);
     this.updateBullets(dt);
-    if (this.phase === 'running') this.collide();
+    if (this.phase === 'running') {
+      this.collide();
+      this.checkPasses();
+    }
 
     this.invulnerable = Math.max(0, this.invulnerable - dt);
     if (this.comboTimer > 0) {
@@ -380,6 +414,15 @@ export class RushSim {
       this.vy = 0;
       this.grounded = true;
       this.emit('land', this.x, 0, this.z, impact);
+      if (this.flipTime >= 0) {
+        // Landed on the roof, more or less. It costs speed, not a heart: a failed trick should
+        // sting without ending the run.
+        this.flipTime = -1;
+        this.speed *= SLOPPY_LANDING_KEEP;
+        this.combo = 1;
+        this.comboTimer = 0;
+        this.emit('sloppyLanding', this.x, 0, this.z, 0);
+      }
     }
   }
 
@@ -505,6 +548,54 @@ export class RushSim {
     }
   }
 
+  private startFlip(): void {
+    if (this.flipTime >= 0 || this.y < FLIP_MIN_HEIGHT) return;
+    this.flipTime = 0;
+    this.emit('flipStart', this.x, this.y, this.z, 0);
+  }
+
+  private advanceFlip(dt: number): void {
+    if (this.flipTime < 0) return;
+    this.flipTime += dt;
+    if (this.flipTime >= FLIP_DURATION) {
+      // A clean rotation: paid now, before landing, so chaining a second flip is the choice.
+      this.flipTime = -1;
+      this.flips++;
+      this.nitro = Math.min(1, this.nitro + 0.25);
+      const points = 150 * this.combo;
+      this.bonusScore += points;
+      this.combo = Math.min(MAX_COMBO, this.combo + 1);
+      this.comboTimer = COMBO_WINDOW;
+      this.emit('flip', this.x, this.y + 1, this.z, points);
+    }
+  }
+
+  /**
+   * Close calls and jump-overs, judged once per obstacle as the car's front passes it.
+   * Anything that hit the car is already gone, so everything that reaches here was dodged.
+   */
+  private checkPasses(): void {
+    for (const e of this.entities) {
+      if (!e.alive || e.passed) continue;
+      if (e.kind !== 'traffic' && e.kind !== 'truck' && e.kind !== 'barrier') continue;
+      const shape = KIND_SHAPE[e.kind];
+      if (e.z + shape.hz > this.z) continue;
+      e.passed = true;
+      const gap = Math.abs(this.x - e.x) - (PLAYER_HALF_WIDTH + shape.hx);
+      if (gap < 0 && this.y >= shape.height) {
+        const points = 75 * this.combo;
+        this.bonusScore += points;
+        this.emit('jumpOver', e.x, shape.height + 0.5, e.z, points);
+      } else if (gap >= 0 && gap < NEAR_MISS_GAP) {
+        this.nearMisses++;
+        this.nitro = Math.min(1, this.nitro + 0.06);
+        const points = 50 * this.combo;
+        this.bonusScore += points;
+        this.emit('nearMiss', e.x, 1.2, e.z, points);
+      }
+    }
+  }
+
   private touch(e: Entity): void {
     switch (e.kind) {
       case 'coin':
@@ -535,7 +626,7 @@ export class RushSim {
       case 'traffic':
         // Nitro turns the car into a battering ram. Trucks are the exception: too big to plough.
         if (this.nitroActive) {
-          this.destroy(e, 'explode');
+          this.destroy(e, e.kind === 'traffic' ? 'takedown' : 'explode');
           return;
         }
         this.crash(e);
@@ -576,7 +667,9 @@ export class RushSim {
   private destroy(e: Entity, type: FxType): void {
     e.alive = false;
     if (e.kind === 'traffic' || e.kind === 'drone') this.kills++;
-    const points = this.award(e, true);
+    // A takedown is worth more than a shot-down car: you had to commit to the ram.
+    const points = this.award(e, true) + (type === 'takedown' ? 100 * this.combo : 0);
+    if (type === 'takedown') this.bonusScore += 100 * this.combo;
     this.emit(type, e.x, e.y + KIND_SHAPE[e.kind].height * 0.5, e.z, points);
   }
 
