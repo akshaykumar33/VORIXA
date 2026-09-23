@@ -12,6 +12,8 @@ import { ResolutionScaler } from './ResolutionScaler';
 import { SpectatorCrowd } from './Spectators';
 import { PropScatter } from './Props';
 import { PlayerAvatar, type AvatarPose } from './PlayerAvatar';
+import { ParticleRenderer } from './ParticleRenderer';
+import type { BurstKind, BurstOptions } from './ParticlePool';
 import { DEFAULT_FOLLOW, followCamera, smoothToward } from './ThirdPerson';
 import {
   createSurfaceMaterial,
@@ -165,6 +167,7 @@ export class GameRenderer {
   private readonly crowd = new SpectatorCrowd();
   private readonly props = new PropScatter();
   private readonly avatar = new PlayerAvatar();
+  private readonly bursts = new ParticleRenderer(640);
   /**
    * Third-person follow camera, on by default.
    *
@@ -282,6 +285,9 @@ export class GameRenderer {
     this.scene.add(this.props.object);
     void this.props.load(this.crowdSeed);
     this.disposables.push(this.props);
+
+    this.scene.add(this.bursts.object);
+    this.disposables.push(this.bursts);
 
     this.scene.add(this.avatar.object);
     void this.avatar.load();
@@ -948,6 +954,16 @@ export class GameRenderer {
     this.camera.rotateZ(rig.roll * 0.5);
   }
 
+  /**
+   * Fires a particle burst — the visible half of every player action.
+   *
+   * Called from the simulation tick rather than the frame, because several ticks run per frame
+   * and an event read once per frame would silently drop all but the last.
+   */
+  public burst(kind: BurstKind, x: number, y: number, z: number, options?: BurstOptions): void {
+    this.bursts.burst(kind, x, y, z, options);
+  }
+
   /** Pushes the runner's pose. Copied in place so the render loop stays allocation-free. */
   public setAvatarPose(pose: AvatarPose): void {
     const p = this.avatarPose;
@@ -1030,6 +1046,7 @@ export class GameRenderer {
     }
     this.avatar.setVisible(this.thirdPerson);
     this.avatar.update(this.avatarPose, frameDelta);
+    this.bursts.update(frameDelta);
     if (this.camera.fov !== rig.fov) {
       this.camera.fov = rig.fov;
       this.camera.updateProjectionMatrix();

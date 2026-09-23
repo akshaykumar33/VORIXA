@@ -60,6 +60,9 @@ function clampUnit(value: number): number {
   return value < -1 ? -1 : value > 1 ? 1 : value;
 }
 
+/** Downward speed below which a landing raises no dust. Walking off a kerb is not an event. */
+const LANDING_DUST_MIN = 3;
+
 /** Traffic seed for the authored course. Fixed so repeat attempts face identical rivals. */
 const AUTHORED_TRAFFIC_SEED = 0x5641;
 
@@ -488,6 +491,7 @@ export class Game {
 
     this.player.update(intent, this.source.boxes, dt);
     this.emitMovementAudio();
+    this.emitMovementEffects();
 
     const body = this.player.body;
     const moving = intent.forward !== 0 || intent.strafe !== 0 || intent.jumpPressed;
@@ -523,6 +527,35 @@ export class Game {
     } else {
       this.audio.playSoundEffect(520, 0.2, 'sine');
     }
+  }
+
+  /**
+   * The visible response to every movement event.
+   *
+   * Runs per tick, beside the audio, for the same reason: several ticks run per rendered frame and
+   * events only live for the tick that raised them.
+   */
+  private emitMovementEffects(): void {
+    const e = this.player.events;
+    const b = this.player.body;
+    // Backwards relative to the view, for trails. At yaw 0 the runner faces -Z, so back is +Z.
+    const backX = Math.sin(this.look.yaw);
+    const backZ = Math.cos(this.look.yaw);
+
+    // Soft steps make no dust; the burst grows with how hard the landing was.
+    if (e.landed > LANDING_DUST_MIN) {
+      this.renderer.burst('land', b.x, b.y + 0.05, b.z, { intensity: Math.min(e.landed / 12, 2) });
+    }
+    if (e.jumped || e.jumpPadLaunched) {
+      this.renderer.burst('jump', b.x, b.y + 0.05, b.z, { intensity: e.jumpPadLaunched ? 1.8 : 1 });
+    }
+    if (e.wallJumped) this.renderer.burst('wallkick', b.x, b.y + 1, b.z);
+    if (e.dashed) this.renderer.burst('dash', b.x, b.y + 0.9, b.z, { dirX: backX, dirZ: backZ });
+    if (e.boosted) {
+      this.renderer.burst('boost', b.x, b.y + 0.4, b.z, { dirX: backX, dirZ: backZ, intensity: 1.4 });
+    }
+    if (e.hazardHit) this.renderer.burst('hazard', b.x, b.y + 1, b.z, { intensity: 1.5 });
+    if (this.run.justPassedCheckpoint) this.renderer.burst('checkpoint', b.x, b.y + 1.6, b.z);
   }
 
   private emitMovementAudio(): void {
