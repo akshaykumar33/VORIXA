@@ -15,6 +15,17 @@ import { bend, bent, flat, ink, toon } from './Toon';
 import { Scenery } from './Scenery';
 import { buildVehicle, buildTraffic, TRAFFIC_KINDS, type CarModel, type VehicleKind } from './Vehicles';
 import type { BiomeId } from '../../rush/Zones';
+import type { DroneStyle } from './Models';
+
+/** Which enemy costume each world uses, and in which colours. */
+const DRONE_LOOK: Record<BiomeId, [DroneStyle, number, number]> = {
+  meadow: ['bee', 0xffd23f, 0x1d1b33],
+  candy: ['bee', 0xff8fc8, 0x1d1b33],
+  beach: ['bee', 0xff9f1c, 0x1d1b33],
+  desert: ['saucer', 0xe8955a, 0x3fa7ff],
+  snow: ['saucer', 0x9fe3ff, 0xff4d5e],
+  neon: ['ufo', 0x6a3aa8, 0x3ff7ff]
+};
 import {
   buildTruck,
   buildBarrier,
@@ -81,6 +92,8 @@ export class RushRenderer {
 
   private readonly pools = new Map<PoolKey, Actor[]>();
   private readonly used = new Map<PoolKey, number>();
+  /** The world each drone was first seen in, so it keeps one costume for its whole life. */
+  private readonly droneBiome = new Map<number, BiomeId>();
 
   private readonly coins: THREE.InstancedMesh;
   private readonly coinHulls: THREE.InstancedMesh;
@@ -406,7 +419,19 @@ export class RushRenderer {
   private poolKey(e: Entity): PoolKey {
     if (e.kind === 'traffic') return `traffic${TRAFFIC_KINDS[e.id % TRAFFIC_KINDS.length]}${e.id % 6}`;
     if (e.kind === 'truck') return `truck${e.id % 3}`;
+    if (e.kind === 'drone') return `drone-${this.droneBiomeOf(e)}`;
     return e.kind;
+  }
+
+  private droneBiomeOf(e: Entity): BiomeId {
+    let biome = this.droneBiome.get(e.id);
+    if (!biome) {
+      // Bounded: ids only grow, and old drones are long gone by the time this fills.
+      if (this.droneBiome.size > 64) this.droneBiome.clear();
+      biome = this.scenery.biomeAt(e.z);
+      this.droneBiome.set(e.id, biome);
+    }
+    return biome;
   }
 
   private acquire(e: Entity): Actor {
@@ -454,7 +479,8 @@ export class RushRenderer {
         root.add(buildCrate());
         break;
       case 'drone': {
-        const drone = buildDrone();
+        const [style, hull, trim] = DRONE_LOOK[this.droneBiomeOf(e)];
+        const drone = buildDrone(style, hull, trim);
         root.add(drone.root);
         actor.drone = drone;
         break;
@@ -500,15 +526,21 @@ export class RushRenderer {
       case 'drone':
         if (actor.drone) {
           const d = actor.drone;
-          for (const r of d.rotors) r.rotation.y = t * 30;
+          if (d.style === 'bee') {
+            // Wings buzz: a fast flap reads as flight far better than any hover.
+            for (const w of d.spinners) w.rotation.z = Math.sin(t * 40) * 0.6;
+          } else if (d.style === 'ufo') {
+            for (const r of d.spinners) r.rotation.y = t * 3;
+          } else {
+            for (const r of d.spinners) r.rotation.y = t * 30;
+          }
           // The eye follows the car. A villain that watches you is a villain you notice.
-          d.pupil.position.x = THREE.MathUtils.clamp((sim.x - e.x) * 0.05, -0.14, 0.14);
-          d.pupil.position.y = -0.08;
+          d.pupil.position.x = d.pupilHome.x + THREE.MathUtils.clamp((sim.x - e.x) * 0.05, -0.14, 0.14);
           d.light.visible = Math.floor(t * 5) % 2 === 0;
           d.root.rotation.z = Math.sin(t * 2.1 + e.id) * 0.12;
           // A wind-up squash just before firing: the tell that a shot is coming.
           const windUp = e.timer < 0.35 && e.age < 12 ? 1 - e.timer / 0.35 : 0;
-          d.root.scale.set(1 + windUp * 0.2, 1 - windUp * 0.25, 1 + windUp * 0.2);
+          d.root.scale.set(1.4 * (1 + windUp * 0.2), 1.4 * (1 - windUp * 0.25), 1.4 * (1 + windUp * 0.2));
         }
         break;
       case 'shot':
@@ -605,6 +637,11 @@ export class RushRenderer {
     this.scenery.setSeed(seed);
     this.particles.pool.clear();
     this.lastDistance = 0;
+  }
+
+  /** The world of zone `index` on this run's road. */
+  public biomeOf(index: number): BiomeId {
+    return this.scenery.biomeOfZone(index);
   }
 
   /** The world the car is in right now. */

@@ -171,6 +171,13 @@ export class RushAudio {
     return this.muted;
   }
 
+  /** Silences everything while paused; the music resumes on the beat it left. */
+  public setPaused(paused: boolean): void {
+    if (!this.ctx) return;
+    if (paused) void this.ctx.suspend();
+    else if (!document.hidden) void this.ctx.resume();
+  }
+
   /** 0 = normal time, 1 = full slow motion. Muffles the whole mix, which is what sells it. */
   public setSlowmo(amount: number): void {
     if (!this.ctx) return;

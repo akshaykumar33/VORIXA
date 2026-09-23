@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { merge } from './PropKit';
 
 /**
  * The cartoon look, shared by everything in Rush.
@@ -145,6 +146,47 @@ export function outline<T extends THREE.Mesh>(mesh: T, thickness = 0.05): T {
   hull.raycast = () => {};
   mesh.add(hull);
   return mesh;
+}
+
+/**
+ * Merges every static mesh under `root` into one mesh per material.
+ *
+ * Models are authored from dozens of small parts because that is how they are easy to shape —
+ * but each part is a draw call, and a car with its outlines was over seventy. Parts that never
+ * move relative to `root` gain nothing from being separate, so they are baked together; parts
+ * that animate are listed in `keep` and left alone (re-parented to `root` first, so baking
+ * their original parent cannot orphan them).
+ *
+ * Transparent parts are skipped: merging them would break their draw order.
+ */
+export function bake(root: THREE.Object3D, keep: THREE.Object3D[] = []): void {
+  for (const k of keep) if (k.parent && k.parent !== root) root.attach(k);
+  root.updateMatrixWorld(true);
+  const kept = new Set<THREE.Object3D>();
+  for (const k of keep) k.traverse((o) => kept.add(o));
+
+  const toRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const relative = new THREE.Matrix4();
+  const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const baked: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    if (o === root || kept.has(o)) return;
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh) return;
+    const material = mesh.material;
+    if (Array.isArray(material) || material.transparent) return;
+    relative.multiplyMatrices(toRoot, mesh.matrixWorld);
+    const list = byMaterial.get(material) ?? [];
+    list.push(mesh.geometry.clone().applyMatrix4(relative));
+    byMaterial.set(material, list);
+    baked.push(mesh);
+  });
+  // Children of baked meshes that were not kept (and are not meshes) go with their parent.
+  for (const mesh of baked) mesh.removeFromParent();
+  for (const [material, geometries] of byMaterial) {
+    const mesh = new THREE.Mesh(merge(...geometries), material);
+    root.add(mesh);
+  }
 }
 
 /** Convenience: a toon mesh with an outline, optionally casting a shadow. */

@@ -23,6 +23,43 @@ export interface HudState {
   kills: number;
 }
 
+export interface RunSummary {
+  score: number;
+  best: number;
+  distance: number;
+  kills: number;
+  coins: number;
+  /** Worlds reached, in order, as display names with a signature colour each. */
+  worlds: { name: string; color: string }[];
+}
+
+export type Medal = 'gold' | 'silver' | 'bronze' | 'none';
+
+/**
+ * Medals are earned by how many worlds you reach, which gives every run a visible next goal:
+ * "one more world for silver".
+ */
+export function medalFor(worldsReached: number): Medal {
+  if (worldsReached >= 7) return 'gold';
+  if (worldsReached >= 4) return 'silver';
+  if (worldsReached >= 2) return 'bronze';
+  return 'none';
+}
+
+const MEDAL_TEXT: Record<Medal, string> = {
+  gold: 'GOLD',
+  silver: 'SILVER',
+  bronze: 'BRONZE',
+  none: '—'
+};
+
+const MEDAL_HINT: Record<Medal, string> = {
+  gold: 'Seven worlds. Legendary.',
+  silver: 'Reach 7 worlds for gold',
+  bronze: 'Reach 4 worlds for silver',
+  none: 'Reach a second world for bronze'
+};
+
 export type DeviceStatus = 'off' | 'loading' | 'on' | 'lost' | 'error';
 
 export interface DeviceState {
@@ -213,6 +250,34 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 #rush-hud .garage .car { min-width: 190px; text-align: center; }
 #rush-hud .garage .car b { display: block; font-weight: 400; font-size: 26px; color: #fff; }
 #rush-hud .garage .car small { display: block; font-size: 14px; color: var(--cream); -webkit-text-stroke: 3px var(--ink); }
+#rush-hud .card.over { width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; }
+#rush-hud .medal {
+  width: 76px; height: 76px; margin: 0 auto 6px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 15px; letter-spacing: 0.06em; color: var(--ink);
+  box-shadow: 0 0 0 5px var(--ink), 0 7px 0 5px var(--ink), inset 0 -8px 0 rgba(0,0,0,0.15);
+}
+#rush-hud .medal[data-tier="gold"] { background: radial-gradient(circle at 35% 30%, #fff3b0, #ffd23f 55%, #e0a800); }
+#rush-hud .medal[data-tier="silver"] { background: radial-gradient(circle at 35% 30%, #ffffff, #d6dbe8 55%, #a9b0c4); }
+#rush-hud .medal[data-tier="bronze"] { background: radial-gradient(circle at 35% 30%, #ffd9b0, #e8955a 55%, #b0602c); }
+#rush-hud .medal[data-tier="none"] { background: #fff; }
+#rush-hud .medal-hint { font-family: system-ui, sans-serif; font-weight: 700; font-size: 13px; opacity: 0.7; letter-spacing: 0; }
+#rush-hud .stats { grid-template-columns: repeat(3, 1fr); }
+#rush-hud .worlds { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 12px 0 4px; }
+#rush-hud .worlds span {
+  font-size: 13px; padding: 4px 10px; border-radius: 999px; color: #fff; box-shadow: 0 0 0 2px var(--ink);
+  -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill;
+}
+#rush-hud .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 16px; }
+#rush-hud .btn {
+  font: inherit; font-size: 18px; padding: 10px 18px; border: none; border-radius: 16px; cursor: pointer;
+  background: #fff; color: var(--ink); box-shadow: 0 0 0 3px var(--ink), 0 5px 0 3px var(--ink);
+}
+#rush-hud .btn.primary { background: var(--coral); color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; }
+#rush-hud .btn:active { transform: translateY(3px); box-shadow: 0 0 0 3px var(--ink), 0 2px 0 3px var(--ink); }
+#rush-hud .btn:focus-visible { outline: 3px solid var(--sky); outline-offset: 5px; }
+#rush-hud .btn kbd { font: inherit; font-size: 12px; padding: 1px 6px; margin-left: 6px; border-radius: 6px; background: var(--ink); color: var(--cream); -webkit-text-stroke: 0; }
+#rush-hud .share-note { min-height: 1.3em; margin-top: 10px; font-family: system-ui, sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0; }
+#rush-hud .card.pause .logo { font-size: clamp(40px, 7vw, 60px); }
 @keyframes rush-pop { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.5); } 20% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
 @keyframes rush-bump { 50% { transform: scale(1.35); } }
 @keyframes rush-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -221,6 +286,17 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 @keyframes rush-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) {
   #rush-hud *, #rush-hud *::before, #rush-hud *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+/* Short screens (landscape laptops, phones on their side): the results must fit without scrolling. */
+@media (max-height: 700px) {
+  #rush-hud .card.over { padding: 12px 20px 14px; }
+  #rush-hud .card.over .medal { width: 54px; height: 54px; font-size: 11px; }
+  #rush-hud .card.over .logo { font-size: 38px !important; }
+  #rush-hud .card.over .stats { gap: 6px; margin: 8px 0 2px; }
+  #rush-hud .card.over .stat { padding: 4px; }
+  #rush-hud .card.over .stat b { font-size: 21px; }
+  #rush-hud .card.over .worlds { margin: 8px 0 2px; }
+  #rush-hud .card.over .actions { margin-top: 10px; }
 }
 @media (max-width: 900px) {
   #rush-hud .controls { grid-template-columns: 1fr 1fr; }
@@ -269,16 +345,33 @@ const MARKUP = `
       <button class="next" type="button" aria-label="Next car">▶</button>
     </div>
   </section>
-  <section class="card over" hidden aria-live="polite">
-    <h2 class="logo toon" style="font-size:clamp(44px,8vw,68px)">WRECKED!</h2>
-    <div class="record toon"></div>
+  <section class="card over" hidden aria-labelledby="rush-over-title">
+    <div class="medal" data-tier="none">—</div>
+    <div class="medal-hint"></div>
+    <h2 class="logo toon" id="rush-over-title" style="font-size:clamp(40px,7vw,62px)">WRECKED!</h2>
+    <div class="record toon" aria-live="polite"></div>
     <div class="stats">
       <div class="stat"><b class="o-score">0</b><small>SCORE</small></div>
       <div class="stat"><b class="o-best">0</b><small>BEST</small></div>
       <div class="stat"><b class="o-dist">0 m</b><small>DISTANCE</small></div>
-      <div class="stat"><b class="o-kills">0</b><small>DRONES &amp; CARS BLASTED</small></div>
+      <div class="stat"><b class="o-kills">0</b><small>BLASTED</small></div>
+      <div class="stat"><b class="o-coins">0</b><small>COINS</small></div>
+      <div class="stat"><b class="o-worlds">1</b><small>WORLDS</small></div>
     </div>
-    <div class="cta toon">Press R or click to race again</div>
+    <div class="worlds" aria-label="Worlds reached"></div>
+    <div class="actions">
+      <button class="btn primary again" type="button">Race again<kbd>R</kbd></button>
+      <button class="btn garage-btn" type="button">Garage<kbd>C</kbd></button>
+      <button class="btn share" type="button">Share this road</button>
+    </div>
+    <div class="share-note" role="status" aria-live="polite"></div>
+  </section>
+  <section class="card pause" hidden aria-labelledby="rush-pause-title">
+    <h2 class="logo toon" id="rush-pause-title">PAUSED</h2>
+    <div class="actions">
+      <button class="btn primary resume" type="button">Resume<kbd>P</kbd></button>
+      <button class="btn garage-btn2" type="button">Quit to garage<kbd>C</kbd></button>
+    </div>
   </section>
 `;
 
@@ -295,6 +388,10 @@ export class RushHUD {
 
   public onToggleGaze: () => void = () => {};
   public onToggleHand: () => void = () => {};
+  public onRaceAgain: () => void = () => {};
+  public onGarage: () => void = () => {};
+  public onShare: () => void = () => {};
+  public onResume: () => void = () => {};
   /** -1 or +1: the player asked for the previous or next car. */
   public onCycleVehicle: (step: number) => void = () => {};
 
@@ -318,7 +415,9 @@ export class RushHUD {
       score: '.score', coins: '.coins', dist: '.dist', heartsBox: '.hearts', combo: '.combo',
       nitro: '.nitro', nitroFill: '.nitro .fill', crosshair: '.crosshair', title: '.card.title',
       over: '.card.over', record: '.record', oScore: '.o-score', oBest: '.o-best', oDist: '.o-dist',
-      oKills: '.o-kills', gaze: '.chip.gaze', hand: '.chip.hand', lanes: '.lanes', laneDot: '.lanes b',
+      oKills: '.o-kills', oCoins: '.o-coins', oWorlds: '.o-worlds', worlds: '.worlds', medal: '.medal', medalHint: '.medal-hint',
+      again: '.again', garageBtn: '.garage-btn', share: '.share', shareNote: '.share-note', pause: '.card.pause',
+      resume: '.resume', garageBtn2: '.garage-btn2', gaze: '.chip.gaze', hand: '.chip.hand', lanes: '.lanes', laneDot: '.lanes b',
       flash: '.flash', speed: '.speed', muted: '.muted', carName: '.garage .car b', carBlurb: '.garage .car small', carPrev: '.garage .prev', carNext: '.garage .next', banner: '.banner', bannerName: '.banner b'
     })) {
       this.el[key] = q(selector);
@@ -339,7 +438,12 @@ export class RushHUD {
       [this.el.gaze, () => this.onToggleGaze()],
       [this.el.hand, () => this.onToggleHand()],
       [this.el.carPrev, () => this.onCycleVehicle(-1)],
-      [this.el.carNext, () => this.onCycleVehicle(1)]
+      [this.el.carNext, () => this.onCycleVehicle(1)],
+      [this.el.again, () => this.onRaceAgain()],
+      [this.el.garageBtn, () => this.onGarage()],
+      [this.el.garageBtn2, () => this.onGarage()],
+      [this.el.share, () => this.onShare()],
+      [this.el.resume, () => this.onResume()]
     ] as const) {
       chip.addEventListener('mousedown', (e) => e.stopPropagation());
       chip.addEventListener('keydown', (e) => e.stopPropagation());
@@ -390,15 +494,43 @@ export class RushHUD {
       this.root.classList.toggle('ready', s.phase === 'ready');
       this.el.title.hidden = s.phase !== 'ready';
       this.el.over.hidden = s.phase !== 'over';
-      if (s.phase === 'over') {
-        this.el.oScore.textContent = s.score.toLocaleString();
-        this.el.oBest.textContent = Math.max(s.best, s.score).toLocaleString();
-        this.el.oDist.textContent = `${metres.toLocaleString()} m`;
-        this.el.oKills.textContent = String(s.kills);
-        this.el.record.textContent = s.score > s.best && s.best > 0 ? 'NEW BEST!' : s.score > s.best ? 'FIRST RUN IN THE BOOKS!' : '';
-      }
     }
     this.last = { ...s };
+  }
+
+  /** Fills and shows the results card, and puts keyboard focus on the obvious next action. */
+  public showResults(r: RunSummary): void {
+    const medal = medalFor(r.worlds.length);
+    this.el.medal.dataset.tier = medal;
+    this.el.medal.textContent = MEDAL_TEXT[medal];
+    this.el.medalHint.textContent = MEDAL_HINT[medal];
+    this.el.oScore.textContent = r.score.toLocaleString();
+    this.el.oBest.textContent = Math.max(r.best, r.score).toLocaleString();
+    this.el.oDist.textContent = `${Math.floor(r.distance).toLocaleString()} m`;
+    this.el.oKills.textContent = String(r.kills);
+    this.el.oCoins.textContent = String(r.coins);
+    this.el.oWorlds.textContent = String(r.worlds.length);
+    this.el.record.textContent = r.score > r.best && r.best > 0 ? 'NEW BEST!' : r.best === 0 ? 'FIRST RUN IN THE BOOKS!' : '';
+    this.el.worlds.replaceChildren(
+      ...r.worlds.map((w) => {
+        const chip = document.createElement('span');
+        chip.textContent = w.name;
+        chip.style.background = w.color;
+        return chip;
+      })
+    );
+    this.el.shareNote.textContent = '';
+    this.el.over.hidden = false;
+    this.el.again.focus({ preventScroll: true });
+  }
+
+  public setShareNote(text: string): void {
+    this.el.shareNote.textContent = text;
+  }
+
+  public setPaused(paused: boolean): void {
+    this.el.pause.hidden = !paused;
+    if (paused) this.el.resume.focus({ preventScroll: true });
   }
 
   public setCrosshair(x: number, y: number, visible: boolean, locked: boolean): void {

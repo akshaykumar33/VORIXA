@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { toon, flat, ink, bent } from './Toon';
 import { roadMask, kerbMask, grassMask } from './Textures';
-import { inflate, type PartPose, type PropSpec } from './PropKit';
+import { inflate, merge, type PartPose, type PropSpec } from './PropKit';
 import { buildBiomes, type BiomeLook, type Palette } from './Biomes';
 import { LANE_WIDTH } from '../../rush/RushSim';
 import { ZoneSchedule, ZONE_LENGTH, type BiomeId } from '../../rush/Zones';
@@ -354,27 +354,35 @@ export class Scenery {
       this.group.add(hill);
     }
 
+    // Every puff of every cloud is one mesh, and every rim another: the sky is two draws, not a
+    // hundred. The clouds only ever move together, so nothing is lost by merging them.
+    const puffs: THREE.BufferGeometry[] = [];
+    const rims: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 14; i++) {
-      const cloud = new THREE.Group();
-      const puffs = 3 + Math.floor(rand(i, 1) * 3);
-      for (let p = 0; p < puffs; p++) {
+      const cx = -260 + rand(i, 5) * 520;
+      const cy = 45 + rand(i, 6) * 45;
+      const cz = -250 - rand(i, 11) * 150;
+      const count = 3 + Math.floor(rand(i, 1) * 3);
+      for (let p = 0; p < count; p++) {
         const r = 4 + rand(i * 10 + p, 2) * 4;
-        const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), this.cloudMaterial);
-        puff.position.set((p - puffs / 2) * 5.5, rand(i * 10 + p, 3) * 3, rand(i * 10 + p, 4) * 3);
-        const rim = new THREE.Mesh(puff.geometry, this.cloudInk);
-        rim.scale.setScalar(1.05);
-        puff.add(rim);
-        cloud.add(puff);
+        const x = cx + (p - count / 2) * 5.5;
+        const y = cy + rand(i * 10 + p, 3) * 3;
+        const z = cz + rand(i * 10 + p, 4) * 3;
+        puffs.push(new THREE.SphereGeometry(r, 14, 10).translate(x, y, z));
+        rims.push(new THREE.SphereGeometry(r * 1.05, 14, 10).translate(x, y, z));
       }
-      cloud.position.set(-260 + rand(i, 5) * 520, 45 + rand(i, 6) * 45, -250 - rand(i, 11) * 150);
-      this.clouds.add(cloud);
     }
+    this.clouds.add(new THREE.Mesh(merge(...puffs), this.cloudMaterial), new THREE.Mesh(merge(...rims), this.cloudInk));
     this.group.add(this.clouds);
   }
 
   /** A new run: a new order of worlds. */
   public setSeed(seed: number): void {
     this.schedule = new ZoneSchedule(seed);
+  }
+
+  public biomeOfZone(index: number): BiomeId {
+    return this.schedule.biomeOf(index);
   }
 
   public biomeAt(distance: number): BiomeId {

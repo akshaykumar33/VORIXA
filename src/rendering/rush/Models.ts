@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { part, flat, toon, outline } from './Toon';
+import { part, flat, toon, outline, bake } from './Toon';
 import { hazardTexture, chevronTexture, crateTexture, trailerTexture } from './Textures';
 
 /**
@@ -45,6 +45,7 @@ export function buildTruck(livery: string, cabColor: number): THREE.Group {
       root.add(wheel);
     }
   }
+  bake(root);
   return root;
 }
 
@@ -73,6 +74,7 @@ export function buildBarrier(): BarrierModel {
     root.add(lamp);
     lamps.push(lamp);
   }
+  bake(root, lamps);
   return { root, lamps };
 }
 
@@ -83,57 +85,128 @@ export function buildCrate(): THREE.Group {
   outline(box, 0.05);
   box.position.y = 0.78;
   root.add(box);
+  bake(root);
   return root;
 }
 
+export type DroneStyle = 'saucer' | 'bee' | 'ufo';
+
 export interface DroneModel {
   root: THREE.Group;
-  rotors: THREE.Mesh[];
+  style: DroneStyle;
+  /** Spinning rotors (saucer), flapping wings (bee) or a turning light ring (ufo). */
+  spinners: THREE.Object3D[];
   pupil: THREE.Mesh;
+  /** The pupil's resting position; animation offsets from it. */
+  pupilHome: THREE.Vector3;
   light: THREE.Mesh;
 }
 
-/** A small, grumpy flying saucer with one big eye. The villain should be cute, not grim. */
-export function buildDrone(): DroneModel {
-  const root = new THREE.Group();
-  const hull = part(new THREE.SphereGeometry(1, 20, 14).scale(1.25, 0.5, 1.25), 0x8e5cff, { outline: 0.06 });
-  root.add(hull);
-  const ring = part(new THREE.TorusGeometry(1.25, 0.12, 8, 28).rotateX(Math.PI / 2), 0xffd23f, { outline: 0.03 });
-  root.add(ring);
-  const dome = part(new THREE.SphereGeometry(0.62, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), 0xc9b6ff, { outline: 0.04 });
-  dome.position.y = 0.3;
-  root.add(dome);
-
-  // The eye faces +z: toward the player, who is behind the drone.
-  const eye = part(new THREE.SphereGeometry(0.46, 16, 12), 0xffffff, { outline: 0.05 });
-  eye.position.set(0, 0.05, 1.05);
-  root.add(eye);
-  const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), flat(0x1d1b33));
-  pupil.position.set(0, 0, 0.32);
-  eye.add(pupil);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), flat(0xffffff));
-  glint.position.set(0.08, 0.1, 0.18);
+/** The big tracking eye every enemy shares: a villain that watches you is one you notice. */
+function eye(parent: THREE.Object3D, x: number, y: number, z: number, size = 0.46): THREE.Mesh {
+  const white = part(new THREE.SphereGeometry(size, 16, 12), 0xffffff, { outline: 0.05 });
+  white.position.set(x, y, z);
+  parent.add(white);
+  const pupil = new THREE.Mesh(new THREE.SphereGeometry(size * 0.48, 12, 10), flat(0x1d1b33));
+  pupil.position.set(0, 0, size * 0.7);
+  white.add(pupil);
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(size * 0.15, 8, 6), flat(0xffffff));
+  glint.position.set(size * 0.17, size * 0.22, size * 0.4);
   pupil.add(glint);
-  const brow = part(new THREE.BoxGeometry(0.8, 0.14, 0.14), 0x1d1b33, { outline: 0 });
-  brow.position.set(0, 0.55, 1.1);
-  brow.rotation.z = 0.18;
-  root.add(brow);
+  return pupil;
+}
 
-  const rotors: THREE.Mesh[] = [];
-  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-    const arm = part(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6), 0x1d1b33, { outline: 0 });
-    arm.position.set(x * 0.95, 0.35, z * 0.95);
-    root.add(arm);
-    const rotor = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.04, 0.14), toon(0xfff7e0));
-    rotor.position.set(x * 0.95, 0.62, z * 0.95);
-    root.add(rotor);
-    rotors.push(rotor);
+/**
+ * The enemy, dressed for the world it appears in. All three styles share the eye, the blink
+ * light and the wind-up squash before firing, so they read as one enemy in different costumes.
+ *
+ * Every style faces +z: toward the player, who is behind it.
+ */
+export function buildDrone(style: DroneStyle, hullColor = 0x8e5cff, trimColor = 0xffd23f): DroneModel {
+  const root = new THREE.Group();
+  const spinners: THREE.Object3D[] = [];
+  let pupil: THREE.Mesh;
+
+  if (style === 'bee') {
+    root.add(part(new THREE.SphereGeometry(1, 20, 14).scale(0.9, 0.85, 1.25), hullColor, { outline: 0.06 }));
+    for (const z of [-0.45, 0.1]) {
+      const stripe = part(new THREE.TorusGeometry(0.86, 0.12, 8, 24), 0x1d1b33, { outline: 0 });
+      stripe.position.z = z;
+      root.add(stripe);
+    }
+    const stinger = part(new THREE.ConeGeometry(0.18, 0.6, 10).rotateX(-Math.PI / 2), 0x1d1b33, { outline: 0.03 });
+    stinger.position.z = -1.45;
+    root.add(stinger);
+    for (const side of [-1, 1]) {
+      const wing = new THREE.Group();
+      wing.add(part(new THREE.SphereGeometry(0.7, 12, 8).scale(1, 0.08, 0.55).translate(0.65, 0, 0), 0xe8f7ff, { outline: 0.03 }));
+      wing.position.set(side * 0.45, 0.7, -0.2);
+      wing.scale.x = side;
+      root.add(wing);
+      spinners.push(wing);
+      const antenna = part(new THREE.CylinderGeometry(0.03, 0.03, 0.6, 5).translate(0, 0.3, 0), 0x1d1b33, { outline: 0 });
+      antenna.position.set(side * 0.3, 0.75, 0.7);
+      antenna.rotation.z = -side * 0.35;
+      root.add(antenna);
+      const bobble = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), flat(0x1d1b33));
+      bobble.position.set(side * 0.52, 1.3, 0.7);
+      root.add(bobble);
+    }
+    pupil = eye(root, 0, 0.15, 0.95, 0.42);
+  } else if (style === 'ufo') {
+    root.add(part(new THREE.SphereGeometry(1, 24, 12).scale(1.6, 0.32, 1.6), hullColor, { outline: 0.06 }));
+    const ring = new THREE.Group();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), flat(i % 2 === 0 ? 0x3ff7ff : 0xff3df2));
+      bulb.position.set(Math.cos(a) * 1.45, -0.05, Math.sin(a) * 1.45);
+      ring.add(bulb);
+    }
+    root.add(ring);
+    spinners.push(ring);
+    const domeMaterial = new THREE.MeshToonMaterial({ color: 0xbff4ff, transparent: true, opacity: 0.45, depthWrite: false });
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), domeMaterial);
+    dome.position.y = 0.22;
+    dome.renderOrder = 2;
+    root.add(dome);
+    // A little green pilot, because a UFO with nobody in it is just a lamp.
+    const alien = part(new THREE.SphereGeometry(0.34, 14, 10).scale(1, 1.1, 1), 0x5ad16b, { outline: 0.03 });
+    alien.position.y = 0.5;
+    root.add(alien);
+    const beam = new THREE.Mesh(
+      new THREE.ConeGeometry(1.1, 2.6, 20, 1, true).translate(0, -1.3, 0),
+      new THREE.MeshBasicMaterial({ color: 0x3ff7ff, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })
+    );
+    beam.position.y = -0.2;
+    root.add(beam);
+    pupil = eye(alien, 0, 0.08, 0.26, 0.15);
+  } else {
+    root.add(part(new THREE.SphereGeometry(1, 20, 14).scale(1.25, 0.5, 1.25), hullColor, { outline: 0.06 }));
+    root.add(part(new THREE.TorusGeometry(1.25, 0.12, 8, 28).rotateX(Math.PI / 2), trimColor, { outline: 0.03 }));
+    const dome = part(new THREE.SphereGeometry(0.62, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), 0xffffff, { outline: 0.04 });
+    dome.position.y = 0.3;
+    root.add(dome);
+    const brow = part(new THREE.BoxGeometry(0.8, 0.14, 0.14), 0x1d1b33, { outline: 0 });
+    brow.position.set(0, 0.55, 1.1);
+    brow.rotation.z = 0.18;
+    root.add(brow);
+    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const arm = part(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6), 0x1d1b33, { outline: 0 });
+      arm.position.set(x * 0.95, 0.35, z * 0.95);
+      root.add(arm);
+      const rotor = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.04, 0.14), toon(0xfff7e0));
+      rotor.position.set(x * 0.95, 0.62, z * 0.95);
+      root.add(rotor);
+      spinners.push(rotor);
+    }
+    pupil = eye(root, 0, 0.05, 1.05);
   }
 
   const light = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), flat(0xff3b4e));
   light.position.set(0, -0.5, 0);
   root.add(light);
-  return { root, rotors, pupil, light };
+  bake(root, [...spinners, pupil, light]);
+  return { root, style, spinners, pupil, pupilHome: pupil.position.clone(), light };
 }
 
 export function buildShot(): THREE.Group {
@@ -164,6 +237,7 @@ export function buildNitro(): THREE.Group {
   const boltMesh = part(new THREE.ExtrudeGeometry(bolt, { depth: 0.06, bevelEnabled: false }), 0xffd23f, { outline: 0.02 });
   boltMesh.position.set(0, 0, 0.4);
   root.add(boltMesh);
+  bake(root);
   return root;
 }
 

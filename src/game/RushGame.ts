@@ -7,7 +7,7 @@ import { RushSim, MAX_HEARTS, MAX_SPEED, START_SPEED, type RushPhase, type FxRec
 import { RushControls, type ControlSources } from '../rush/RushControls';
 import { RushRenderer } from '../rendering/rush/RushRenderer';
 import { RushHUD, type DeviceStatus } from '../ui/RushHUD';
-import { BIOME_NAMES, type BiomeId } from '../rush/Zones';
+import { BIOME_NAMES, ZONE_LENGTH, type BiomeId } from '../rush/Zones';
 import { VEHICLES } from '../rendering/rush/Vehicles';
 
 /**
@@ -37,6 +37,16 @@ const MOUSE_AIM_TIMEOUT = 4;
 
 const BEST_KEY = 'vorixa.rush.best';
 const VEHICLE_KEY = 'vorixa.rush.vehicle';
+
+/** A signature colour per world, for the results card. */
+const BIOME_COLORS: Record<BiomeId, string> = {
+  meadow: '#5ad16b',
+  desert: '#e8955a',
+  snow: '#3fa7ff',
+  candy: '#ff5fa8',
+  neon: '#6a3aa8',
+  beach: '#2ec4b6'
+};
 
 export class RushGame {
   private readonly input = new InputEngine();
@@ -78,6 +88,7 @@ export class RushGame {
   private lastLane = 0;
   private lastBiome: BiomeId = 'meadow';
   private vehicle = 0;
+  private paused = false;
 
   public constructor(
     private readonly renderer: RushRenderer,
@@ -93,6 +104,15 @@ export class RushGame {
     this.hud.onToggleHand = () => void this.toggleHand();
     this.best = loadBest();
     this.hud.onCycleVehicle = (step) => this.cycleVehicle(step);
+    this.hud.onRaceAgain = () => this.raceAgain();
+    this.hud.onGarage = () => this.backToGarage();
+    this.hud.onShare = () => void this.shareRoad();
+    this.hud.onResume = () => this.setPaused(false);
+    // Leaving the tab or window mid-run pauses rather than letting the car drive blind.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.setPaused(true);
+    });
+    window.addEventListener('blur', () => this.setPaused(true));
     this.vehicle = loadVehicle();
     this.cycleVehicle(0);
 
@@ -126,6 +146,13 @@ export class RushGame {
     this.clock += frameDelta;
 
     this.handleMetaKeys();
+    if (this.paused) {
+      // Frozen, but still drawn: the paused frame stays on screen behind the card.
+      this.renderer.render(this.sim, this.controls.intent.aimX, 0);
+      this.input.endFrame();
+      requestAnimationFrame((t) => this.frame(t));
+      return;
+    }
     const gaze = this.gazeEnabled && this.face.isRunning ? this.face.update() : null;
     const hand = this.handEnabled && this.hand.isRunning ? this.hand.update() : null;
     if (gaze?.dilationStarted && this.slowmo <= 0) {
@@ -147,12 +174,12 @@ export class RushGame {
 
     if (this.sim.phase === 'over') {
       this.overFor += frameDelta;
-      const wantsRestart =
-        this.input.isJustPressed(InputAction.RESTART) ||
-        (this.overFor > RESTART_GRACE && (intent.jump || this.input.isJustPressed(InputAction.FIRE)));
-      if (wantsRestart) this.restart();
+      // The grace period stops a held fire button or a panicked jump from skipping the results.
+      const wantsAgain =
+        this.input.isJustPressed(InputAction.RESTART) || (this.overFor > RESTART_GRACE && intent.jump);
+      if (wantsAgain) this.raceAgain();
     } else if (this.input.isJustPressed(InputAction.RESTART) && this.sim.phase === 'running') {
-      this.restart();
+      this.raceAgain();
     }
 
     // Slow motion eases in and out rather than switching, which reads as a hitch.
@@ -213,7 +240,14 @@ export class RushGame {
   }
 
   private handleMetaKeys(): void {
-    if (this.input.isJustPressed(InputAction.CROUCH)) this.cycleVehicle(1);
+    if (this.input.isJustPressed(InputAction.PAUSE)) {
+      if (this.paused) this.setPaused(false);
+      else if (this.sim.phase === 'running') this.setPaused(true);
+    }
+    if (this.input.isJustPressed(InputAction.CROUCH)) {
+      if (this.sim.phase === 'ready') this.cycleVehicle(1);
+      else if (this.sim.phase === 'over' || this.paused) this.backToGarage();
+    }
     if (this.input.isJustPressed(InputAction.GAZE_TOGGLE)) void this.toggleGaze();
     if (this.input.isJustPressed(InputAction.GESTURE_TOGGLE)) void this.toggleHand();
     if (this.input.isJustPressed(InputAction.MUTE_TOGGLE)) this.hud.setMuted(this.audio.toggleMute());
@@ -233,6 +267,14 @@ export class RushGame {
         this.hitStop = Math.max(this.hitStop, HIT_STOP_KILL);
       } else if (fx.type === 'gameOver') {
         this.overFor = 0;
+        this.hud.showResults({
+          score: sim.score,
+          best: this.best,
+          distance: sim.distance,
+          kills: sim.kills,
+          coins: sim.coins,
+          worlds: this.worldsReached()
+        });
         if (sim.score > this.best) saveBest(sim.score);
       }
     }
@@ -289,7 +331,64 @@ export class RushGame {
     });
   }
 
+  /** Every world this run touched, in order, from the start of the run to where it ended. */
+  private worldsReached(): { name: string; color: string }[] {
+    const sim = this.sim;
+    const first = Math.floor(sim.startZ / ZONE_LENGTH);
+    const last = Math.floor(sim.z / ZONE_LENGTH);
+    const out: { name: string; color: string }[] = [];
+    for (let i = first; i <= last; i++) {
+      const biome = this.renderer.biomeOf(i);
+      out.push({ name: BIOME_NAMES[biome], color: BIOME_COLORS[biome] });
+    }
+    return out;
+  }
+
+  /**
+   * Shares a link to this exact road. The seed is the road: a friend who opens it gets the same
+   * traffic, drones and worlds, so "beat my score" means the same thing for both of you.
+   */
+  private async shareRoad(): Promise<void> {
+    const url = `${location.origin}${location.pathname}?seed=${this.sim.seedValue}`;
+    const text = `I scored ${this.sim.score.toLocaleString()} in VORIXA Rush. Can you beat me on this road?`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'VORIXA Rush', text, url });
+        this.hud.setShareNote('Shared. Good luck to them!');
+        return;
+      }
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      this.hud.setShareNote('Link copied. Challenge a friend!');
+    } catch {
+      // Clipboard refused (permissions, insecure origin) or the share sheet was dismissed:
+      // show the link itself so it can still be copied by hand.
+      this.hud.setShareNote(url);
+    }
+  }
+
+  private setPaused(paused: boolean): void {
+    if (paused && this.sim.phase !== 'running') return;
+    if (paused === this.paused) return;
+    this.paused = paused;
+    this.hud.setPaused(paused);
+    this.audio.setPaused(paused);
+    // Resuming starts the clock fresh; the time spent paused must not arrive as one huge frame.
+    this.accumulator = 0;
+  }
+
+  /** Straight back into a new run. */
+  private raceAgain(): void {
+    this.restart();
+    this.sim.start();
+  }
+
+  /** Back to the title screen and its garage. */
+  private backToGarage(): void {
+    this.restart();
+  }
+
   private restart(): void {
+    this.setPaused(false);
     if (this.sim.score > this.best) this.best = this.sim.score;
     // A new road every run, like any endless runner — unless a specific one was asked for.
     const seed = this.fixedSeed ? this.sim.seedValue : (Math.random() * 0xffffffff) >>> 0;

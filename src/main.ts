@@ -36,7 +36,11 @@ function bootstrapRush(params: URLSearchParams): void {
 
   // `?seed=word` replays a specific road; without it every run is new.
   const seedParam = params.get('seed');
-  const seed = seedParam ? seedFromString(seedParam) : (Math.random() * 0xffffffff) >>> 0;
+  const seed = seedParam
+    ? /^\d+$/.test(seedParam)
+      ? Number(seedParam) >>> 0
+      : seedFromString(seedParam)
+    : (Math.random() * 0xffffffff) >>> 0;
 
   const renderer = new RushRenderer();
   renderer.initialize(canvas);

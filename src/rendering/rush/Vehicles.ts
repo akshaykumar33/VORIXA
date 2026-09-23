@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { part, flat, toon, outline } from './Toon';
+import { part, flat, toon, outline, bake } from './Toon';
 
 /**
  * Every car in Rush, and the little people who drive them.
@@ -201,16 +201,14 @@ function rollBar(body: THREE.Object3D, y: number, z: number, color: number): THR
 // ─── Player vehicles ──────────────────────────────────────────────────────────────────────────
 
 export function buildVehicle(kind: VehicleKind): CarModel {
-  switch (kind) {
-    case 'zippy':
-      return zippy();
-    case 'monster':
-      return monster();
-    case 'hotdog':
-      return hotdog();
-    case 'bubble':
-      return bubble();
+  const car = kind === 'zippy' ? zippy() : kind === 'monster' ? monster() : kind === 'hotdog' ? hotdog() : bubble();
+  const d = car.driver;
+  if (d) {
+    bake(d.head, [d.stars]);
+    bake(d.root, [d.head, d.arm, d.scarf[0]]);
   }
+  bake(car.body, [...car.flames, ...(car.turret ? [car.turret] : []), ...(d ? [d.root] : [])]);
+  return car;
 }
 
 function zippy(): CarModel {
@@ -445,10 +443,10 @@ export function buildTraffic(kind: TrafficKind, id: number): CarModel {
   }
   lights(body, 0.72, -1.92, 1.92);
 
-  return {
-    root, body, driver: null, turret: null,
-    wheels: wheels(root, 0.46, 0.4, 0xdfe3ee, [[-0.98, -1.2], [0.98, -1.2], [-0.98, 1.2], [0.98, 1.2]]),
-    wheelRadius: 0.46,
-    flames: []
-  };
+  // Traffic is seen from behind at a distance, where spinning hubs are invisible: the wheels are
+  // baked in with everything else, and the whole car costs a handful of draws.
+  wheels(root, 0.46, 0.4, 0xdfe3ee, [[-0.98, -1.2], [0.98, -1.2], [-0.98, 1.2], [0.98, 1.2]]);
+  bake(body);
+  bake(root, [body]);
+  return { root, body, driver: null, turret: null, wheels: [], wheelRadius: 0.46, flames: [] };
 }
