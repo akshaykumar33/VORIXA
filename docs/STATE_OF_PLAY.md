@@ -87,15 +87,25 @@ The owner's standard is award-winning. Three steps done, the rest outstanding.
 - **Ghost craft** — the same swept-delta silhouette as the player's, banking into its own turns
   from yaw rate so old recordings gain the behaviour without a format change.
 
+- **Set dressing** — instanced towers, beacons and distant monoliths per segment, so the track
+  runs through a place rather than a void.
+- **Dynamic resolution scaling** — trades resolution for frame rate automatically, targeting
+  60 Hz. Pure policy, 16 tests.
+
 **Remaining, in impact order:**
 
-- **Real 3D assets.** Nothing is modelled. Track props and set dressing, DRACO-compressed and
-  KTX2-textured per `skills/creative-webgl-shaders`.
-- **WebGPU path.** ADR-0002 commits to WebGPU primary with WebGL2 fallback; the renderer is
-  still WebGL-only. `three/webgpu` plus TSL is the 2026 pattern.
-- **Dynamic resolution scaling**, per the same skill, once there is enough load to need it.
+- **Real 3D assets.** Nothing is modelled. Hero props and detail meshes would need DRACO/KTX2 and
+  files to source. Everything so far is procedural.
+- **Audio for the new world.** `AudioEngine` predates set dressing, gates and the craft; none of
+  them make a sound. `skills/sound-designer` covers the approach.
 - **Segment generation on the main thread**, against ADR-0005's Worker requirement. Sub-millisecond
   today; revisit if segments get more complex.
+
+**Explicitly deferred, with reasons written down:**
+
+- **WebGPU.** See ADR-0010, which supersedes ADR-0002. Not a migration — `SurfaceMaterial` uses
+  `onBeforeCompile`, which has no WebGPU equivalent, so it would be a rewrite of every shader for
+  no measured gain at 144 fps.
 
 ### 3. Then
 
