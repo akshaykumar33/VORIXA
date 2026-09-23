@@ -16,8 +16,45 @@ import { seedFromString } from './world/Rng';
 /** The shared endless world. Fixed so two players on `?endless` are racing the same course. */
 const DEFAULT_ENDLESS_SEED = seedFromString('vorixa-endless-01');
 import { createPointerLockController } from './input/PointerLockController';
+import { RushRenderer } from './rendering/rush/RushRenderer';
+import { RushGame } from './game/RushGame';
 
+/**
+ * Rush (ADR-0011) is the default game. The original parkour time-attack is kept, reachable with
+ * `?mode=parkour`, until a later decision retires it.
+ */
 function bootstrap(): void {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('mode') === 'parkour') bootstrapParkour();
+  else bootstrapRush(params);
+}
+
+function bootstrapRush(params: URLSearchParams): void {
+  const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
+  const viewport = document.getElementById('viewport');
+  if (!canvas || !viewport) throw new Error('Could not locate #render-canvas and #viewport.');
+
+  // `?seed=word` replays a specific road; without it every run is new.
+  const seedParam = params.get('seed');
+  const seed = seedParam ? seedFromString(seedParam) : (Math.random() * 0xffffffff) >>> 0;
+
+  const renderer = new RushRenderer();
+  renderer.initialize(canvas);
+  const applySize = () => {
+    renderer.resize(Math.max(1, canvas.clientWidth || window.innerWidth), Math.max(1, canvas.clientHeight || window.innerHeight));
+  };
+  new ResizeObserver(applySize).observe(canvas);
+  applySize();
+
+  const game = new RushGame(renderer, viewport, seed, seedParam !== null);
+  game.start();
+
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__rush = { game, renderer };
+  }
+}
+
+function bootstrapParkour(): void {
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
   if (!canvas) throw new Error('Could not locate render canvas #render-canvas.');
 

@@ -3,7 +3,16 @@
 **Goal:** a browser game that stands next to the Awwwards winners — Messenger (Abeto), Bruno
 Simon's 2025 portfolio — on craft, not on feature count.
 
-**Written:** 2026-09-23 · **Owner:** the working session · **Status:** Phase 1 in progress
+**Written:** 2026-09-23 · **Owner:** the working session · **Status:** superseded in part — see below
+
+> **2026-09-23 — pivot to Rush ([ADR-0011](../adr/ADR-0011-rush-lane-runner-pivot.md)).** Play-testing
+> of the parkour game kept failing on looks and fun, and the owner asked for a Temple Run-style
+> vehicle runner with crashes and shooting. Rush is now the default game (`src/rush/`,
+> `src/rendering/rush/`); parkour remains at `?mode=parkour`. The phases below still describe the
+> quality bar. Phase 1 (particles, squash and stretch, camera shake, hit-stop) and Phase 3 (a
+> cohesive cast with no stand-ins) are delivered *in Rush*, with every model built in code.
+> Next for Rush: sound design (Phase 5), a results screen with a shareable seed (Phase 4), and a
+> 60 fps budget pass on a real GPU (Phase 6).
 
 ---
 

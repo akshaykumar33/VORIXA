@@ -18,7 +18,19 @@
  * Pure: bursts in, positions out. The renderer only reads the arrays.
  */
 
-export type BurstKind = 'land' | 'jump' | 'boost' | 'dash' | 'checkpoint' | 'hazard' | 'wallkick';
+export type BurstKind =
+  | 'land'
+  | 'jump'
+  | 'boost'
+  | 'dash'
+  | 'checkpoint'
+  | 'hazard'
+  | 'wallkick'
+  | 'explode'
+  | 'smoke'
+  | 'coin'
+  | 'smash'
+  | 'muzzle';
 
 interface BurstSpec {
   count: number;
@@ -86,6 +98,32 @@ const SPECS: Record<BurstKind, BurstSpec> = {
     count: 12, speedMin: 2.5, speedMax: 5, spread: 0.5, lift: 1,
     lifeMin: 0.3, lifeMax: 0.55, sizeMin: 0.1, sizeMax: 0.2,
     gravity: 3, drag: 0.03, colors: [0x3cc0ad, 0xefe6d2]
+  },
+  // Rush. A cartoon explosion is big, round and bright, and it is over quickly.
+  explode: {
+    count: 40, speedMin: 5, speedMax: 13, spread: 1, lift: 3,
+    lifeMin: 0.35, lifeMax: 0.8, sizeMin: 0.25, sizeMax: 0.6,
+    gravity: 6, drag: 0.08, colors: [0xffd23f, 0xffa62b, 0xff5a36, 0xfff3b0]
+  },
+  smoke: {
+    count: 10, speedMin: 0.6, speedMax: 2, spread: 1, lift: 1.4,
+    lifeMin: 0.6, lifeMax: 1.1, sizeMin: 0.35, sizeMax: 0.7,
+    gravity: -1, drag: 0.2, colors: [0xe8e4f0, 0xc9c3d9, 0xffffff]
+  },
+  coin: {
+    count: 10, speedMin: 2, speedMax: 5, spread: 1, lift: 2.5,
+    lifeMin: 0.25, lifeMax: 0.5, sizeMin: 0.08, sizeMax: 0.16,
+    gravity: 5, drag: 0.05, colors: [0xffd23f, 0xfff3b0, 0xffffff]
+  },
+  smash: {
+    count: 22, speedMin: 4, speedMax: 9, spread: 0.8, lift: 4,
+    lifeMin: 0.45, lifeMax: 0.8, sizeMin: 0.14, sizeMax: 0.3,
+    gravity: 16, drag: 0.3, colors: [0xd98f4e, 0xc47a3c, 0x8f5226, 0xf2c38b]
+  },
+  muzzle: {
+    count: 5, speedMin: 3, speedMax: 6, spread: 0.4, lift: 0,
+    lifeMin: 0.06, lifeMax: 0.12, sizeMin: 0.1, sizeMax: 0.18,
+    gravity: 0, drag: 0.01, colors: [0xfff3b0, 0xffd23f]
   }
 };
 
@@ -221,6 +259,19 @@ export class ParticlePool {
     const grow = Math.min(t / 0.15, 1);
     const shrink = 1 - t * t;
     return this.size[i] * grow * shrink;
+  }
+
+  /**
+   * Moves every particle by the same offset. Rush keeps the car at the origin and scrolls the
+   * world past it; particles belong to the world, so they scroll with it.
+   */
+  public shift(dx: number, dy: number, dz: number): void {
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.life[i] <= 0) continue;
+      this.x[i] += dx;
+      this.y[i] += dy;
+      this.z[i] += dz;
+    }
   }
 
   public get alive(): number {
