@@ -27,7 +27,7 @@ Recent commits on this branch:
 
 ## Verified
 
-- `pnpm verify` green: secrets, strict typecheck, **93 tests**
+- `pnpm verify` green: secrets, strict typecheck, **173 tests**
 - Production build succeeds; preview serves it; **zero console messages** on load
 - Canvas drawing buffer matches its CSS box exactly (measured in-page, not eyeballed)
 - Vision asset script stages both models idempotently (hand 7.5 MB, face 3.6 MB)
@@ -84,9 +84,11 @@ The owner's standard is award-winning. Three steps done, the rest outstanding.
 - **Player craft** — procedural first-person frame in the lower corners that banks, rakes with
   speed, flares its engines on boost and opens airbrakes under braking.
 
+- **Ghost craft** — the same swept-delta silhouette as the player's, banking into its own turns
+  from yaw rate so old recordings gain the behaviour without a format change.
+
 **Remaining, in impact order:**
 
-- **Ghost is still a capsule.** It should be the same craft silhouette as the player's.
 - **Real 3D assets.** Nothing is modelled. Track props and set dressing, DRACO-compressed and
   KTX2-textured per `skills/creative-webgl-shaders`.
 - **WebGPU path.** ADR-0002 commits to WebGPU primary with WebGL2 fallback; the renderer is
