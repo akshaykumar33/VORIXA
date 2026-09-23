@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createGltfLoader } from './GltfAssets';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { streamFor } from '../world/Rng';
+import { GROUND_Y } from './Atmosphere';
 
 /**
  * Animated spectators lining the course.
@@ -38,11 +39,15 @@ export interface SpectatorModel {
  * The cast.
  *
  * Fox has Survey, Walk and Run cycles; Survey (0) is the idle-ish one, which is what a spectator
- * should be doing. CesiumMan has a single walk.
+ * should be doing. CesiumMan and RiggedFigure each have a single cycle.
+ *
+ * Scales are measured from each file's bounds, not guessed: the first pass guessed, and produced
+ * a fox two and a half metres tall.
  */
 export const SPECTATOR_MODELS: readonly SpectatorModel[] = [
-  { url: '/characters/Fox.glb', scale: 0.03, clip: 0 },
-  { url: '/characters/CesiumMan.glb', scale: 1.45, clip: 0 }
+  { url: '/characters/Fox.glb', scale: 0.012, clip: 0 },
+  { url: '/characters/CesiumMan.glb', scale: 1.15, clip: 0 },
+  { url: '/characters/RiggedFigure.glb', scale: 1.2, clip: 0 }
 ];
 
 /** How many spectators exist at once. Flat cost, however far the player runs. */
@@ -85,7 +90,7 @@ export class SpectatorCrowd {
    * difference between a slightly emptier roadside and a blank screen.
    */
   public async load(seed: number): Promise<void> {
-    const loader = new GLTFLoader();
+    const loader = createGltfLoader();
 
     try {
       const loaded = await Promise.all(
@@ -130,8 +135,9 @@ export class SpectatorCrowd {
           z: -rng.range(10, AHEAD),
           side: rng.chance(0.5) ? 1 : -1,
           offset: rng.range(MIN_OFFSET, MAX_OFFSET),
-          // Perched at varying heights so the crowd follows the terrain edge rather than a plane.
-          height: rng.range(-2.5, 0.5)
+          // Standing on the paddock floor. The first version perched them near track level with
+          // nothing underneath, which read as a crowd levitating beside the course.
+          height: GROUND_Y
         };
 
         this.place(spectator);

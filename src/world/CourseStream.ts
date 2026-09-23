@@ -94,7 +94,10 @@ export class CourseStream implements CourseSource {
   /** Endless: no Z is ever far enough to finish. */
   public readonly finishZ = -Infinity;
 
-  /** Matches the authored course, so a fall reads the same in both modes. */
+  /**
+   * Higher than the authored course (-18): generated platforms never dip below track level, so a
+   * player this far down has already missed and waiting longer only delays the respawn.
+   */
   public readonly killY = -12;
 
   public readonly spawnX = 0;

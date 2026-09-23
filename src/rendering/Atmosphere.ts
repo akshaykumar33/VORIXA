@@ -22,8 +22,15 @@ import * as THREE from 'three';
 
 /** Rendered behind everything; large enough that the player never approaches its shell. */
 const SKY_RADIUS = 900;
-/** Far enough below that it reads as ground rather than as a second platform. */
-const GROUND_Y = -46;
+/**
+ * The paddock floor.
+ *
+ * Below every course's kill height (-12 endless, -18 authored), so a fall still ends the attempt
+ * before the player could touch it — ground you pass through reads as a bug, not as depth. High
+ * enough that roadside props, spectators and light towers have something to stand on: the course
+ * is a suspended ribbon, and anything placed beside it with no floor floats in mid-air.
+ */
+export const GROUND_Y = -20;
 const GROUND_EXTENT = 1600;
 
 export interface AtmosphereColors {

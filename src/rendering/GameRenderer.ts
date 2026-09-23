@@ -10,6 +10,7 @@ import { buildCourseStructures } from './CourseStructures';
 import { buildSetDressing, type DressingMaterials } from './SetDressing';
 import { ResolutionScaler } from './ResolutionScaler';
 import { SpectatorCrowd } from './Spectators';
+import { PropScatter } from './Props';
 import {
   createSurfaceMaterial,
   resetSurfaceMaterials,
@@ -136,6 +137,7 @@ export class GameRenderer {
 
   private disposables: { dispose(): void }[] = [];
   private readonly crowd = new SpectatorCrowd();
+  private readonly props = new PropScatter();
   /** Seed for spectator placement, set before initialize so the crowd matches the world. */
   public crowdSeed = 1;
   private rivals: THREE.InstancedMesh | null = null;
@@ -231,6 +233,10 @@ export class GameRenderer {
     this.scene.add(this.crowd.object);
     void this.crowd.load(this.crowdSeed);
     this.disposables.push(this.crowd);
+
+    this.scene.add(this.props.object);
+    void this.props.load(this.crowdSeed);
+    this.disposables.push(this.props);
 
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
@@ -928,6 +934,7 @@ export class GameRenderer {
     // One clock for every pulsing surface, rather than each material tracking its own.
     updateSurfaceTime(elapsed);
     this.crowd.update(frameDelta, rig.z);
+    this.props.update(rig.z);
     this.updateGates(elapsed, rig.z);
 
     this.composer.render();
