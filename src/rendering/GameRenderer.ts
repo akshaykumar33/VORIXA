@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Atmosphere } from './Atmosphere';
 import { GateMaterial } from './GateMaterial';
+import { PlayerCraft, type CraftState } from './PlayerCraft';
 import { buildCourseStructures } from './CourseStructures';
 import {
   createSurfaceMaterial,
@@ -83,6 +84,21 @@ export class GameRenderer {
   private lastCameraZ = 0;
   private lastDustSample = performance.now();
   private atmosphere!: Atmosphere;
+  private craft!: PlayerCraft;
+  /**
+   * Latest craft state, pushed from the game layer.
+   *
+   * Mutated in place rather than replaced: this is set every frame, and allocating a fresh object
+   * per frame is exactly the garbage the engine rules forbid in the render loop.
+   */
+  private readonly craftState: CraftState = {
+    speed: 0,
+    bank: 0,
+    brake: 0,
+    boosting: false,
+    dilating: false
+  };
+  private lastFrameAt = performance.now();
   /**
    * Shader clock origin.
    *
@@ -153,6 +169,15 @@ export class GameRenderer {
     }
     this.buildGhost();
     this.buildParticles();
+
+    this.craft = new PlayerCraft({
+      hull: 0x2b3340,
+      edge: COLOR_ACCENT,
+      engine: COLOR_GOAL,
+      brake: COLOR_BAD
+    });
+    this.craft.attachTo(this.camera, this.scene);
+    this.disposables.push(this.craft);
 
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
@@ -627,6 +652,21 @@ export class GameRenderer {
     }
   }
 
+  /**
+   * Pushes the player's current state to the craft.
+   *
+   * Taken from the game layer rather than derived from `RigOutput`, because brake and boost are
+   * gameplay facts the camera rig has no reason to know. Copied into the existing object so the
+   * render loop stays allocation-free.
+   */
+  public setCraftState(state: CraftState): void {
+    this.craftState.speed = state.speed;
+    this.craftState.bank = state.bank;
+    this.craftState.brake = state.brake;
+    this.craftState.boosting = state.boosting;
+    this.craftState.dilating = state.dilating;
+  }
+
   public setCheckpointProgress(passedIndex: number): void {
     for (let i = 0; i < this.gateMaterials.length; i++) {
       const passed = i + 1 <= passedIndex;
@@ -657,7 +697,12 @@ export class GameRenderer {
 
     this.updateDust(rig);
 
-    const elapsed = (performance.now() - this.startedAt) / 1000;
+    const now = performance.now();
+    const frameDelta = Math.min((now - this.lastFrameAt) / 1000, 0.1);
+    this.lastFrameAt = now;
+    this.craft.update(this.craftState, frameDelta);
+
+    const elapsed = (now - this.startedAt) / 1000;
     this.atmosphere.update(elapsed, this.camera.position);
     // One clock for every pulsing surface, rather than each material tracking its own.
     updateSurfaceTime(elapsed);

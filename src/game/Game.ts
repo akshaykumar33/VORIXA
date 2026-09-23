@@ -467,6 +467,14 @@ export class Game {
 
     this.audio.setSpeedWind(this.player.speed / 26);
 
+    this.renderer.setCraftState({
+      speed: Math.min(this.player.speed / (MAX_GROUND_SPEED * 2.6), 1),
+      bank: this.input.getAxis(InputAction.ROLL),
+      brake: this.input.getAxis(InputAction.BRAKE),
+      boosting: events.boosted,
+      dilating: this.dilationRemaining > 0
+    });
+
     this.updateGhost();
     this.renderer.render(rig);
 

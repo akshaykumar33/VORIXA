@@ -77,16 +77,23 @@ The owner's standard is award-winning. Three steps done, the rest outstanding.
   on approach and calm when passed; the dust field wraps around the player in the vertex shader
   and streaks with speed.
 
+- **Structural detail** — instanced pylons and skirt rails generated from course data, so
+  platforms are no longer slabs floating on nothing.
+- **Endless procedural course** (ADR-0009) — seeded, addressable, streamed. Opt in with
+  `?endless` or `?endless=<name>`.
+- **Player craft** — procedural first-person frame in the lower corners that banks, rakes with
+  speed, flares its engines on boost and opens airbrakes under braking.
+
 **Remaining, in impact order:**
 
-- **Geometry detail.** Everything is still a box. Bevels, greebling, or instanced structural
-  detail around the track would now do more than any further shader work — this is the single
-  biggest remaining gap.
-- **Real 3D assets.** Nothing is modelled. A craft mesh and track props, DRACO-compressed and
+- **Ghost is still a capsule.** It should be the same craft silhouette as the player's.
+- **Real 3D assets.** Nothing is modelled. Track props and set dressing, DRACO-compressed and
   KTX2-textured per `skills/creative-webgl-shaders`.
 - **WebGPU path.** ADR-0002 commits to WebGPU primary with WebGL2 fallback; the renderer is
   still WebGL-only. `three/webgpu` plus TSL is the 2026 pattern.
 - **Dynamic resolution scaling**, per the same skill, once there is enough load to need it.
+- **Segment generation on the main thread**, against ADR-0005's Worker requirement. Sub-millisecond
+  today; revisit if segments get more complex.
 
 ### 3. Then
 
