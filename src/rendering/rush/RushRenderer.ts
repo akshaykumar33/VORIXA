@@ -99,6 +99,8 @@ export class RushRenderer {
   private readonly coinHulls: THREE.InstancedMesh;
   private readonly bullets: THREE.InstancedMesh;
   private readonly lockRing: THREE.Mesh;
+  private readonly laneBeacon: THREE.Mesh;
+  private laneBeaconLane = 0;
 
   private readonly sun = new THREE.DirectionalLight(0xfff4dc, 1.7);
   private readonly hemi = new THREE.HemisphereLight(0xe6f4ff, 0x9bd48a, 1.15);
@@ -173,6 +175,24 @@ export class RushRenderer {
     this.lockRing.renderOrder = 10;
     this.lockRing.visible = false;
     this.scene.add(this.lockRing);
+
+    // A glowing arrow painted on a lane, for the driving school's "look here" lessons.
+    const arrow = new THREE.Shape();
+    arrow.moveTo(0, 2.2);
+    arrow.lineTo(1.3, 0.6);
+    arrow.lineTo(0.5, 0.6);
+    arrow.lineTo(0.5, -2);
+    arrow.lineTo(-0.5, -2);
+    arrow.lineTo(-0.5, 0.6);
+    arrow.lineTo(-1.3, 0.6);
+    arrow.closePath();
+    this.laneBeacon = new THREE.Mesh(
+      new THREE.ShapeGeometry(arrow).rotateX(-Math.PI / 2),
+      bent(new THREE.MeshBasicMaterial({ color: 0xff4fd8, transparent: true, opacity: 0.85, depthWrite: false, fog: false }))
+    );
+    this.laneBeacon.visible = false;
+    this.laneBeacon.renderOrder = 3;
+    this.scene.add(this.laneBeacon);
   }
 
   public initialize(canvas: HTMLCanvasElement): void {
@@ -282,6 +302,9 @@ export class RushRenderer {
     this.drawEntities(sim);
     this.drawBullets(sim);
     this.drawLock(sim, aimX);
+    if (this.laneBeacon.visible) {
+      this.laneBeacon.position.set(this.laneBeaconLane * LANE_WIDTH, 0.08, -22 - Math.sin(this.time * 5) * 1.5);
+    }
     this.placeCamera(sim, frameDelta);
 
     this.renderer.render(this.scene, this.camera);
@@ -666,6 +689,26 @@ export class RushRenderer {
     out.x = (this.position.x * 0.5 + 0.5) * this.width;
     out.y = (-this.position.y * 0.5 + 0.5) * this.height;
     return true;
+  }
+
+  /**
+   * The aim value that puts the crosshair under a screen x (CSS px). At a fixed depth projection
+   * is linear in world x, so two projected points pin it down exactly.
+   */
+  public aimForScreenX(screenX: number): number {
+    const a = { x: 0, y: 0 };
+    const b = { x: 0, y: 0 };
+    this.projectAim(-1, a);
+    this.projectAim(1, b);
+    if (Math.abs(b.x - a.x) < 1) return 0;
+    const t = (screenX - a.x) / (b.x - a.x);
+    return Math.max(-1.6, Math.min(1.6, -1 + 2 * t));
+  }
+
+  /** Marks a lane on the road ahead for a lesson ("look at the LEFT lane"), or clears it. */
+  public setLaneHighlight(lane: number | null): void {
+    this.laneBeacon.visible = lane !== null;
+    if (lane !== null) this.laneBeaconLane = lane;
   }
 
   /** Screen position (CSS px) of the crosshair for a given aim, following the road's bend. */

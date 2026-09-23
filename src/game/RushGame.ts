@@ -9,6 +9,10 @@ import { RushRenderer } from '../rendering/rush/RushRenderer';
 import { RushHUD, type DeviceStatus } from '../ui/RushHUD';
 import { BIOME_NAMES, ZONE_LENGTH, type BiomeId } from '../rush/Zones';
 import { VEHICLES } from '../rendering/rush/Vehicles';
+import { DrivingSchool, type SchoolTrack } from '../rush/DrivingSchool';
+import { loadCalibration, saveCalibration, normalizeGaze, type GazeCalibration } from '../rush/Calibration';
+import { CameraPreview, type PreviewReadout } from '../ui/CameraPreview';
+import { LANE_WIDTH } from '../rush/RushSim';
 
 /**
  * Runs Rush: input in, simulation stepped, effects fanned out to picture, sound and HUD.
@@ -90,6 +94,17 @@ export class RushGame {
   private vehicle = 0;
   private paused = false;
 
+  private calibration: GazeCalibration = loadCalibration();
+  private readonly calibratedGaze = { present: false, gazeX: 0 };
+  private school: DrivingSchool | null = null;
+  private pickerOpen = false;
+  private readonly preview: CameraPreview;
+  /** Effects counted over the current frame, for lessons. */
+  private frameJumps = 0;
+  private frameSmashes = 0;
+  /** Mouse position in canvas pixels, or null before the mouse has moved. */
+  private mouseScreenX: number | null = null;
+
   public constructor(
     private readonly renderer: RushRenderer,
     container: HTMLElement,
@@ -108,19 +123,24 @@ export class RushGame {
     this.hud.onGarage = () => this.backToGarage();
     this.hud.onShare = () => void this.shareRoad();
     this.hud.onResume = () => this.setPaused(false);
-    // Leaving the tab or window mid-run pauses rather than letting the car drive blind.
+    this.hud.onOpenSchool = () => this.openSchoolPicker();
+    this.hud.onPickTrack = (track) => this.startSchool(track);
+    this.hud.onCloseSchool = () => this.backToGarage();
+    this.hud.onSkipLesson = () => this.school?.skip();
+    this.preview = new CameraPreview(container.querySelector('#rush-hud') ?? container);
+    // Switching tabs mid-run pauses rather than letting the car drive blind. Window blur is not
+    // used: the browser's own camera-permission prompt blurs the window, and pausing the game
+    // at the very moment a player turns on eye control made the feature look broken.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.setPaused(true);
     });
-    window.addEventListener('blur', () => this.setPaused(true));
     this.vehicle = loadVehicle();
     this.cycleVehicle(0);
 
     window.addEventListener('pointermove', (e) => {
-      const width = window.innerWidth || 1;
-      // Slightly more than the screen width maps to the full aim range, so the edges are reachable
-      // without the cursor leaving the window.
-      this.mouseAimX = Math.max(-1, Math.min(1, ((e.clientX / width) * 2 - 1) * 1.15));
+      const canvas = document.getElementById('render-canvas');
+      const left = canvas ? canvas.getBoundingClientRect().left : 0;
+      this.mouseScreenX = e.clientX - left;
       this.mouseMovedAt = this.clock;
     });
     // Any press is also the gesture browsers require before audio may play.
@@ -160,6 +180,9 @@ export class RushGame {
       this.audio.slowmoStart();
     }
 
+    // The crosshair sits exactly under the mouse: the aim is solved from the cursor's screen x.
+    if (this.mouseScreenX !== null) this.mouseAimX = this.renderer.aimForScreenX(this.mouseScreenX);
+
     const src = this.sources;
     src.leftPressed = this.input.isJustPressed(InputAction.STRAFE_LEFT);
     src.rightPressed = this.input.isJustPressed(InputAction.STRAFE_RIGHT);
@@ -168,9 +191,22 @@ export class RushGame {
     src.fireHeld = this.input.isPressed(InputAction.FIRE);
     src.nitroHeld = this.input.isPressed(InputAction.DASH);
     src.mouseAimX = this.clock - this.mouseMovedAt < MOUSE_AIM_TIMEOUT ? this.mouseAimX : null;
-    src.gaze = gaze;
+    // Gaze steers against this player's calibration, not a fixed threshold.
+    if (gaze) {
+      this.calibratedGaze.present = gaze.present;
+      this.calibratedGaze.gazeX = normalizeGaze(gaze.gazeX, this.calibration);
+    }
+    src.gaze = gaze ? this.calibratedGaze : null;
     src.hand = hand;
     const intent = this.controls.resolve(src);
+    if (this.pickerOpen) {
+      // Choosing a lesson must not start a race behind the menu.
+      intent.jump = intent.fire = intent.nitro = false;
+      intent.lane = this.sim.lane;
+      this.controls.lane = this.sim.lane;
+    }
+    this.frameJumps = 0;
+    this.frameSmashes = 0;
 
     if (this.sim.phase === 'over') {
       this.overFor += frameDelta;
@@ -210,6 +246,8 @@ export class RushGame {
     }
 
     this.updateAudio();
+    if (this.school) this.stepSchool(frameDelta, intent.fire, gaze, hand);
+    document.body.classList.toggle('racing', this.sim.phase === 'running' && !this.paused);
 
     this.renderer.render(this.sim, intent.aimX, frameDelta);
     const biome = this.renderer.biome;
@@ -217,7 +255,8 @@ export class RushGame {
       this.lastBiome = biome;
       if (this.sim.phase === 'running') this.hud.banner(BIOME_NAMES[biome]);
     }
-    this.updateHud(intent.aimX, gaze?.present ? gaze.gazeX : hand?.present ? hand.steerX : null);
+    this.updateHud(intent.aimX, gaze?.present ? this.calibratedGaze.gazeX : hand?.present ? hand.steerX : null);
+    this.updatePreview(gaze, hand);
     this.input.endFrame();
     requestAnimationFrame((t) => this.frame(t));
   }
@@ -248,6 +287,9 @@ export class RushGame {
       if (this.sim.phase === 'ready') this.cycleVehicle(1);
       else if (this.sim.phase === 'over' || this.paused) this.backToGarage();
     }
+    if (this.input.isJustPressed(InputAction.SCHOOL) && this.sim.phase === 'ready' && !this.pickerOpen) {
+      this.openSchoolPicker();
+    }
     if (this.input.isJustPressed(InputAction.GAZE_TOGGLE)) void this.toggleGaze();
     if (this.input.isJustPressed(InputAction.GESTURE_TOGGLE)) void this.toggleHand();
     if (this.input.isJustPressed(InputAction.MUTE_TOGGLE)) this.hud.setMuted(this.audio.toggleMute());
@@ -258,6 +300,8 @@ export class RushGame {
     for (let i = 0; i < sim.fxCount; i++) {
       const fx = sim.fx[i];
       this.renderer.effect(fx, sim.z);
+      if (fx.type === 'jump') this.frameJumps++;
+      if (fx.type === 'smash' || fx.type === 'explode') this.frameSmashes++;
       this.audio.play(fx);
       this.popupFor(fx);
       if (fx.type === 'crash') {
@@ -387,8 +431,119 @@ export class RushGame {
     this.restart();
   }
 
+  // ─── Driving school ───────────────────────────────────────────────────────────────────────
+
+  private openSchoolPicker(): void {
+    if (this.sim.phase !== 'ready') this.restart();
+    this.pickerOpen = true;
+    this.hud.showGraduation(false);
+    this.hud.showSchoolPicker(true);
+  }
+
+  private startSchool(track: SchoolTrack): void {
+    this.pickerOpen = false;
+    this.hud.showSchoolPicker(false);
+    this.hud.showGraduation(false);
+    this.restart();
+    this.sim.practice = true;
+    this.sim.start();
+    this.school = new DrivingSchool(track);
+  }
+
+  private stepSchool(dt: number, firing: boolean, gaze: ReturnType<FaceTracker['update']> | null, hand: ReturnType<HandTracker['update']> | null): void {
+    const school = this.school!;
+    const sim = this.sim;
+    school.update({
+      dt,
+      lane: sim.lane,
+      jumps: this.frameJumps,
+      smashes: this.frameSmashes,
+      nitroActive: sim.nitroActive,
+      firing,
+      gaze: this.gazeEnabled
+        ? { on: true, present: gaze?.present ?? false, rawX: gaze?.gazeX ?? 0, blinkStarted: gaze?.dilationStarted ?? false, dilating: gaze?.dilating ?? false }
+        : null,
+      hand: this.handEnabled
+        ? {
+            on: true,
+            present: hand?.present ?? false,
+            fistStarted: hand?.fistStarted ?? false,
+            pinching: hand?.pinching ?? false,
+            nitro: (hand?.present ?? false) && hand!.thrust >= 0.85 && hand!.steerY >= 0.45
+          }
+        : null,
+      eyesSteering: gaze?.present ?? false
+    });
+
+    if (school.calibration) {
+      this.calibration = school.calibration;
+      saveCalibration(school.calibration);
+      school.calibration = null;
+    }
+
+    const state = school.state;
+    const request = school.pendingRequest;
+    school.pendingRequest = null;
+    if (request === 'nitro') sim.nitro = 1;
+    const wantsCrates = state.lesson?.request === 'crates';
+    // Targets for a shooting lesson; replaced if the player drives past them all.
+    if (request === 'crates' || (wantsCrates && !sim.entities.some((e) => e.alive && e.kind === 'crate'))) {
+      [-1, 0, 1].forEach((lane, i) => sim.spawn('crate', lane * LANE_WIDTH, sim.z + 45 + i * 12));
+    }
+    this.renderer.setLaneHighlight(state.lesson?.highlightLane ?? null);
+    this.hud.setLesson(state);
+
+    if (state.done) {
+      const names: Record<SchoolTrack, string> = { keys: 'keyboard and mouse', eyes: 'eye control', hands: 'hand control' };
+      this.hud.showGraduation(true, `You have your ${names[school.track]} licence. Professor Owl is very proud.`);
+      this.school = null;
+      this.hud.setLesson(null);
+      this.renderer.setLaneHighlight(null);
+    }
+  }
+
+  /** The camera preview: what the trackers see, and what the game thinks you are doing. */
+  private updatePreview(gaze: ReturnType<FaceTracker['update']> | null, hand: ReturnType<HandTracker['update']> | null): void {
+    if (!this.gazeEnabled && !this.handEnabled) {
+      this.preview.hide();
+      return;
+    }
+    const readout: PreviewReadout[] = [];
+    if (this.gazeEnabled) {
+      if (!this.face.isRunning) readout.push({ text: `EYES: ${this.face.status.toUpperCase()}`, tone: this.face.status === 'error' || this.face.status === 'denied' ? 'warn' : 'plain' });
+      else if (!gaze?.present) readout.push({ text: 'NO FACE', tone: 'warn' });
+      else {
+        const n = this.calibratedGaze.gazeX;
+        readout.push({ text: n <= -0.5 ? 'LOOKING LEFT' : n >= 0.5 ? 'LOOKING RIGHT' : 'LOOKING CENTRE', tone: 'on' });
+        if (gaze.dilating) readout.push({ text: 'BLINK', tone: 'on' });
+      }
+    }
+    if (this.handEnabled) {
+      if (!this.hand.isRunning) readout.push({ text: `HANDS: ${this.hand.status.toUpperCase()}`, tone: this.hand.status === 'error' || this.hand.status === 'denied' ? 'warn' : 'plain' });
+      else if (!hand?.present) readout.push({ text: 'NO HAND', tone: 'warn' });
+      else {
+        const raised = hand.thrust >= 0.85 && hand.steerY >= 0.45;
+        readout.push({ text: hand.fist ? 'FIST' : hand.pinching ? 'PINCH' : raised ? 'RAISED: NITRO' : 'OPEN HAND', tone: 'on' });
+      }
+    }
+    const video = this.hand.videoElement;
+    this.preview.draw(
+      video,
+      this.handEnabled ? this.hand.landmarks : null,
+      this.gazeEnabled ? this.face.landmarks : null,
+      readout
+    );
+  }
+
   private restart(): void {
     this.setPaused(false);
+    this.sim.practice = false;
+    this.school = null;
+    this.pickerOpen = false;
+    this.hud.setLesson(null);
+    this.hud.showSchoolPicker(false);
+    this.hud.showGraduation(false);
+    this.renderer.setLaneHighlight(null);
     if (this.sim.score > this.best) this.best = this.sim.score;
     // A new road every run, like any endless runner — unless a specific one was asked for.
     const seed = this.fixedSeed ? this.sim.seedValue : (Math.random() * 0xffffffff) >>> 0;

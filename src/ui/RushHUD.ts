@@ -1,5 +1,6 @@
 import '@fontsource/lilita-one/latin.css';
 import type { RushPhase } from '../rush/RushSim';
+import type { SchoolState, SchoolTrack } from '../rush/DrivingSchool';
 
 /**
  * Rush's heads-up display: plain DOM over the canvas.
@@ -71,6 +72,7 @@ export interface DeviceState {
 
 const CSS = /* css */ `
 body.rush #hud, body.rush #overlay-canvas { display: none !important; }
+body.rush.racing #render-canvas { cursor: none; }
 #rush-hud {
   --ink: #1d1b33; --cream: #fff7e0; --coral: #ff5a36; --sun: #ffd23f; --sky: #3fa7ff;
   --grape: #9b6bff; --mint: #2ec4b6;
@@ -278,6 +280,34 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 #rush-hud .btn kbd { font: inherit; font-size: 12px; padding: 1px 6px; margin-left: 6px; border-radius: 6px; background: var(--ink); color: var(--cream); -webkit-text-stroke: 0; }
 #rush-hud .share-note { min-height: 1.3em; margin-top: 10px; font-family: system-ui, sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0; }
 #rush-hud .card.pause .logo { font-size: clamp(40px, 7vw, 60px); }
+#rush-hud .school-link {
+  font: inherit; font-size: 16px; padding: 6px 14px; border: none; border-radius: 999px; cursor: pointer; pointer-events: auto;
+  background: var(--cream); color: var(--ink); box-shadow: 0 0 0 3px var(--ink), 0 4px 0 3px var(--ink);
+}
+#rush-hud .school-link kbd { font: inherit; font-size: 12px; padding: 1px 6px; margin-left: 6px; border-radius: 6px; background: var(--ink); color: var(--cream); }
+#rush-hud .owl { width: 64px; height: 64px; flex: none; }
+#rush-hud .card.picker { text-align: center; }
+#rush-hud .card.picker .owl { width: 84px; height: 84px; margin: 0 auto; display: block; }
+#rush-hud .tracks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+#rush-hud .tracks .btn { display: flex; flex-direction: column; gap: 4px; padding: 12px 8px; }
+#rush-hud .tracks .btn small { font-family: system-ui, sans-serif; font-weight: 700; font-size: 11.5px; letter-spacing: 0; opacity: 0.75; -webkit-text-stroke: 0; }
+#rush-hud .lesson {
+  position: absolute; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%);
+  width: min(620px, calc(100vw - 32px)); display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px;
+  border-radius: 22px; background: var(--cream); color: var(--ink); pointer-events: auto;
+  box-shadow: 0 0 0 4px var(--ink), 0 7px 0 4px var(--ink);
+}
+#rush-hud .lesson .body { flex: 1; min-width: 0; }
+#rush-hud .lesson .step { font-size: 13px; opacity: 0.7; letter-spacing: 0.05em; }
+#rush-hud .lesson h3 { margin: 0; font-weight: 400; font-size: 22px; }
+#rush-hud .lesson p { margin: 4px 0 8px; font-family: system-ui, sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0; }
+#rush-hud .lesson .hint, #rush-hud .lesson .problem { font-family: system-ui, sans-serif; font-size: 13px; letter-spacing: 0; margin: 0 0 8px; }
+#rush-hud .lesson .problem { color: #c2262f; font-weight: 700; }
+#rush-hud .lesson .bar { height: 12px; border-radius: 8px; background: #e6dfcc; box-shadow: 0 0 0 2px var(--ink); overflow: hidden; }
+#rush-hud .lesson .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #3ddc84, #2ec4b6); transition: width 0.12s; }
+#rush-hud .lesson .row { display: flex; gap: 8px; margin-top: 8px; }
+#rush-hud .lesson .btn { font-size: 14px; padding: 6px 12px; border-radius: 12px; }
+#rush-hud.school .score-block, #rush-hud.school .hearts, #rush-hud.school .combo { display: none; }
 @keyframes rush-pop { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.5); } 20% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
 @keyframes rush-bump { 50% { transform: scale(1.35); } }
 @keyframes rush-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -339,6 +369,7 @@ const MARKUP = `
       <div class="control"><h3>Eyes · E</h3><p>Look at a lane to steer there<br>Hard blink: slow-mo</p></div>
       <div class="control"><h3>Hands · G</h3><p>Palm left/right steers<br>Fist jumps · pinch fires<br>Raise open hand: nitro</p></div>
     </div>
+    <button class="school-link" type="button">Driving school<kbd>T</kbd></button>
     <div class="garage" role="group" aria-label="Choose your car">
       <button class="prev" type="button" aria-label="Previous car">◀</button>
       <div class="car toon" aria-live="polite"><b>Zippy</b><small>Open-top racer · C to switch</small></div>
@@ -366,6 +397,41 @@ const MARKUP = `
     </div>
     <div class="share-note" role="status" aria-live="polite"></div>
   </section>
+  <section class="card picker" hidden aria-labelledby="rush-school-title">
+    <svg class="owl" viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="32" cy="38" rx="22" ry="22" fill="#b07a45" stroke="#1d1b33" stroke-width="3"/><ellipse cx="32" cy="44" rx="13" ry="12" fill="#f2cf9a"/><circle cx="23" cy="33" r="8" fill="#fff" stroke="#1d1b33" stroke-width="2.5"/><circle cx="41" cy="33" r="8" fill="#fff" stroke="#1d1b33" stroke-width="2.5"/><circle cx="24" cy="34" r="3.5" fill="#1d1b33"/><circle cx="40" cy="34" r="3.5" fill="#1d1b33"/><path d="M29 40 L35 40 L32 45 Z" fill="#ff9f1c" stroke="#1d1b33" stroke-width="2" stroke-linejoin="round"/><path d="M12 14 L32 6 L52 14 L32 22 Z" fill="#1d1b33"/><rect x="24" y="15" width="16" height="7" fill="#1d1b33"/><path d="M52 14 L52 26" stroke="#ffd23f" stroke-width="2.5"/><circle cx="52" cy="27" r="2.5" fill="#ffd23f"/></svg>
+    <h2 class="logo toon" id="rush-school-title" style="font-size:clamp(30px,5vw,44px)">DRIVING SCHOOL</h2>
+    <p class="tagline" style="color:var(--ink);-webkit-text-stroke:0;margin:6px 0 0">Professor Owl checks every move live. Pick a lesson.</p>
+    <div class="tracks">
+      <button class="btn track-keys" type="button">Keys &amp; mouse<small>Steer, jump, blast, nitro</small></button>
+      <button class="btn track-eyes" type="button">Eyes<small>Calibrate, steer, slow-mo</small></button>
+      <button class="btn track-hands" type="button">Hands<small>Palm, fist, pinch, raise</small></button>
+    </div>
+    <div class="actions"><button class="btn picker-back" type="button">Back</button></div>
+  </section>
+  <section class="lesson" hidden aria-live="polite">
+    <svg class="owl" viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="32" cy="38" rx="22" ry="22" fill="#b07a45" stroke="#1d1b33" stroke-width="3"/><ellipse cx="32" cy="44" rx="13" ry="12" fill="#f2cf9a"/><circle cx="23" cy="33" r="8" fill="#fff" stroke="#1d1b33" stroke-width="2.5"/><circle cx="41" cy="33" r="8" fill="#fff" stroke="#1d1b33" stroke-width="2.5"/><circle cx="24" cy="34" r="3.5" fill="#1d1b33"/><circle cx="40" cy="34" r="3.5" fill="#1d1b33"/><path d="M29 40 L35 40 L32 45 Z" fill="#ff9f1c" stroke="#1d1b33" stroke-width="2" stroke-linejoin="round"/><path d="M12 14 L32 6 L52 14 L32 22 Z" fill="#1d1b33"/><rect x="24" y="15" width="16" height="7" fill="#1d1b33"/><path d="M52 14 L52 26" stroke="#ffd23f" stroke-width="2.5"/><circle cx="52" cy="27" r="2.5" fill="#ffd23f"/></svg>
+    <div class="body">
+      <div class="step"></div>
+      <h3 class="toon-none"></h3>
+      <p class="instruction"></p>
+      <div class="problem" hidden></div>
+      <div class="hint" hidden></div>
+      <div class="bar"><i></i></div>
+      <div class="row">
+        <button class="btn lesson-skip" type="button">Skip</button>
+        <button class="btn lesson-exit" type="button">Leave school</button>
+      </div>
+    </div>
+  </section>
+  <section class="card graduate" hidden aria-labelledby="rush-grad-title">
+    <svg class="owl" viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="32" cy="38" rx="22" ry="22" fill="#b07a45" stroke="#1d1b33" stroke-width="3"/><ellipse cx="32" cy="44" rx="13" ry="12" fill="#f2cf9a"/><circle cx="23" cy="33" r="8" fill="#fff" stroke="#1d1b33" stroke-width="2.5"/><circle cx="41" cy="33" r="8" fill="#fff" stroke="#1d1b33" stroke-width="2.5"/><circle cx="24" cy="34" r="3.5" fill="#1d1b33"/><circle cx="40" cy="34" r="3.5" fill="#1d1b33"/><path d="M29 40 L35 40 L32 45 Z" fill="#ff9f1c" stroke="#1d1b33" stroke-width="2" stroke-linejoin="round"/><path d="M12 14 L32 6 L52 14 L32 22 Z" fill="#1d1b33"/><rect x="24" y="15" width="16" height="7" fill="#1d1b33"/><path d="M52 14 L52 26" stroke="#ffd23f" stroke-width="2.5"/><circle cx="52" cy="27" r="2.5" fill="#ffd23f"/></svg>
+    <h2 class="logo toon" id="rush-grad-title" style="font-size:clamp(32px,6vw,52px)">YOU PASSED!</h2>
+    <p class="tagline grad-text" style="color:var(--ink);-webkit-text-stroke:0"></p>
+    <div class="actions">
+      <button class="btn primary grad-race" type="button">Race now</button>
+      <button class="btn grad-more" type="button">Another lesson</button>
+    </div>
+  </section>
   <section class="card pause" hidden aria-labelledby="rush-pause-title">
     <h2 class="logo toon" id="rush-pause-title">PAUSED</h2>
     <div class="actions">
@@ -392,6 +458,10 @@ export class RushHUD {
   public onGarage: () => void = () => {};
   public onShare: () => void = () => {};
   public onResume: () => void = () => {};
+  public onOpenSchool: () => void = () => {};
+  public onPickTrack: (track: SchoolTrack) => void = () => {};
+  public onCloseSchool: () => void = () => {};
+  public onSkipLesson: () => void = () => {};
   /** -1 or +1: the player asked for the previous or next car. */
   public onCycleVehicle: (step: number) => void = () => {};
 
@@ -417,7 +487,12 @@ export class RushHUD {
       over: '.card.over', record: '.record', oScore: '.o-score', oBest: '.o-best', oDist: '.o-dist',
       oKills: '.o-kills', oCoins: '.o-coins', oWorlds: '.o-worlds', worlds: '.worlds', medal: '.medal', medalHint: '.medal-hint',
       again: '.again', garageBtn: '.garage-btn', share: '.share', shareNote: '.share-note', pause: '.card.pause',
-      resume: '.resume', garageBtn2: '.garage-btn2', gaze: '.chip.gaze', hand: '.chip.hand', lanes: '.lanes', laneDot: '.lanes b',
+      resume: '.resume', garageBtn2: '.garage-btn2',
+      schoolLink: '.school-link', picker: '.card.picker', trackKeys: '.track-keys', trackEyes: '.track-eyes', trackHands: '.track-hands',
+      pickerBack: '.picker-back', lesson: '.lesson', lessonStep: '.lesson .step', lessonTitle: '.lesson h3',
+      lessonText: '.lesson .instruction', lessonHint: '.lesson .hint', lessonProblem: '.lesson .problem', lessonBar: '.lesson .bar i',
+      lessonSkip: '.lesson-skip', lessonExit: '.lesson-exit', graduate: '.card.graduate', gradText: '.grad-text',
+      gradRace: '.grad-race', gradMore: '.grad-more', gaze: '.chip.gaze', hand: '.chip.hand', lanes: '.lanes', laneDot: '.lanes b',
       flash: '.flash', speed: '.speed', muted: '.muted', carName: '.garage .car b', carBlurb: '.garage .car small', carPrev: '.garage .prev', carNext: '.garage .next', banner: '.banner', bannerName: '.banner b'
     })) {
       this.el[key] = q(selector);
@@ -443,7 +518,16 @@ export class RushHUD {
       [this.el.garageBtn, () => this.onGarage()],
       [this.el.garageBtn2, () => this.onGarage()],
       [this.el.share, () => this.onShare()],
-      [this.el.resume, () => this.onResume()]
+      [this.el.resume, () => this.onResume()],
+      [this.el.schoolLink, () => this.onOpenSchool()],
+      [this.el.trackKeys, () => this.onPickTrack('keys')],
+      [this.el.trackEyes, () => this.onPickTrack('eyes')],
+      [this.el.trackHands, () => this.onPickTrack('hands')],
+      [this.el.pickerBack, () => this.onCloseSchool()],
+      [this.el.lessonSkip, () => this.onSkipLesson()],
+      [this.el.lessonExit, () => this.onCloseSchool()],
+      [this.el.gradRace, () => this.onRaceAgain()],
+      [this.el.gradMore, () => this.onOpenSchool()]
     ] as const) {
       chip.addEventListener('mousedown', (e) => e.stopPropagation());
       // Only the keys that press the button itself are held back — otherwise Space would press
@@ -530,6 +614,37 @@ export class RushHUD {
     this.el.shareNote.textContent = '';
     this.el.over.hidden = false;
     this.el.again.focus({ preventScroll: true });
+  }
+
+  public showSchoolPicker(visible: boolean): void {
+    this.el.picker.hidden = !visible;
+    this.el.title.hidden = visible || this.last.phase !== 'ready';
+    if (visible) this.el.trackKeys.focus({ preventScroll: true });
+  }
+
+  /** Shows the current lesson, or hides the panel when `state` is null. */
+  public setLesson(state: SchoolState | null): void {
+    this.root.classList.toggle('school', state !== null);
+    if (!state || state.done || !state.lesson) {
+      this.el.lesson.hidden = true;
+      return;
+    }
+    const l = state.lesson;
+    this.el.lesson.hidden = false;
+    this.el.lessonStep.textContent = `LESSON ${state.index + 1} OF ${state.total}`;
+    if (this.el.lessonTitle.textContent !== l.title) this.el.lessonTitle.textContent = l.title;
+    if (this.el.lessonText.textContent !== l.instruction) this.el.lessonText.textContent = l.instruction;
+    this.el.lessonHint.hidden = !state.showHint;
+    this.el.lessonHint.textContent = `Tip: ${l.hint}`;
+    this.el.lessonProblem.hidden = state.problem === null;
+    this.el.lessonProblem.textContent = state.problem ?? '';
+    this.el.lessonBar.style.width = `${Math.round(state.progress * 100)}%`;
+  }
+
+  public showGraduation(visible: boolean, text = ''): void {
+    this.el.graduate.hidden = !visible;
+    this.el.gradText.textContent = text;
+    if (visible) this.el.gradRace.focus({ preventScroll: true });
   }
 
   public setShareNote(text: string): void {

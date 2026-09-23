@@ -165,6 +165,11 @@ const FX_CAPACITY = 64;
 
 export class RushSim {
   public phase: RushPhase = 'ready';
+  /**
+   * The driving school's road: nothing spawns on its own (lessons place their own targets) and
+   * crashes cost nothing. Learning should never end in a game over.
+   */
+  public practice = false;
 
   // The car.
   public lane = 0;
@@ -400,6 +405,7 @@ export class RushSim {
   }
 
   private spawnAhead(): void {
+    if (this.practice) return;
     while (this.nextSpawnZ < this.z + SPAWN_AHEAD) {
       const length = spawnPattern(this, this.rng, this.nextSpawnZ);
       // Gaps grow with speed so reaction time, not distance, stays roughly constant.
@@ -545,6 +551,12 @@ export class RushSim {
 
   private crash(e: Entity): void {
     if (this.invulnerable > 0) return;
+    if (this.practice) {
+      e.alive = false;
+      this.emit('crash', this.x, this.y + 0.8, this.z + PLAYER_HALF_LENGTH, this.hearts);
+      this.invulnerable = INVULNERABLE_AFTER_CRASH;
+      return;
+    }
     this.hearts--;
     this.invulnerable = INVULNERABLE_AFTER_CRASH;
     this.speed *= CRASH_SPEED_KEEP;

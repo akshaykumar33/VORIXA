@@ -23,8 +23,12 @@ export interface ZoneThresholds {
   release: number;
 }
 
-/** Gaze is noisier than a hand and needs the wider gap. */
-export const GAZE_ZONES: ZoneThresholds = { engage: 0.42, release: 0.18 };
+/**
+ * Gaze arrives calibrated: -1 is where this player looks for the left lane, +1 the right. A lane
+ * engages halfway there, and the centre re-engages well inside, so jitter at a boundary never
+ * flicks the car.
+ */
+export const GAZE_ZONES: ZoneThresholds = { engage: 0.5, release: 0.22 };
 export const HAND_ZONES: ZoneThresholds = { engage: 0.35, release: 0.15 };
 
 /**
@@ -47,6 +51,7 @@ export interface ControlSources {
   nitroHeld: boolean;
   /** Crosshair from the mouse, -1..1, or null when the mouse has not moved recently. */
   mouseAimX: number | null;
+  /** Calibrated gaze: -1 at the left lane, +1 at the right. */
   gaze: { present: boolean; gazeX: number } | null;
   hand: {
     present: boolean;
