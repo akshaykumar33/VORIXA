@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Atmosphere } from './Atmosphere';
 import { GateMaterial } from './GateMaterial';
-import { PlayerCraft, type CraftState } from './PlayerCraft';
+import { createCraftSilhouette, PlayerCraft, type CraftState } from './PlayerCraft';
 import { buildCourseStructures } from './CourseStructures';
 import {
   createSurfaceMaterial,
@@ -576,17 +576,36 @@ export class GameRenderer {
 
   private buildGhost(): void {
     this.ghost = new THREE.Group();
-    const geometry = new THREE.CapsuleGeometry(0.34, 1.05, 4, 12);
+
+    // The same craft the player is flying, not a capsule. A ghost drawn as an unrelated shape is
+    // a marker; drawn as your own silhouette it reads as a previous run of *you*, which is the
+    // whole reason to race one.
+    const geometry = createCraftSilhouette();
     const material = new THREE.MeshBasicMaterial({
-      color: COLOR_ACCENT,
+      color: COLOR_GOAL,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.26,
       // No depth write, so the ghost never hides the geometry you are trying to land on.
-      depthWrite: false
+      depthWrite: false,
+      side: THREE.DoubleSide
     });
     const body = new THREE.Mesh(geometry, material);
-    body.position.y = 0.9;
+    body.position.y = 0.95;
     this.ghost.add(body);
+
+    // A wireframe over the top. Pure translucent fill loses its shape entirely against a bright
+    // course; edges keep the silhouette legible whatever is behind it.
+    const outlineMaterial = new THREE.MeshBasicMaterial({
+      color: COLOR_GOAL,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false
+    });
+    const outline = new THREE.Mesh(geometry, outlineMaterial);
+    outline.position.y = 0.95;
+    this.ghost.add(outline);
+    this.disposables.push(outlineMaterial);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
     this.disposables.push(geometry, material);

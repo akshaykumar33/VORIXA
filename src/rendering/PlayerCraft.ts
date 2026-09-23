@@ -79,6 +79,56 @@ function panel(
   return geometry;
 }
 
+/**
+ * The craft as a single world-space silhouette, for anything seen from outside — the ghost today,
+ * other players later.
+ *
+ * Shares this module with the first-person frame deliberately. A ghost drawn as an unrelated
+ * shape is just a marker; drawn as the same craft, it reads as *you*, which is the entire point of
+ * racing a replay of yourself. Keeping both here means a change to the silhouette cannot update
+ * one and forget the other.
+ *
+ * A swept delta: nose forward along -Z, wingtips swept back and slightly down. Twelve triangles,
+ * no textures, correct from every angle a ghost is ever viewed from.
+ */
+export function createCraftSilhouette(): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+
+  const nose = [0, 0, -0.95] as const;
+  const tipL = [-0.62, -0.06, 0.45] as const;
+  const tipR = [0.62, -0.06, 0.45] as const;
+  const tail = [0, 0.02, 0.28] as const;
+  const keel = [0, -0.2, 0.2] as const;
+  const spine = [0, 0.16, -0.1] as const;
+
+  // Upper surfaces, lower surfaces, and a keel fin — enough volume that the shape never
+  // degenerates into a flat sliver when viewed edge-on.
+  const tris: (readonly [number, number, number])[][] = [
+    [nose, tipL, spine],
+    [nose, spine, tipR],
+    [spine, tipL, tail],
+    [spine, tail, tipR],
+    [nose, keel, tipL],
+    [nose, tipR, keel],
+    [keel, tail, tipL],
+    [keel, tipR, tail]
+  ];
+
+  const positions = new Float32Array(tris.length * 9);
+  let at = 0;
+  for (const tri of tris) {
+    for (const vertex of tri) {
+      positions[at++] = vertex[0];
+      positions[at++] = vertex[1];
+      positions[at++] = vertex[2];
+    }
+  }
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 export class PlayerCraft {
   private readonly root = new THREE.Group();
   private readonly hullGroup = new THREE.Group();
