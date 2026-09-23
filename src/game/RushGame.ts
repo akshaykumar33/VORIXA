@@ -7,6 +7,7 @@ import { RushSim, MAX_HEARTS, MAX_SPEED, START_SPEED, type RushPhase, type FxRec
 import { RushControls, type ControlSources } from '../rush/RushControls';
 import { RushRenderer } from '../rendering/rush/RushRenderer';
 import { RushHUD, type DeviceStatus } from '../ui/RushHUD';
+import { BIOME_NAMES, type BiomeId } from '../rush/Zones';
 
 /**
  * Runs Rush: input in, simulation stepped, effects fanned out to picture, sound and HUD.
@@ -73,6 +74,7 @@ export class RushGame {
   private wasNitro = false;
   private lastPhase: RushPhase = 'ready';
   private lastLane = 0;
+  private lastBiome: BiomeId = 'meadow';
 
   public constructor(
     private readonly renderer: RushRenderer,
@@ -82,6 +84,7 @@ export class RushGame {
     private readonly fixedSeed = false
   ) {
     this.sim = new RushSim(seed);
+    this.renderer.setSeed(seed);
     this.hud = new RushHUD(container);
     this.hud.onToggleGaze = () => void this.toggleGaze();
     this.hud.onToggleHand = () => void this.toggleHand();
@@ -176,6 +179,11 @@ export class RushGame {
     this.updateAudio();
 
     this.renderer.render(this.sim, intent.aimX, frameDelta);
+    const biome = this.renderer.biome;
+    if (biome !== this.lastBiome) {
+      this.lastBiome = biome;
+      if (this.sim.phase === 'running') this.hud.banner(BIOME_NAMES[biome]);
+    }
     this.updateHud(intent.aimX, gaze?.present ? gaze.gazeX : hand?.present ? hand.steerX : null);
     this.input.endFrame();
     requestAnimationFrame((t) => this.frame(t));
@@ -260,7 +268,10 @@ export class RushGame {
   private restart(): void {
     if (this.sim.score > this.best) this.best = this.sim.score;
     // A new road every run, like any endless runner — unless a specific one was asked for.
-    this.sim.reset(this.fixedSeed ? undefined : (Math.random() * 0xffffffff) >>> 0);
+    const seed = this.fixedSeed ? this.sim.seedValue : (Math.random() * 0xffffffff) >>> 0;
+    this.sim.reset(seed);
+    this.renderer.setSeed(seed);
+    this.lastBiome = 'meadow';
     this.controls.reset();
     this.overFor = 0;
     this.slowmo = 0;

@@ -52,6 +52,9 @@ const BEND_VERTEX = /* glsl */ `
   float ahead2 = ahead * ahead;
   bentWorld.y -= ahead2 * uBendDown;
   bentWorld.x += ahead2 * uBendSide;
+  #ifdef GROUND_BLEND
+    vGroundZ = bentWorld.z;
+  #endif
   mvPosition = viewMatrix * bentWorld;
   gl_Position = projectionMatrix * mvPosition;
 `;

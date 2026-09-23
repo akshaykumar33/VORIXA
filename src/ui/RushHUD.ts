@@ -185,6 +185,20 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 #rush-hud .title .control p { font-size: 11.5px; }
 #rush-hud.ready .nitro, #rush-hud.ready .devices .lanes { display: none; }
 #rush-hud.ready .devices { bottom: calc(max(18px, env(safe-area-inset-bottom)) + 118px); }
+#rush-hud .banner {
+  position: absolute; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; white-space: nowrap;
+  opacity: 0; pointer-events: none;
+}
+#rush-hud .banner small { display: block; font-size: clamp(16px, 2.2vw, 22px); color: var(--cream); }
+#rush-hud .banner b { display: block; font-weight: 400; font-size: clamp(34px, 6vw, 60px); color: var(--sun); }
+#rush-hud .banner.show { animation: rush-banner 2.6s cubic-bezier(.2,1.2,.4,1) forwards; }
+@keyframes rush-banner {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.6) rotate(-4deg); }
+  12% { opacity: 1; transform: translateX(-50%) scale(1.08) rotate(1deg); }
+  20% { transform: translateX(-50%) scale(1) rotate(0); }
+  80% { opacity: 1; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.95); }
+}
 @keyframes rush-pop { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.5); } 20% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
 @keyframes rush-bump { 50% { transform: scale(1.35); } }
 @keyframes rush-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -206,6 +220,7 @@ const HEART_SVG = `<svg viewBox="0 0 32 30" aria-hidden="true"><path d="M16 28 C
 const MARKUP = `
   <div class="speed"></div>
   <div class="flash"></div>
+  <div class="banner toon" role="status" aria-live="polite"><small>Welcome to</small><b></b></div>
   <div class="crosshair hidden"></div>
   <div class="score-block">
     <div class="score toon" aria-label="Score">0</div>
@@ -279,7 +294,7 @@ export class RushHUD {
       nitro: '.nitro', nitroFill: '.nitro .fill', crosshair: '.crosshair', title: '.card.title',
       over: '.card.over', record: '.record', oScore: '.o-score', oBest: '.o-best', oDist: '.o-dist',
       oKills: '.o-kills', gaze: '.chip.gaze', hand: '.chip.hand', lanes: '.lanes', laneDot: '.lanes b',
-      flash: '.flash', speed: '.speed', muted: '.muted'
+      flash: '.flash', speed: '.speed', muted: '.muted', banner: '.banner', bannerName: '.banner b'
     })) {
       this.el[key] = q(selector);
     }
@@ -376,6 +391,15 @@ export class RushHUD {
     p.style.animation = 'none';
     void p.offsetWidth;
     p.style.animation = '';
+  }
+
+  /** Announces a new world. */
+  public banner(name: string): void {
+    this.el.bannerName.textContent = name;
+    const b = this.el.banner;
+    b.classList.remove('show');
+    void b.offsetWidth;
+    b.classList.add('show');
   }
 
   public flashCrash(): void {

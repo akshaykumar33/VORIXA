@@ -7,7 +7,12 @@ import * as THREE from 'three';
  * license, compress, or wait for. Everything here is a few hundred pixels at most.
  */
 
-function canvasTexture(width: number, height: number, paint: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+function canvasTexture(
+  width: number,
+  height: number,
+  paint: (g: CanvasRenderingContext2D) => void,
+  colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -15,58 +20,66 @@ function canvasTexture(width: number, height: number, paint: (g: CanvasRendering
   if (!g) throw new Error(`2D canvas unavailable while painting a ${width}x${height} texture`);
   paint(g);
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.colorSpace = colorSpace;
   texture.anisotropy = 4;
   return texture;
 }
 
-/** Asphalt with lane dashes. One tile is 3 lanes wide and 16 m long; it repeats along the road. */
-export function roadTexture(): THREE.CanvasTexture {
+/*
+ * Ground masks. These are data, not pictures: red selects between a surface's two colours
+ * (asphalt/line, grass/stripe, kerb/kerb) and green darkens for texture. The colours themselves
+ * come from the world palette in the ground shader, which is what lets one road run through six
+ * worlds and change colour at the boundary.
+ */
+
+export function roadMask(): THREE.CanvasTexture {
   const texture = canvasTexture(256, 256, (g) => {
-    g.fillStyle = '#4a4f75';
+    g.fillStyle = '#000000';
     g.fillRect(0, 0, 256, 256);
-    // Speckle, so the road visibly moves even where there are no dashes.
     for (let i = 0; i < 900; i++) {
-      g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.07)';
+      g.fillStyle = `rgb(0, ${Math.floor(Math.random() * 90)}, 0)`;
       g.fillRect(Math.random() * 256, Math.random() * 256, 3, 3);
     }
-    // Lane dashes at the two lane boundaries (1/3 and 2/3 across).
-    g.fillStyle = '#fff7e0';
+    g.fillStyle = '#ff0000';
     for (const x of [256 / 3, (256 * 2) / 3]) g.fillRect(x - 4, 20, 8, 110);
-    // Edge lines.
     g.fillRect(0, 0, 7, 256);
     g.fillRect(249, 0, 7, 256);
-  });
+  }, THREE.NoColorSpace);
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   return texture;
 }
 
-/** Red and white kerb stripes. */
-export function kerbTexture(): THREE.CanvasTexture {
+export function grassMask(): THREE.CanvasTexture {
+  const texture = canvasTexture(64, 64, (g) => {
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, 64, 32);
+    g.fillStyle = '#ff0000';
+    g.fillRect(0, 32, 64, 32);
+    for (let i = 0; i < 40; i++) {
+      g.fillStyle = `rgba(0, 255, 0, 0.35)`;
+      g.fillRect(Math.random() * 64, Math.random() * 64, 2, 2);
+    }
+  }, THREE.NoColorSpace);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+export function kerbMask(): THREE.CanvasTexture {
   const texture = canvasTexture(16, 64, (g) => {
-    g.fillStyle = '#ff4d5e';
+    g.fillStyle = '#000000';
     g.fillRect(0, 0, 16, 32);
-    g.fillStyle = '#fff7e0';
+    g.fillStyle = '#ff0000';
     g.fillRect(0, 32, 16, 32);
-  });
+  }, THREE.NoColorSpace);
   texture.wrapT = THREE.RepeatWrapping;
   texture.magFilter = THREE.NearestFilter;
   return texture;
 }
 
-/** Mown-lawn stripes, the cheapest way to make a flat field read as grass at speed. */
-export function grassTexture(): THREE.CanvasTexture {
-  const texture = canvasTexture(64, 64, (g) => {
-    g.fillStyle = '#7fd95b';
-    g.fillRect(0, 0, 64, 64);
-    g.fillStyle = '#6cc84c';
-    g.fillRect(0, 0, 64, 32);
-  });
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
+
+
 
 /** Diagonal hazard stripes for barriers. */
 export function hazardTexture(): THREE.CanvasTexture {
@@ -135,15 +148,3 @@ export function trailerTexture(color: string): THREE.CanvasTexture {
   });
 }
 
-/** Vertical sky gradient, painted once and used as the scene background. */
-export function skyTexture(): THREE.CanvasTexture {
-  return canvasTexture(4, 256, (g) => {
-    const gradient = g.createLinearGradient(0, 0, 0, 256);
-    gradient.addColorStop(0, '#3fa7ff');
-    gradient.addColorStop(0.55, '#8fd3ff');
-    gradient.addColorStop(0.8, '#ffe2b8');
-    gradient.addColorStop(1, '#ffc79a');
-    g.fillStyle = gradient;
-    g.fillRect(0, 0, 4, 256);
-  });
-}

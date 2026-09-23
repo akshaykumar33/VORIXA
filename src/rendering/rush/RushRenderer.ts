@@ -13,7 +13,7 @@ import {
 import { ParticleRenderer } from '../ParticleRenderer';
 import { bend, bent, flat, ink, toon } from './Toon';
 import { Scenery } from './Scenery';
-import { skyTexture } from './Textures';
+import type { BiomeId } from '../../rush/Zones';
 import {
   buildCar,
   buildTruck,
@@ -45,7 +45,6 @@ import {
  * The car is always at z = 0; an entity `d` metres ahead is drawn at z = -d. See `Scenery`.
  */
 
-const SKY_HORIZON = 0xffe2b8;
 const FOG_NEAR = 90;
 const FOG_FAR = 245;
 
@@ -88,6 +87,8 @@ export class RushRenderer {
   private readonly lockRing: THREE.Mesh;
 
   private readonly sun = new THREE.DirectionalLight(0xfff4dc, 1.7);
+  private readonly hemi = new THREE.HemisphereLight(0xe6f4ff, 0x9bd48a, 1.15);
+  private readonly fog = new THREE.Fog(0xffe2b8, FOG_NEAR, FOG_FAR);
 
   // Presentation state.
   private squash = 0;
@@ -114,10 +115,9 @@ export class RushRenderer {
   private height = 1;
 
   public constructor() {
-    this.scene.background = skyTexture();
-    this.scene.fog = new THREE.Fog(SKY_HORIZON, FOG_NEAR, FOG_FAR);
-
-    this.scene.add(new THREE.HemisphereLight(0xe6f4ff, 0x9bd48a, 1.15));
+    // The sky is a dome in the scenery, coloured per world.
+    this.scene.fog = this.fog;
+    this.scene.add(this.hemi);
     this.sun.position.set(-8, 18, 6);
     this.scene.add(this.sun, this.sun.target);
 
@@ -251,6 +251,12 @@ export class RushRenderer {
     bend.side.value = Math.sin(sim.z * 0.0021) * 0.0011 + Math.sin(sim.z * 0.0007 + 1.3) * 0.0006;
 
     this.scenery.update(sim.z, this.time);
+    const pal = this.scenery.palette;
+    this.fog.color.copy(pal.fog);
+    this.hemi.color.copy(pal.hemiSky);
+    this.hemi.groundColor.copy(pal.hemiGround);
+    this.hemi.intensity = pal.hemiIntensity;
+    this.sun.intensity = pal.sunIntensity;
     this.drawPlayer(sim, aimX, frameDelta);
     this.drawEntities(sim);
     this.drawBullets(sim);
@@ -536,6 +542,18 @@ export class RushRenderer {
     }
     this.camera.lookAt(this.lookTarget);
     this.camera.rotation.z += Math.sin(this.time * 40) * 0.02 * shake - this.roll * 0.15;
+  }
+
+  /** A new run: a new order of worlds, and nothing left over from the last one. */
+  public setSeed(seed: number): void {
+    this.scenery.setSeed(seed);
+    this.particles.pool.clear();
+    this.lastDistance = 0;
+  }
+
+  /** The world the car is in right now. */
+  public get biome(): BiomeId {
+    return this.scenery.biomeAt(this.lastDistance);
   }
 
   /** True while the aim assist has a target, so the HUD can show the crosshair locked. */

@@ -204,6 +204,10 @@ export class RushSim {
   private distanceScore = 0;
   private bonusScore = 0;
 
+  public get seedValue(): number {
+    return this.seed;
+  }
+
   public constructor(private seed = 1) {
     this.rng = createRng(seed);
     for (let i = 0; i < ENTITY_CAPACITY; i++) {
