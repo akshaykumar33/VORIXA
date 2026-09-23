@@ -5,6 +5,8 @@ export enum InputAction {
   STRAFE_RIGHT = 'STRAFE_RIGHT',
   JUMP = 'JUMP',
   DASH = 'DASH',
+  /** Held to shoot (Rush). Mouse button or J/K. */
+  FIRE = 'FIRE',
   CROUCH = 'CROUCH',
   RESTART = 'RESTART',
   GESTURE_TOGGLE = 'GESTURE_TOGGLE',

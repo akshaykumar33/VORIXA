@@ -33,6 +33,8 @@ export class InputEngine {
     this.keyMap.set('ControlLeft', InputAction.CROUCH);
     this.keyMap.set('ControlRight', InputAction.CROUCH);
     this.keyMap.set('KeyC', InputAction.CROUCH);
+    this.keyMap.set('KeyJ', InputAction.FIRE);
+    this.keyMap.set('KeyK', InputAction.FIRE);
     this.keyMap.set('KeyR', InputAction.RESTART);
     this.keyMap.set('KeyG', InputAction.GESTURE_TOGGLE);
     this.keyMap.set('KeyE', InputAction.GAZE_TOGGLE);
@@ -62,6 +64,22 @@ export class InputEngine {
         state.value = 0.0;
         state.justReleased = true;
       }
+    });
+
+    // The primary button fires. Held, like the keys, so shooting streams rather than needing a
+    // click per shot.
+    this.element.addEventListener('mousedown', (e: any) => {
+      if (e.button !== 0) return;
+      const state = this.actions.get(InputAction.FIRE)!;
+      if (state.value === 0) state.justPressed = true;
+      state.value = 1.0;
+    });
+
+    this.element.addEventListener('mouseup', (e: any) => {
+      if (e.button !== 0) return;
+      const state = this.actions.get(InputAction.FIRE)!;
+      state.value = 0.0;
+      state.justReleased = true;
     });
 
     this.element.addEventListener('mousemove', (e: any) => {
