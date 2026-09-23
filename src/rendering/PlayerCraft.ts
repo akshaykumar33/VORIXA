@@ -141,6 +141,7 @@ export class PlayerCraft {
   private lean = 0;
   private rake = 0;
   private flare = 0;
+  private idleTime = 0;
 
   public constructor(colors: CraftColors) {
     /*
@@ -237,6 +238,17 @@ export class PlayerCraft {
   }
 
   /**
+   * The animated hull node.
+   *
+   * Exposed because the craft's whole contribution is motion, and motion this subtle cannot be
+   * verified from a screenshot — a WebGL canvas with `preserveDrawingBuffer: false` reads back
+   * blank, so pixel diffing the running game measures nothing. Tests observe the transform.
+   */
+  public get hull(): THREE.Object3D {
+    return this.hullGroup;
+  }
+
+  /**
    * Parents the craft to the camera.
    *
    * The camera must itself be in the scene graph for its children to render — a detail three.js
@@ -278,6 +290,23 @@ export class PlayerCraft {
       const scale = 0.6 + this.flare * 1.5;
       engine.scale.set(scale, 0.7 + this.flare * 0.8, 1);
     }
+
+    /*
+     * Idle float.
+     *
+     * A craft that holds perfectly still reads as a decal stuck to the lens. Two sine waves at
+     * incommensurate frequencies never visibly repeat, which is what stops the motion registering
+     * as a loop.
+     *
+     * Damped as speed rises: at pace there is already plenty of motion on screen and adding sway
+     * to it just makes the image soft. The float exists for the moment the player is stationary,
+     * looking around and deciding where to go.
+     */
+    this.idleTime += dt;
+    const idle = (1 - state.speed) * 0.9;
+    this.hullGroup.position.y = Math.sin(this.idleTime * 1.3) * 0.008 * idle;
+    this.hullGroup.position.x = Math.sin(this.idleTime * 0.87) * 0.006 * idle;
+    this.hullGroup.rotation.y = Math.sin(this.idleTime * 0.61) * 0.012 * idle;
 
     // Airbrakes swing open and light up proportionally to brake input.
     const brake = Math.min(Math.max(state.brake, 0), 1);

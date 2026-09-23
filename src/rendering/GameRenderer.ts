@@ -61,6 +61,14 @@ const SHADOW_EXTENT = 34;
  */
 const GATE_FADE_DISTANCE = 110;
 
+/** Radians of ghost roll per radian-per-sample of yaw change, and its ceiling. */
+const GHOST_BANK_GAIN = 2.4;
+const GHOST_BANK_MAX = 0.5;
+
+function clampRange(value: number, lo: number, hi: number): number {
+  return value < lo ? lo : value > hi ? hi : value;
+}
+
 /** Depth of the wrapping dust field, in world units. One modulo period. */
 const PARTICLE_SPAN = 180;
 /** Speed, in units per second, that saturates the dust streaking effect. */
@@ -99,6 +107,9 @@ export class GameRenderer {
     dilating: false
   };
   private lastFrameAt = performance.now();
+  /** Previous ghost heading and smoothed roll, for deriving bank from the replay. */
+  private lastGhostYaw = 0;
+  private ghostRoll = 0;
   /**
    * Shader clock origin.
    *
@@ -611,10 +622,31 @@ export class GameRenderer {
     this.disposables.push(geometry, material);
   }
 
+  /**
+   * Places the ghost, banking it into its own turns.
+   *
+   * Roll is derived from how fast its yaw is changing rather than stored in the replay, so old
+   * recordings gain the behaviour for free and the ghost format stays unchanged. Without it the
+   * ghost slides around corners flat, which reads as a marker being dragged along a path instead
+   * of a craft flying one.
+   *
+   * The yaw delta is wrapped into [-PI, PI]: crossing the +/-PI seam produces a ~6.28 rad jump
+   * that would otherwise snap the ghost onto its back for a frame.
+   */
   public setGhostPose(x: number, y: number, z: number, yaw: number): void {
     this.ghost.visible = true;
     this.ghost.position.set(x, y, z);
     this.ghost.rotation.y = yaw;
+
+    let delta = yaw - this.lastGhostYaw;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    this.lastGhostYaw = yaw;
+
+    const target = clampRange(delta * GHOST_BANK_GAIN, -GHOST_BANK_MAX, GHOST_BANK_MAX);
+    // Smoothed, or per-sample jitter in the recording turns into a twitching craft.
+    this.ghostRoll += (target - this.ghostRoll) * 0.16;
+    this.ghost.rotation.z = this.ghostRoll;
   }
 
   public hideGhost(): void {
