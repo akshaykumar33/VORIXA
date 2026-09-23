@@ -8,6 +8,7 @@ import { GateMaterial } from './GateMaterial';
 import { createCraftSilhouette, PlayerCraft, type CraftState } from './PlayerCraft';
 import { buildCourseStructures } from './CourseStructures';
 import { buildSetDressing, type DressingMaterials } from './SetDressing';
+import { ResolutionScaler } from './ResolutionScaler';
 import {
   createSurfaceMaterial,
   resetSurfaceMaterials,
@@ -122,6 +123,16 @@ export class GameRenderer {
 
   private disposables: { dispose(): void }[] = [];
   private dressingCache: DressingMaterials | null = null;
+  /**
+   * Dynamic resolution controller.
+   *
+   * Targets 60 Hz rather than the display's actual rate: a 144 Hz monitor would otherwise hold the
+   * scale at minimum permanently trying to hit 6.9 ms, trading a sharp image for frames nobody
+   * asked for. 60 is the floor worth protecting; anything above it is a bonus.
+   */
+  private readonly scaler = new ResolutionScaler({ targetMs: 16.67 });
+  private cssWidth = 1;
+  private cssHeight = 1;
   /** One material per surface kind, shared by every box of that kind. */
   private readonly materialCache = new Map<Box['kind'], THREE.Material>();
   /** Streamed segments, keyed by index. Each owns exactly the buffers it created. */
@@ -147,7 +158,6 @@ export class GameRenderer {
       antialias: true,
       powerPreference: 'high-performance'
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     // PCFSoftShadowMap was removed in recent three.js and silently fell back to PCF while logging
     // a warning on every boot. Asking for what we actually get, and taking the softness from the
@@ -771,9 +781,30 @@ export class GameRenderer {
   }
 
   public resize(width: number, height: number): void {
+    this.cssWidth = width;
+    this.cssHeight = height;
     this.camera.aspect = height > 0 ? width / height : 1;
     this.camera.updateProjectionMatrix();
+    this.applyRenderScale();
+  }
+
+  /**
+   * Applies the CSS size at the current render scale.
+   *
+   * `setSize(w, h, false)` leaves the canvas's CSS size alone and changes only the drawing buffer,
+   * which is exactly what dynamic resolution needs: the element keeps filling its box while the
+   * renderer draws fewer pixels into it and the browser scales the result up.
+   *
+   * Device pixel ratio is folded in here rather than left to `setPixelRatio`, because the two
+   * multiply — setting a pixel ratio *and* a scaled size would square the reduction.
+   */
+  private applyRenderScale(): void {
+    const width = Math.max(1, Math.round(this.cssWidth));
+    const height = Math.max(1, Math.round(this.cssHeight));
+    const ratio = Math.min(window.devicePixelRatio, 2) * this.scaler.scale;
+    this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(width, height, false);
+    this.composer.setPixelRatio(ratio);
     this.composer.setSize(width, height);
   }
 
@@ -793,8 +824,13 @@ export class GameRenderer {
     this.updateDust(rig);
 
     const now = performance.now();
-    const frameDelta = Math.min((now - this.lastFrameAt) / 1000, 0.1);
+    const frameMs = now - this.lastFrameAt;
+    const frameDelta = Math.min(frameMs / 1000, 0.1);
     this.lastFrameAt = now;
+
+    // Dynamic resolution. Returns non-null only on the frames the scale actually moves, so the
+    // buffer reallocation happens a handful of times per session rather than every frame.
+    if (this.scaler.sample(frameMs) !== null) this.applyRenderScale();
     this.craft.update(this.craftState, frameDelta);
 
     const elapsed = (now - this.startedAt) / 1000;
