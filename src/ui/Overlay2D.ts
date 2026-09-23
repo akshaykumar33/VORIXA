@@ -5,6 +5,8 @@ import type { FaceTrackerStatus } from '../input/FaceTracker';
 import type { GazeIntent } from '../input/GazeMapping';
 import type { Checkpoint } from '../game/Course';
 import { CoPilot, type CoPilotInput } from './CoPilot';
+import { PilotRoster } from './PilotRoster';
+import type { RivalPose } from '../game/Rivals';
 
 /**
  * The 2D instrument layer, drawn on a canvas above the 3D world.
@@ -30,6 +32,9 @@ const WARN = '#ffb703';
 const BAD = '#ff0055';
 const DIM = '#5d6b7e';
 const MONO = '600 11px ui-monospace, "JetBrains Mono", Menlo, monospace';
+
+/** How far ahead a rival is still worth flagging, in world units. */
+const RIVAL_CARD_RANGE = 90;
 
 /** MediaPipe hand skeleton, as bone pairs. */
 const BONES: readonly [number, number][] = [
@@ -66,12 +71,16 @@ export interface OverlayState {
   gazeStatus: FaceTrackerStatus;
   gazeIntent: GazeIntent | null;
   coPilot: CoPilotInput;
+  rivals: readonly RivalPose[];
+  /** World seed, so a pilot is always flying the same rival in the same world. */
+  rivalSeed: number;
 }
 
 export class Overlay2D {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private readonly coPilot = new CoPilot();
+  private readonly pilots = new PilotRoster();
   private lastCoPilotFrame = performance.now();
   private width = 0;
   private height = 0;
@@ -100,9 +109,63 @@ export class Overlay2D {
     ctx.clearRect(0, 0, this.width, this.height);
 
     this.drawCoPilot(ctx, state);
+    if (state.coPilot.visible) this.drawNextRival(ctx, state);
     this.drawRouteMap(ctx, state);
     this.drawSpeedArc(ctx, state);
     if (state.gestureEnabled) this.drawHandPanel(ctx, state);
+  }
+
+  // ── Next rival ────────────────────────────────────────────────────────────
+  /**
+   * Who you are about to overtake.
+   *
+   * Only the nearest rival *ahead* is shown. A list of every craft in range would be a leaderboard,
+   * and a leaderboard is something you read; this is something you glance at while flying, so it
+   * carries exactly one answer to one question.
+   *
+   * Rivals behind are deliberately excluded — knowing you have passed someone is worth nothing
+   * mid-run, and the card would flicker between craft on either side as they trade places.
+   */
+  private drawNextRival(ctx: CanvasRenderingContext2D, s: OverlayState): void {
+    let nearest: { z: number; index: number } | null = null;
+    for (let i = 0; i < s.rivals.length; i++) {
+      const rival = s.rivals[i];
+      // Ahead means further down the course, and close enough to matter.
+      const gap = s.playerZ - rival.z;
+      if (gap <= 0 || gap > RIVAL_CARD_RANGE) continue;
+      if (rival.opacity < 0.9) continue;
+      if (!nearest || rival.z > nearest.z) nearest = { z: rival.z, index: i };
+    }
+    if (!nearest) return;
+
+    const pilot = this.pilots.pilotFor(s.rivalSeed, nearest.index);
+    const gap = s.playerZ - nearest.z;
+    // Fades with distance so a rival at the edge of range does not demand the same attention as
+    // one you are about to overtake.
+    const emphasis = 1 - gap / RIVAL_CARD_RANGE;
+
+    const x = 26;
+    const y = 44;
+    const portrait = 46;
+
+    ctx.save();
+    ctx.globalAlpha = 0.45 + emphasis * 0.55;
+
+    ctx.fillStyle = 'rgba(8, 12, 20, 0.62)';
+    this.roundRect(ctx, x, y, 186, portrait + 16, 10);
+    ctx.fill();
+
+    this.pilots.drawPortrait(ctx, pilot, x + 8, y + 8, portrait);
+
+    ctx.font = MONO;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = DIM;
+    ctx.fillText('AHEAD', x + portrait + 20, y + 20);
+    ctx.fillStyle = '#e9edf2';
+    ctx.fillText(pilot.callsign, x + portrait + 20, y + 36);
+    ctx.fillStyle = WARN;
+    ctx.fillText(`${gap.toFixed(0)} M`, x + portrait + 20, y + 52);
+    ctx.restore();
   }
 
   // ── Co-pilot ──────────────────────────────────────────────────────────────

@@ -130,6 +130,22 @@ export class CoPilot {
     return this.ready;
   }
 
+  /**
+   * The head cell currently selected, 0–8 row-major.
+   *
+   * Exposed for tests. Whether the head actually follows the player is not visible in a
+   * screenshot — a co-pilot wired to a permanently-zero input looks exactly like one that is
+   * working and simply facing forward, which is how the first version shipped broken.
+   */
+  public get headCell(): number {
+    return this.direction;
+  }
+
+  /** The reaction cell currently shown, or null for a neutral face. For tests. */
+  public get faceCell(): number | null {
+    return this.reactionCell;
+  }
+
   public update(dt: number, input: CoPilotInput): void {
     this.bobTime += dt;
     this.updateDirection(input);

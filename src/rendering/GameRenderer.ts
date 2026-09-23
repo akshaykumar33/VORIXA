@@ -9,6 +9,7 @@ import { createCraftSilhouette, PlayerCraft, type CraftState } from './PlayerCra
 import { buildCourseStructures } from './CourseStructures';
 import { buildSetDressing, type DressingMaterials } from './SetDressing';
 import { ResolutionScaler } from './ResolutionScaler';
+import { SpectatorCrowd } from './Spectators';
 import {
   createSurfaceMaterial,
   resetSurfaceMaterials,
@@ -134,6 +135,9 @@ export class GameRenderer {
   private readonly startedAt = performance.now();
 
   private disposables: { dispose(): void }[] = [];
+  private readonly crowd = new SpectatorCrowd();
+  /** Seed for spectator placement, set before initialize so the crowd matches the world. */
+  public crowdSeed = 1;
   private rivals: THREE.InstancedMesh | null = null;
   /** Scratch objects for writing rival instances. Reused so the frame loop never allocates. */
   private readonly rivalMatrix = new THREE.Matrix4();
@@ -221,6 +225,12 @@ export class GameRenderer {
     });
     this.craft.attachTo(this.camera, this.scene);
     this.disposables.push(this.craft);
+
+    // Loaded asynchronously and added when ready: the crowd is decoration, and the course must be
+    // playable the instant it renders rather than waiting on a roadside.
+    this.scene.add(this.crowd.object);
+    void this.crowd.load(this.crowdSeed);
+    this.disposables.push(this.crowd);
 
     const composer = new EffectComposer(this.renderer);
     composer.addPass(new RenderPass(this.scene, this.camera));
@@ -917,6 +927,7 @@ export class GameRenderer {
     this.atmosphere.update(elapsed, this.camera.position);
     // One clock for every pulsing surface, rather than each material tracking its own.
     updateSurfaceTime(elapsed);
+    this.crowd.update(frameDelta, rig.z);
     this.updateGates(elapsed, rig.z);
 
     this.composer.render();

@@ -41,6 +41,9 @@ function bootstrap(): void {
         : seedFromString(endlessParam);
 
   const renderer = new GameRenderer();
+  // Set before initialize: the crowd is built during it, and placing spectators from the world
+  // seed keeps the roadside consistent with the course they are watching.
+  renderer.crowdSeed = endlessSeed ?? DEFAULT_ENDLESS_SEED;
   // Endless runs stream their geometry in, so there is no course to build up front.
   renderer.initialize(canvas, endlessSeed === undefined ? buildCourse() : null);
 

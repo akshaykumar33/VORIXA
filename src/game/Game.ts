@@ -11,7 +11,7 @@ import { PlayerController, type MoveIntent, type PlayerEvents, DASH_COOLDOWN } f
 import { CameraRig, type RigInput } from './CameraRig';
 import { RunState } from './RunState';
 import { GhostPlayback, GhostRecorder, loadGhost, saveGhost, type GhostFrame } from './Ghost';
-import { Look } from './Look';
+import { Look, PITCH_LIMIT } from './Look';
 import { HandTracker } from '../input/HandTracker';
 import { FaceTracker } from '../input/FaceTracker';
 import { applyGestureIntent } from '../input/GestureBridge';
@@ -46,6 +46,20 @@ const DILATION_DURATION = 1.6;
 /** Ease rate in and out of dilation. */
 const DILATION_EASE = 9;
 
+/**
+ * Co-pilot head tracking for pointer-locked play.
+ *
+ * There is no cursor to follow under pointer lock, so the head follows the turn instead. The gain
+ * converts a smoothed per-frame mouse delta into the -1..1 the co-pilot expects; the smoothing
+ * keeps a flick of the mouse from snapping the head to full deflection for one frame.
+ */
+const YAW_RATE_TO_HEAD = 0.09;
+const LOOK_RATE_SMOOTHING = 0.18;
+
+function clampUnit(value: number): number {
+  return value < -1 ? -1 : value > 1 ? 1 : value;
+}
+
 /** Traffic seed for the authored course. Fixed so repeat attempts face identical rivals. */
 const AUTHORED_TRAFFIC_SEED = 0x5641;
 
@@ -76,6 +90,8 @@ export class Game {
   /** Current simulation speed multiplier. 1 is real time. */
   private timeScale = 1;
   private dilationRemaining = 0;
+  /** Smoothed view turn rate, used only to aim the co-pilot when no tracker is running. */
+  private lookYawRate = 0;
   /** True while the ghost has a valid pose this frame, so the map can plot it. */
   private ghostVisible = false;
 
@@ -90,6 +106,8 @@ export class Game {
   private readonly source: CourseSource;
   /** Rival traffic. Present in both modes. */
   private readonly rivalPack: RivalPack;
+  /** Seed the traffic was built from, so pilots stay attached to the same craft. */
+  private readonly rivalSeed: number;
 
   /**
    * @param options.endlessSeed When given, the course is generated and streamed from this seed
@@ -122,7 +140,8 @@ export class Game {
 
     // Traffic in both modes. The authored course gets a fixed seed so its rivals are the same
     // every run — a time trial whose traffic reshuffles is not a fair comparison between attempts.
-    this.rivalPack = new RivalPack(options.endlessSeed ?? AUTHORED_TRAFFIC_SEED);
+    this.rivalSeed = options.endlessSeed ?? AUTHORED_TRAFFIC_SEED;
+    this.rivalPack = new RivalPack(this.rivalSeed);
 
     this.run = new RunState(this.source);
 
@@ -184,10 +203,36 @@ export class Game {
     else if (this.run.justPassedCheckpoint) mood = 'checkpoint';
     else if (this.dilationRemaining > 0) mood = 'dilating';
 
+    /*
+     * Fallback chain, most direct signal first.
+     *
+     * The first version fell back to the ROLL axis for horizontal, which is only ever written by
+     * hand tracking in flight mode — so for a keyboard-and-mouse player it was permanently zero
+     * and the head could not turn sideways at all. Vertical passed raw `look.pitch` in radians,
+     * which for ordinary looking sits far below the dead zone. Between them the co-pilot barely
+     * moved, which is not obviously a bug on screen: it just looks like a character that ignores
+     * you.
+     */
+    const hand = this.gestureEnabled && this.tracker.isRunning ? this.tracker.intent : null;
+
+    let lookX: number;
+    let lookY: number;
+    if (gaze?.present) {
+      lookX = gaze.gazeX;
+      lookY = gaze.gazeY;
+    } else if (hand?.present) {
+      lookX = hand.steerX;
+      lookY = hand.steerY;
+    } else {
+      // Mouse and keyboard have no pointer to follow under pointer lock, so the head follows the
+      // *turn*: how fast the view is swinging, and how far it is pitched.
+      lookX = clampUnit(this.lookYawRate * YAW_RATE_TO_HEAD);
+      lookY = clampUnit(-this.look.pitch / PITCH_LIMIT);
+    }
+
     return {
-      gazeX: gaze?.present ? gaze.gazeX : this.input.getAxis(InputAction.ROLL),
-      // Pitch is negated: look.pitch grows downward, while the co-pilot's input is positive-up.
-      gazeY: gaze?.present ? gaze.gazeY : -this.look.pitch,
+      gazeX: lookX,
+      gazeY: lookY,
       mood,
       // Only "lost" when a tracker is actually running — an unused camera is not a failed one.
       trackingLost:
@@ -399,6 +444,10 @@ export class Game {
     const dx = this.input.getAxis(InputAction.LOOK_X);
     const dy = this.input.getAxis(InputAction.LOOK_Y);
     if (dx !== 0 || dy !== 0) this.look.apply(dx, dy);
+
+    // Smoothed turn rate, for the co-pilot to follow when there is no tracker and no pointer.
+    // Decays toward zero on its own, so holding still settles the head back to centre.
+    this.lookYawRate += (dx - this.lookYawRate) * LOOK_RATE_SMOOTHING;
   }
 
   public restart(): void {
@@ -560,7 +609,9 @@ export class Game {
       gazeEnabled: this.gazeEnabled,
       gazeStatus: this.faceTracker.status,
       gazeIntent: this.gazeEnabled ? this.faceTracker.intent : null,
-      coPilot: this.coPilotView(events)
+      coPilot: this.coPilotView(events),
+      rivals: this.rivalPack.all,
+      rivalSeed: this.rivalSeed
     });
 
     this.hud.update({
