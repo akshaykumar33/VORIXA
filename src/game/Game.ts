@@ -7,7 +7,7 @@ import { buildCourse, type Checkpoint, type CourseData } from './Course';
 import { staticCourseSource, type CourseSource } from './CourseSource';
 import { CourseStream } from '../world/CourseStream';
 import { RivalPack } from './Rivals';
-import { PlayerController, type MoveIntent, DASH_COOLDOWN } from './PlayerController';
+import { PlayerController, type MoveIntent, type PlayerEvents, DASH_COOLDOWN } from './PlayerController';
 import { CameraRig, type RigInput } from './CameraRig';
 import { RunState } from './RunState';
 import { GhostPlayback, GhostRecorder, loadGhost, saveGhost, type GhostFrame } from './Ghost';
@@ -17,6 +17,7 @@ import { FaceTracker } from '../input/FaceTracker';
 import { applyGestureIntent } from '../input/GestureBridge';
 import { applyGazeIntent } from '../input/GazeBridge';
 import { Overlay2D } from '../ui/Overlay2D';
+import type { CoPilotInput, CoPilotMood } from '../ui/CoPilot';
 import { MAX_GROUND_SPEED } from './PlayerController';
 
 /**
@@ -158,6 +159,43 @@ export class Game {
       routeEndZ: this.course.finishZ,
       checkpoints: this.course.checkpoints,
       hasFinish: true
+    };
+  }
+
+  /**
+   * What the co-pilot should be looking at and reacting to.
+   *
+   * Head direction comes from the gaze tracker when it is live — the co-pilot genuinely follows
+   * the player's eyes, which is the whole reason to have one in a game that already knows where
+   * you are looking. Falling back to camera pitch and hand steering keeps it alive for keyboard
+   * players rather than freezing it centred, which would read as broken.
+   *
+   * Mood is the most urgent event this frame, ordered by what the player most needs acknowledged:
+   * hitting a hazard outranks banking a checkpoint.
+   */
+  private coPilotView(events: PlayerEvents): CoPilotInput {
+    const gaze = this.gazeEnabled && this.faceTracker.isRunning ? this.faceTracker.intent : null;
+
+    let mood: CoPilotMood = 'idle';
+    if (events.hazardHit) mood = 'hazard';
+    else if (this.run.justRespawned) mood = 'falling';
+    else if (this.run.isNewRecord && this.run.justFinished) mood = 'record';
+    else if (events.boosted) mood = 'boost';
+    else if (this.run.justPassedCheckpoint) mood = 'checkpoint';
+    else if (this.dilationRemaining > 0) mood = 'dilating';
+
+    return {
+      gazeX: gaze?.present ? gaze.gazeX : this.input.getAxis(InputAction.ROLL),
+      // Pitch is negated: look.pitch grows downward, while the co-pilot's input is positive-up.
+      gazeY: gaze?.present ? gaze.gazeY : -this.look.pitch,
+      mood,
+      // Only "lost" when a tracker is actually running — an unused camera is not a failed one.
+      trackingLost:
+        (this.gazeEnabled && this.faceTracker.isRunning && !this.faceTracker.intent.present) ||
+        (this.gestureEnabled && this.tracker.isRunning && !this.tracker.intent.present),
+      // Either signal means the player has engaged: mouse captured, or the run underway. Using
+      // both covers playing with the keyboard without ever locking the pointer.
+      visible: this.lookCaptured || this.run.phase !== 'ready'
     };
   }
 
@@ -521,7 +559,8 @@ export class Game {
       video: this.tracker.videoElement,
       gazeEnabled: this.gazeEnabled,
       gazeStatus: this.faceTracker.status,
-      gazeIntent: this.gazeEnabled ? this.faceTracker.intent : null
+      gazeIntent: this.gazeEnabled ? this.faceTracker.intent : null,
+      coPilot: this.coPilotView(events)
     });
 
     this.hud.update({

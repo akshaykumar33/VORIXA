@@ -4,6 +4,7 @@ import type { TrackerStatus } from '../input/HandTracker';
 import type { FaceTrackerStatus } from '../input/FaceTracker';
 import type { GazeIntent } from '../input/GazeMapping';
 import type { Checkpoint } from '../game/Course';
+import { CoPilot, type CoPilotInput } from './CoPilot';
 
 /**
  * The 2D instrument layer, drawn on a canvas above the 3D world.
@@ -64,17 +65,23 @@ export interface OverlayState {
   gazeEnabled: boolean;
   gazeStatus: FaceTrackerStatus;
   gazeIntent: GazeIntent | null;
+  coPilot: CoPilotInput;
 }
 
 export class Overlay2D {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  private readonly coPilot = new CoPilot();
+  private lastCoPilotFrame = performance.now();
   private width = 0;
   private height = 0;
 
   public attach(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    // Fire and forget: the co-pilot is decorative, and the overlay must draw whether or not a
+    // face ever arrives.
+    void this.coPilot.load('/mascots/scout-directions.webp', '/mascots/scout-reactions.webp');
   }
 
   public resize(width: number, height: number): void {
@@ -92,9 +99,36 @@ export class Overlay2D {
     if (!ctx) return;
     ctx.clearRect(0, 0, this.width, this.height);
 
+    this.drawCoPilot(ctx, state);
     this.drawRouteMap(ctx, state);
     this.drawSpeedArc(ctx, state);
     if (state.gestureEnabled) this.drawHandPanel(ctx, state);
+  }
+
+  // ── Co-pilot ──────────────────────────────────────────────────────────────
+  /**
+   * Draws the co-pilot in the lower-left of the cockpit.
+   *
+   * Placed opposite the route map so the two instruments frame the view rather than crowding one
+   * side, and low enough to stay out of the centre third where the player is aiming.
+   *
+   * Sized as a fraction of viewport height with a clamp, so it reads the same on a laptop and an
+   * ultrawide instead of becoming either a postage stamp or a passenger.
+   */
+  private drawCoPilot(ctx: CanvasRenderingContext2D, s: OverlayState): void {
+    if (!this.coPilot.loaded) return;
+
+    const now = performance.now();
+    const dt = Math.min((now - this.lastCoPilotFrame) / 1000, 0.1);
+    this.lastCoPilotFrame = now;
+
+    // Stepped even while hidden, so blink timing and head direction are already settled when it
+    // appears rather than snapping from a stale pose on the first visible frame.
+    this.coPilot.update(dt, s.coPilot);
+    if (!s.coPilot.visible) return;
+
+    const size = Math.max(96, Math.min(this.height * 0.18, 190));
+    this.coPilot.draw(ctx, 26, this.height - size - 22, size);
   }
 
   // ── Route map ─────────────────────────────────────────────────────────────
