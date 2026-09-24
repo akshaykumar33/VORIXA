@@ -1,13 +1,15 @@
 import type { WeaponId } from '../city/Weapons';
 
 /**
- * The sound of VORIXA City (ADR-0014), synthesised with Web Audio: no recordings to license, and
- * every sound varies a little each time it plays, which recordings do not.
+ * The sound of VORIXA City (ADR-0014), with Web Audio.
  *
- * - **Gunshots** are layered like real ones: a supersonic *crack* (a bandpassed noise burst), the
- *   *body* of the report (lowpassed noise), a *thump* (a falling sine), and the street's *echo*
- *   (a convolution reverb built from decaying noise with early reflections off the buildings).
- *   Each gun has its own recipe; distant shots lose their top end and arrive quieter.
+ * - **Gunshots** are real recordings (The Free Firearm Sound Library, CC0; built by
+ *   `scripts/assets/build-sounds.mjs`): two takes per gun, picked at random and pitched a hair
+ *   either way so a burst never repeats itself, then sent through the street's *echo* (a
+ *   convolution reverb built from decaying noise with early reflections off the buildings).
+ *   Distant shots lose their top end and arrive quieter. Until the recordings have loaded, a
+ *   synthesised shot stands in: a crack, a body and a thump per gun.
+ * - **Reloads** are recordings too (the "Gun reload sounds" pack, CC0).
  * - **Cars**: an engine of detuned saws and a sub, its pitch driven by RPM through a simulated
  *   gearbox (so it climbs, shifts and drops), tyre squeal from sideways slip, crashes with a low
  *   boom, a metal crunch and glass.
@@ -38,6 +40,17 @@ const GUNS: Record<WeaponId, GunRecipe> = {
   sniper: { crack: 1, crackHz: 2400, body: 0.9, bodyHz: 1100, bodyTime: 0.18, thump: 0.8, thumpHz: 70, echo: 0.9 }
 };
 
+/** Recorded sounds in public/city/sounds: name → number of takes. */
+const RECORDED: Record<string, number> = {
+  pistol: 2, police: 2, smg: 2, rifle: 2, shotgun: 2, sniper: 2,
+  'reload-pistol': 1, 'reload-rifle': 1, 'reload-shotgun': 1
+};
+
+/** Which reload recording each gun uses. */
+const RELOAD_OF: Record<WeaponId, string> = {
+  pistol: 'reload-pistol', smg: 'reload-rifle', rifle: 'reload-rifle', shotgun: 'reload-shotgun', sniper: 'reload-rifle'
+};
+
 /** Gear ratios, as fractions of top speed where each gear tops out. */
 const GEARS = [0.18, 0.34, 0.52, 0.72, 1];
 
@@ -49,6 +62,7 @@ export class CityAudio {
   private reverbSend!: GainNode;
   private noise!: AudioBuffer;
   private muted = false;
+  private readonly samples = new Map<string, AudioBuffer[]>();
 
   // Listener.
   private lx = 0;
@@ -176,6 +190,39 @@ export class CityAudio {
     this.bedGain.gain.value = 0.05;
     bed.connect(bedFilter).connect(this.bedGain).connect(this.master);
     bed.start();
+    void this.loadRecordings(ctx);
+  }
+
+  /** Fetches and decodes the recordings; any that fail simply leave the synthesised stand-in. */
+  private async loadRecordings(ctx: AudioContext): Promise<void> {
+    for (const [name, takes] of Object.entries(RECORDED)) {
+      const buffers: AudioBuffer[] = [];
+      for (let t = 1; t <= takes; t++) {
+        const file = takes > 1 ? `${name}-${t}` : name;
+        try {
+          const res = await fetch(`/city/sounds/${file}.wav`);
+          if (!res.ok) continue;
+          buffers.push(await ctx.decodeAudioData(await res.arrayBuffer()));
+        } catch {
+          // Keep going: one missing take is not worth silence.
+        }
+      }
+      if (buffers.length) this.samples.set(name, buffers);
+    }
+  }
+
+  /** Plays a recording into a voice chain; false if it has not loaded. */
+  private sample(name: string, dest: AudioNode, at: number, level: number, pitch = 1): boolean {
+    const takes = this.samples.get(name);
+    if (!takes || !this.ctx) return false;
+    const src = this.ctx.createBufferSource();
+    src.buffer = takes[Math.floor(Math.random() * takes.length)];
+    src.playbackRate.value = pitch * (0.97 + Math.random() * 0.06);
+    const g = this.ctx.createGain();
+    g.gain.value = level;
+    src.connect(g).connect(dest);
+    src.start(at);
+    return true;
   }
 
   // ─── Positioning ──────────────────────────────────────────────────────────────────────────
@@ -251,12 +298,16 @@ export class CityAudio {
 
   // ─── Guns ─────────────────────────────────────────────────────────────────────────────────
 
-  /** A gunshot at (x, z). `own` is the hero's gun: louder and drier, right at the ear. */
-  public gunshot(weapon: WeaponId, x: number, z: number, own: boolean): void {
+  /**
+   * A gunshot at (x, z). `own` is the hero's gun: louder and drier, right at the ear.
+   * @param recording Which recording to use when it differs from the gun (police pistols).
+   */
+  public gunshot(weapon: WeaponId, x: number, z: number, own: boolean, recording: string = weapon): void {
     const r = GUNS[weapon];
-    const v = this.voice(x, z, own ? 0.9 : 0.55, r.echo);
+    const v = this.voice(x, z, own ? 0.9 : 0.55, r.echo * 0.6);
     if (!v) return;
     const { input, at } = v;
+    if (this.sample(recording, input, at, own ? 1 : 0.85)) return;
     this.burst(input, at, 0.05, 'bandpass', r.crackHz, 0.9, r.crack);
     this.burst(input, at + 0.002, r.bodyTime, 'lowpass', r.bodyHz, 0.7, r.body);
     this.tone(input, at, 'sine', r.thumpHz, 35, r.bodyTime * 1.4, r.thump);
@@ -269,10 +320,14 @@ export class CityAudio {
     this.burst(v.input, v.at, 0.02, 'highpass', 4000, 1, 0.8);
   }
 
-  /** Magazine out (start) or in and the slide racked (end). */
-  public reload(stage: 'start' | 'end'): void {
+  /** Magazine out (start) or in and the slide racked (end). The recording covers both. */
+  public reload(stage: 'start' | 'end', weapon: WeaponId = 'rifle'): void {
     const v = this.voice(this.lx, this.lz, 0.45, 0.05);
     if (!v) return;
+    if (this.samples.has(RELOAD_OF[weapon])) {
+      if (stage === 'start') this.sample(RELOAD_OF[weapon], v.input, v.at, 1.4);
+      return;
+    }
     if (stage === 'start') {
       this.burst(v.input, v.at, 0.04, 'bandpass', 1800, 4, 0.8);
       this.burst(v.input, v.at + 0.08, 0.05, 'bandpass', 900, 3, 0.5);

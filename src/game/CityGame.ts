@@ -841,8 +841,8 @@ export class CityGame {
     const result = a.step(TICK, trigger, r.aiming, Math.min(1, this.hero.speed / 4.6), !this.hero.grounded);
     for (const ev of a.events) {
       if (ev === 'dry') this.audio.dryClick();
-      if (ev === 'reloadStart') this.audio.reload('start');
-      if (ev === 'reloadEnd') this.audio.reload('end');
+      if (ev === 'reloadStart') this.audio.reload('start', a.current);
+      if (ev === 'reloadEnd') this.audio.reload('end', a.current);
     }
     if (!result) return;
     const cam = r.camera.position;
@@ -884,7 +884,13 @@ export class CityGame {
         case 'enemyShot':
           view?.enemyFired(fx.enemy, fx.tx, fx.ty, fx.tz);
           this.life.gunshot(fx.enemy.motor.x, fx.enemy.motor.z);
-          this.audio.gunshot(fx.enemy.kind === 'swat' ? 'smg' : fx.enemy.kind === 'police' ? 'pistol' : 'rifle', fx.enemy.motor.x, fx.enemy.motor.z, false);
+          this.audio.gunshot(
+            fx.enemy.kind === 'swat' ? 'smg' : fx.enemy.kind === 'police' ? 'pistol' : 'rifle',
+            fx.enemy.motor.x,
+            fx.enemy.motor.z,
+            false,
+            fx.enemy.kind === 'police' ? 'police' : fx.enemy.kind === 'swat' ? 'smg' : 'rifle'
+          );
           break;
         case 'enemyHurt':
           view?.impact(fx.x, fx.y, fx.z, true);

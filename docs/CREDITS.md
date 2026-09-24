@@ -140,6 +140,20 @@ meshopt-compressed. Content is otherwise unmodified.
 Build-only tools (not shipped): glTF-Transform (MIT, Don McCurdy) and meshoptimizer (MIT,
 Arseny Kapoulkine). The meshopt decoder that ships is the copy inside three.js (MIT).
 
+### VORIXA City sounds
+
+Recorded, [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode), from OpenGameArt.
+Cut into single shots, mixed to mono 48 kHz and normalised by `scripts/assets/build-sounds.mjs`
+into `public/city/sounds/`; the sources stay in `assets-src/sounds/` (not committed).
+
+| Source | Author | Used for |
+|---|---|---|
+| [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library) | The Free Firearm Sound Library team (uploaded by bart) | Gunshots: Walther PPQ (pistol), 1911 (police), Carl Gustav M45 (SMG), AR-15 (rifle), Mossberg (shotgun), Tikka (sniper) |
+| [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | springyspringo | Pistol, rifle and shotgun reloads |
+
+Everything else in the city (engine, tyres, siren, impacts, footsteps, cues) is synthesised in
+`src/audio/CityAudio.ts`.
+
 ## Animated people (Rush and On Foot)
 
 [Mini Characters 1.0](https://kenney.nl/assets/mini-characters) by **Kenney** (www.kenney.nl),
