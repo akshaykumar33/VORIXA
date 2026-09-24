@@ -77,7 +77,7 @@ const BODY: readonly { y: number; r: number }[] = [
   { y: 0.38, r: 0.2 }
 ];
 
-export type EnemyKind = 'swat' | 'soldier';
+export type EnemyKind = 'swat' | 'soldier' | 'police';
 export type EnemyState = 'idle' | 'alert' | 'fight' | 'dead';
 
 export interface Enemy {
@@ -119,7 +119,8 @@ export type CombatFx =
   | { type: 'heroDown' }
   | { type: 'impact'; x: number; y: number; z: number }
   | { type: 'pickup'; weapon: WeaponId; rounds: number }
-  | { type: 'waveClear'; wave: number };
+  | { type: 'waveClear'; wave: number }
+  | { type: 'policeDown' };
 
 const SIGHT = 48;
 const REACTION = 0.55;
@@ -157,6 +158,8 @@ export class Combat {
   public closeScale = 1;
   /** How much longer enemies take to react (Ghost). */
   public spotScale = 1;
+  /** Movable cover (parked and driven cars), refreshed by the game each step. */
+  public readonly cover: Box[] = [];
   private sinceHurt = 99;
   private tick = 0;
   private nextId = 1;
@@ -172,7 +175,7 @@ export class Combat {
     const motor = new HeroMotor(this.colliders, this.bounds);
     motor.place(x, z, facing);
     const e: Enemy = {
-      id: this.nextId++, kind, motor, hp: kind === 'swat' ? 120 : 100, state: 'idle', alertTimer: 0, cooldown: 0,
+      id: this.nextId++, kind, motor, hp: kind === 'swat' ? 120 : 100, state: kind === 'police' ? 'alert' : 'idle', alertTimer: kind === 'police' ? 1.2 : 0, cooldown: 0,
       burst: 0, strafe: 1, strafeTimer: 0, hitTime: 99, deadTime: 0, homeX: x, homeZ: z, lastSeen: 99
     };
     this.enemies.push(e);
@@ -189,8 +192,23 @@ export class Combat {
     }
   }
 
+  /** Choir still standing (the police are not part of a wave). */
   public get alive(): number {
-    return this.enemies.filter((e) => e.state !== 'dead').length;
+    return this.enemies.filter((e) => e.state !== 'dead' && e.kind !== 'police').length;
+  }
+
+  public get policeOnScene(): number {
+    return this.enemies.filter((e) => e.state !== 'dead' && e.kind === 'police').length;
+  }
+
+  /** Police who can see the hero right now: while they can, the heat does not cool. */
+  public get policeWatching(): boolean {
+    return this.enemies.some((e) => e.kind === 'police' && e.state === 'fight' && e.lastSeen < 1);
+  }
+
+  /** The heat is off: the police go home. */
+  public standDownPolice(): void {
+    for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].kind === 'police') this.enemies.splice(i, 1);
   }
 
   /**
@@ -198,7 +216,7 @@ export class Combat {
    * person camera behind the hero does not shoot the hero's own shoulder or a wall behind it.
    */
   public trace(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, range: number, minDistance = 0): Hit {
-    let best = rayBoxes(ox, oy, oz, dx, dy, dz, range, this.colliders);
+    let best = rayBoxes(ox, oy, oz, dx, dy, dz, rayBoxes(ox, oy, oz, dx, dy, dz, range, this.cover), this.colliders);
     let hit: Hit = best < range ? { kind: 'world', distance: best, x: ox + dx * best, y: oy + dy * best, z: oz + dz * best } : { kind: 'none', distance: range, x: ox + dx * range, y: oy + dy * range, z: oz + dz * range };
     for (const e of this.enemies) {
       if (e.state === 'dead') continue;
@@ -251,9 +269,10 @@ export class Combat {
       this.kills++;
       if (headshot) this.headshots++;
       this.fx.push({ type: 'enemyKilled', enemy: e, headshot });
-      const weapon: WeaponId = e.kind === 'swat' ? 'smg' : 'rifle';
+      const weapon: WeaponId = e.kind === 'swat' ? 'smg' : e.kind === 'police' ? 'pistol' : 'rifle';
       this.drops.push({ x: e.motor.x, z: e.motor.z, weapon, rounds: WEAPONS[weapon].magazine, alive: true });
-      if (this.alive === 0) this.fx.push({ type: 'waveClear', wave: this.wave });
+      if (e.kind === 'police') this.fx.push({ type: 'policeDown' });
+      else if (this.alive === 0) this.fx.push({ type: 'waveClear', wave: this.wave });
     }
   }
 
@@ -310,7 +329,7 @@ export class Combat {
     const dz = hero.z - m.z;
     const dist = Math.hypot(dx, dy, dz);
     if (dist > SIGHT) return false;
-    const blocked = rayBoxes(m.x, m.y + 1.55, m.z, dx / dist, dy / dist, dz / dist, dist, this.colliders);
+    const blocked = rayBoxes(m.x, m.y + 1.55, m.z, dx / dist, dy / dist, dz / dist, rayBoxes(m.x, m.y + 1.55, m.z, dx / dist, dy / dist, dz / dist, dist, this.cover), this.colliders);
     return blocked >= dist - 0.3;
   }
 

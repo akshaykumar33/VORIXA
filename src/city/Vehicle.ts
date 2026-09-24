@@ -205,6 +205,19 @@ export class Vehicle {
   }
 }
 
+/** The car as a box for bullets and the camera: its footprint, 1.4 m tall. */
+export function coverBox(v: Vehicle, out: Box): Box {
+  const half = v.spec.reach + v.spec.radius * 0.8;
+  const hx = Math.abs(Math.sin(v.heading)) * half + Math.abs(Math.cos(v.heading)) * v.spec.radius * 0.95;
+  const hz = Math.abs(Math.cos(v.heading)) * half + Math.abs(Math.sin(v.heading)) * v.spec.radius * 0.95;
+  out.minX = v.x - hx;
+  out.maxX = v.x + hx;
+  out.minZ = v.z - hz;
+  out.maxZ = v.z + hz;
+  out.height = 1.4;
+  return out;
+}
+
 /** Pushes two cars apart when their circles overlap, trading some momentum. */
 export function separate(a: Vehicle, b: Vehicle): number {
   const ca = a.circles();

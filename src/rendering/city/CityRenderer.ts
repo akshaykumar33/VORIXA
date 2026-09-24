@@ -11,8 +11,10 @@ import { CombatView } from './CombatView';
 import { VehicleView } from './VehicleView';
 import { People, type Person } from './People';
 import { Showroom } from './Showroom';
-import { CHOIR, CREW, type CharacterDef } from '../../city/Crew';
-import type { Vehicle } from '../../city/Vehicle';
+import { CityLifeView } from './CityLifeView';
+import type { CityLife } from '../../city/CityLife';
+import { CHOIR, CREW, POLICE, type CharacterDef } from '../../city/Crew';
+import { coverBox, type Vehicle } from '../../city/Vehicle';
 
 /**
  * Draws VORIXA City (ADR-0014) from the CC0 Quaternius assets built by
@@ -59,6 +61,7 @@ export class CityRenderer {
   public punchYaw = 0;
   public combatView: CombatView | null = null;
   public vehicleView: VehicleView | null = null;
+  public lifeView: CityLifeView | null = null;
   /** The car the hero is driving, or null on foot. */
   public driving: Vehicle | null = null;
   private heroHand: THREE.Object3D | null = null;
@@ -84,6 +87,8 @@ export class CityRenderer {
   private currentName = '';
   private landing = 0;
   private colliders: readonly Box[] = [];
+  /** Cars the camera must not pass through (refreshed each frame from the vehicles). */
+  private readonly carBoxes: Box[] = [];
 
   private readonly camPos = new THREE.Vector3();
   private readonly target = new THREE.Vector3();
@@ -165,7 +170,10 @@ export class CityRenderer {
     // The Choir: enforcers in black with red visors, soldiers in oxblood.
     this.combatView = new CombatView(
       guns,
-      (kind) => this.people.makeFrom(kind === 'swat' ? swat : soldier, kind === 'swat' ? CHOIR[0] : CHOIR[1], 0.25),
+      (kind) =>
+        kind === 'police'
+          ? this.people.makeFrom(swat, POLICE, 0.25)
+          : this.people.makeFrom(kind === 'swat' ? swat : soldier, kind === 'swat' ? CHOIR[0] : CHOIR[1], 0.25),
       this.camera,
       this.heroHand,
       this.hero!
@@ -173,6 +181,9 @@ export class CityRenderer {
     this.scene.add(this.combatView.group);
     this.vehicleView = new VehicleView(cars);
     this.scene.add(this.vehicleView.group);
+    this.lifeView = new CityLifeView(this.people);
+    this.scene.add(this.lifeView.group);
+    this.lifeView.preload();
     this.ready = true;
   }
 
@@ -290,7 +301,7 @@ export class CityRenderer {
     if (fx === 'land') this.landing = 0.15;
   }
 
-  public render(hero: HeroMotor, dt: number, combat?: Combat, vehicles: readonly Vehicle[] = []): void {
+  public render(hero: HeroMotor, dt: number, combat?: Combat, vehicles: readonly Vehicle[] = [], life?: CityLife): void {
     if (this.showroomOpen) {
       this.showroom.render(this.renderer, dt, this.scene.environment);
       return;
@@ -301,6 +312,12 @@ export class CityRenderer {
     }
     this.animateHero(hero, dt);
     this.vehicleView?.update(vehicles, dt);
+    this.carBoxes.length = 0;
+    for (const v of vehicles) {
+      if (v === this.driving || Math.abs(v.x - hero.x) > 14 || Math.abs(v.z - hero.z) > 14) continue;
+      this.carBoxes.push(coverBox(v, { minX: 0, maxX: 0, minZ: 0, maxZ: 0, height: 0 }));
+    }
+    if (life) this.lifeView?.update(life, dt);
     if (this.driving) this.placeDriveCamera(this.driving, dt);
     else this.placeCamera(hero, dt);
     if (combat && this.combatView) {
@@ -412,7 +429,7 @@ export class CityRenderer {
     const pivot = this.tmp.set(hero.x + rightX * this.shoulder, hero.y + PIVOT_HEIGHT, hero.z + rightZ * this.shoulder);
     // Back along the look direction, but never through a wall.
     const want = this.cameraDistance;
-    const hit = rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, want, this.colliders);
+    const hit = rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, want, this.carBoxes), this.colliders);
     const d = Math.max(0.6, Math.min(want, hit - 0.25));
     this.camPos.set(pivot.x - lookX * d, Math.max(0.4, pivot.y - lookY * d), pivot.z - lookZ * d);
     cam.position.copy(this.camPos);

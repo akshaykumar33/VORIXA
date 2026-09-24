@@ -174,3 +174,14 @@ describe('Combat', () => {
     expect(behindWall.shots).toBe(0);
   });
 });
+
+describe('Cover', () => {
+  it('stops bullets at a parked car, both ways', () => {
+    const c = new Combat([], open);
+    c.spawn('swat', 0, -20, 0);
+    c.cover.push({ minX: -1, maxX: 1, minZ: -11, maxZ: -9, height: 1.4 });
+    expect(c.trace(0, 1.0, 0, 0, 0, -1, 100).kind).toBe('world');
+    // Over the roof, the head is exposed.
+    expect(c.trace(0, 1.63, 0, 0, 0, -1, 100).kind).toBe('enemy');
+  });
+});

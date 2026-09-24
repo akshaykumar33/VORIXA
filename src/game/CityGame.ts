@@ -7,7 +7,9 @@ import { buildDistrict, type District } from '../city/CityLayout';
 import { HeroMotor, type HeroIntent } from '../city/HeroMotor';
 import { Arsenal, LOADOUT, WEAPONS, type WeaponId } from '../city/Weapons';
 import { Combat, HERO_MAX_ARMOR } from '../city/Combat';
-import { Vehicle, VEHICLE_SPECS, separate, type DriveIntent } from '../city/Vehicle';
+import { Vehicle, VEHICLE_SPECS, separate, coverBox, type DriveIntent } from '../city/Vehicle';
+import { CityLife } from '../city/CityLife';
+import { direction } from '../city/Combat';
 import { CityRenderer } from '../rendering/city/CityRenderer';
 import { CityHUD, type SlotInfo, type CrewEntry } from '../ui/CityHUD';
 import { CREW, PERKS, perkEffects, unlocked, type CharacterDef, type PerkEffects } from '../city/Crew';
@@ -75,6 +77,8 @@ export class CityGame {
   private nextWaveIn = -1;
   private readonly wavePoints: [number, number][];
   private readonly vehicles: Vehicle[];
+  private readonly life: CityLife;
+  private policeTimer = 0;
   private driving: Vehicle | null = null;
   private readonly drive: DriveIntent = { throttle: 0, steer: 0, handbrake: false };
   private mouseMovedAt = -99;
@@ -93,6 +97,7 @@ export class CityGame {
   ) {
     this.hero = new HeroMotor(this.district.colliders, this.district.bounds);
     this.combat = new Combat(this.district.colliders, this.district.bounds);
+    this.life = new CityLife(this.district, 28);
     this.vehicles = this.district.parking.map((p, n) =>
       new Vehicle(n + 1, VEHICLE_SPECS[p.model], this.district.colliders, this.district.bounds).place(p.x, p.z, p.heading)
     );
@@ -322,6 +327,8 @@ export class CityGame {
     this.renderer.yaw = s.yaw;
     this.renderer.pitch = -0.12;
     this.combat.reviveHero();
+    // Waking up in hospital wipes the slate, as in GTA.
+    this.life.heat = 0;
     // A fresh pistol magazine at least: nobody respawns empty-handed.
     const pistol = this.arsenal.ammo.pistol;
     pistol.mag = WEAPONS.pistol.magazine;
@@ -402,6 +409,7 @@ export class CityGame {
       intent.jumpPressed = false;
       this.stepGuns(trigger);
       this.stepCombat();
+      this.stepLife();
       this.accumulator -= TICK;
     }
 
@@ -427,7 +435,8 @@ export class CityGame {
 
     this.audio.update(car ? Math.abs(car.forwardSpeed) : 0, car ? Math.abs(car.forwardSpeed) / car.spec.maxSpeed : 0, drive.handbrake, null);
     this.hud.setVehicle(car ? { speed: Math.abs(car.forwardSpeed), health: car.health } : null, !car && active && !!this.carNearHero());
-    r.render(this.hero, dt, this.combat, this.vehicles);
+    this.hud.setHeat(this.life.stars);
+    r.render(this.hero, dt, this.combat, this.vehicles, this.life);
     i.endFrame();
     requestAnimationFrame((t) => this.frame(t));
   }
@@ -460,13 +469,62 @@ export class CityGame {
         }
       }
     }
+    // Cars are cover: bullets stop at them, both ways (not the one being driven).
+    const cover = this.combat.cover;
+    cover.length = 0;
+    for (const v of this.vehicles) {
+      if (v === this.driving) continue;
+      cover.push(coverBox(v, { minX: 0, maxX: 0, minZ: 0, maxZ: 0, height: 0 }));
+    }
     const car = this.driving;
     if (car) {
       const [ax, az, bx, bz] = car.circles();
       const speed = Math.abs(car.forwardSpeed);
-      const hits = this.combat.runOver(ax, az, car.spec.radius, speed) + this.combat.runOver(bx, bz, car.spec.radius, speed);
+      const hits =
+        this.combat.runOver(ax, az, car.spec.radius, speed) +
+        this.combat.runOver(bx, bz, car.spec.radius, speed) +
+        this.life.runOver(ax, az, car.spec.radius, speed) +
+        this.life.runOver(bx, bz, car.spec.radius, speed);
       if (hits > 0) this.renderer.punchPitch += 0.03;
     }
+  }
+
+  /** Citizens walk and panic; HEAT brings the police, and cooling it sends them home. */
+  private stepLife(): void {
+    const life = this.life;
+    life.step(TICK, this.combat.policeWatching);
+    for (const fx of life.fx) {
+      if (fx.type === 'citizenDown') {
+        this.hud.feed(fx.byCar ? 'Pedestrian hit · HEAT rises' : 'Civilian down · HEAT rises');
+        this.renderer.combatView?.impact(fx.citizen.x, 1, fx.citizen.z, true);
+      }
+    }
+    const wanted = Math.min(8, life.stars * 2);
+    if (life.stars === 0) {
+      if (this.combat.policeOnScene > 0) {
+        this.combat.standDownPolice();
+        this.hud.feed('Heat is off');
+      }
+      return;
+    }
+    this.policeTimer -= TICK;
+    if (this.policeTimer > 0 || this.combat.policeOnScene >= wanted) return;
+    this.policeTimer = 2.5;
+    // Police arrive down the nearest road, from behind the camera's view where possible.
+    const P = this.district.pitch;
+    const b = this.district.bounds;
+    const behind = this.renderer.yaw;
+    let x = this.hero.x + Math.sin(behind) * 34;
+    let z = this.hero.z + Math.cos(behind) * 34;
+    x = Math.max(b.minX + 2, Math.min(b.maxX - 2, x));
+    z = Math.max(b.minZ + 2, Math.min(b.maxZ - 2, z));
+    // Snap onto the nearest road centre line.
+    const rx = Math.round(x / P) * P;
+    const rz = Math.round(z / P) * P;
+    if (Math.abs(x - rx) < Math.abs(z - rz)) x = rx;
+    else z = rz;
+    this.combat.spawn('police', x, z, Math.atan2(this.hero.x - x, this.hero.z - z));
+    if (this.combat.policeOnScene === 1) this.hud.banner('Police', `${life.stars} star${life.stars === 1 ? '' : 's'} of heat · lose them, or hold them off`);
   }
 
   private stepGuns(trigger: boolean): void {
@@ -482,6 +540,17 @@ export class CityGame {
     // Third person traces from the camera but ignores anything between it and the hero.
     const minDistance = r.view === 'third' ? Math.hypot(cam.x - this.hero.x, cam.z - this.hero.z) + 0.4 : 0;
     const hits = this.combat.fire(a.current, result.shots, cam.x, cam.y, cam.z, r.yaw, r.pitch, minDistance);
+    // Bystanders: a shot that reaches a citizen before anything else hits them.
+    result.shots.forEach((shot, n) => {
+      const [dx, dy, dz] = direction(r.yaw + shot.yaw, r.pitch + shot.pitch);
+      const who = this.life.trace(cam.x, cam.y, cam.z, dx, dy, dz);
+      if (who.citizen && who.distance >= minDistance && who.distance < hits[n].distance) {
+        this.life.hurt(who.citizen, false);
+        hits[n] = { kind: 'world', distance: who.distance, x: cam.x + dx * who.distance, y: cam.y + dy * who.distance, z: cam.z + dz * who.distance };
+        r.combatView?.impact(hits[n].x, hits[n].y, hits[n].z, true);
+      }
+    });
+    this.life.gunshot(this.hero.x, this.hero.z);
     r.punchPitch += result.kickPitch;
     r.punchYaw += result.kickYaw;
     r.sinceFired = 0;
@@ -504,6 +573,7 @@ export class CityGame {
       switch (fx.type) {
         case 'enemyShot':
           view?.enemyFired(fx.enemy, fx.tx, fx.ty, fx.tz);
+          this.life.gunshot(fx.enemy.motor.x, fx.enemy.motor.z);
           this.play('enemyFire', fx.enemy.motor.x, fx.enemy.motor.z);
           break;
         case 'enemyHurt':
@@ -538,6 +608,10 @@ export class CityGame {
           this.hud.showDown(true, `${c.kills} down · ${c.headshots} headshots · wave ${c.wave}`);
           void document.exitPointerLock?.();
           this.play('gameOver', this.hero.x, 0);
+          break;
+        case 'policeDown':
+          this.life.raiseHeat(1);
+          this.hud.feed('Officer down · HEAT rises');
           break;
         case 'pickup':
           this.hud.feed(`+${fx.rounds} ${WEAPONS[fx.weapon].name} rounds`);

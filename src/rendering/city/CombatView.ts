@@ -110,7 +110,7 @@ export class CombatView {
 
   public constructor(
     private readonly gunsGltf: GLTF,
-    private readonly makeEnemy: (kind: 'swat' | 'soldier') => Person,
+    private readonly makeEnemy: (kind: 'swat' | 'soldier' | 'police') => Person,
     camera: THREE.PerspectiveCamera,
     private heroHand: THREE.Object3D | null,
     private heroRoot: THREE.Object3D
@@ -243,8 +243,9 @@ export class CombatView {
     // Three.js strips the dot from the rig's "Wrist.R" when it loads.
     const hand = person.hand;
     void model;
-    const source = this.gunsGltf.scene.getObjectByName(WEAPONS[e.kind === 'swat' ? 'smg' : 'rifle'].model);
-    const gun = source ? prepareGun(source, e.kind === 'swat' ? 0.6 : 0.95) : new THREE.Group();
+    const weapon = e.kind === 'swat' ? 'smg' : e.kind === 'police' ? 'pistol' : 'rifle';
+    const source = this.gunsGltf.scene.getObjectByName(WEAPONS[weapon].model);
+    const gun = source ? prepareGun(source, WEAPONS[weapon].length) : new THREE.Group();
     const flash = flashMesh();
     gun.getObjectByName('muzzle')?.add(flash);
     if (hand) {
@@ -266,6 +267,13 @@ export class CombatView {
   }
 
   public update(combat: Combat, dt: number, time: number, firstPerson: boolean, aiming: boolean, moving: number): void {
+    // Anyone who has left the fight (police standing down) leaves the street.
+    for (const [id, v] of this.enemies) {
+      if (!combat.enemies.includes(v.enemy)) {
+        v.root.removeFromParent();
+        this.enemies.delete(id);
+      }
+    }
     // Enemies.
     for (const e of combat.enemies) {
       const v = this.viewFor(e);

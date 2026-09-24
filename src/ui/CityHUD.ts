@@ -102,6 +102,11 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 @keyframes city-banner { 0% { opacity: 0; transform: translateX(-50%) scale(0.9); } 10% { opacity: 1; transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
 #rush-hud.city .down h1 { color: var(--t-bad); }
+#rush-hud.city .heat { margin-top: 6px; font-size: 20px; letter-spacing: 0.08em; }
+#rush-hud.city .heat span { color: rgba(255,255,255,0.18); transition: color 0.2s; }
+#rush-hud.city .heat span.on { color: var(--t-gold); text-shadow: 0 0 8px rgba(255,194,61,0.8); }
+#rush-hud.city .heat.flash span.on { animation: city-heat 0.5s ease-in-out 3; }
+@keyframes city-heat { 50% { color: #ff4d5e; text-shadow: 0 0 10px rgba(255,77,94,0.9); } }
 #rush-hud.city .card.safehouse { left: auto; right: max(20px, 3vw); transform: translateY(-50%); width: min(440px, calc(100vw - 32px)); text-align: left; }
 #rush-hud.city .safehouse h1 { font-size: clamp(38px, 5vw, 56px); }
 #rush-hud.city .safehouse .alias { font-size: 22px; color: var(--t-accent); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -134,7 +139,7 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 
 const MARKUP = `
   <div class="vignette"></div>
-  <div class="place toon"><small>VORIXA City</small><b>Downtown</b><div class="wave">Enemies <b class="left">0</b></div></div>
+  <div class="place toon"><small>VORIXA City</small><b>Downtown</b><div class="wave">Enemies <b class="left">0</b></div><div class="heat" role="img" aria-label="Heat: 0 stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div></div>
   <div class="crosshair" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
   <div class="hitmark" aria-hidden="true"></div>
   <div class="dmg" aria-hidden="true"></div>
@@ -382,6 +387,23 @@ export class CityHUD {
     if (!car) return;
     this.q('.car .kmh span').textContent = String(Math.round(car.speed * 3.6));
     (this.q('.car .meter i')).style.width = `${Math.max(0, car.health)}%`;
+  }
+
+  private lastStars = -1;
+
+  /** HEAT, the wanted level: filled stars, flashing when it rises. */
+  public setHeat(stars: number): void {
+    if (stars === this.lastStars) return;
+    const rising = stars > this.lastStars && this.lastStars >= 0;
+    this.lastStars = stars;
+    const heat = this.q('.heat');
+    heat.querySelectorAll('span').forEach((s, i) => s.classList.toggle('on', i < stars));
+    heat.setAttribute('aria-label', `Heat: ${stars} star${stars === 1 ? '' : 's'}`);
+    heat.classList.remove('flash');
+    if (rising) {
+      void heat.offsetWidth;
+      heat.classList.add('flash');
+    }
   }
 
   public setEnemies(left: number): void {
