@@ -133,10 +133,55 @@ const patterns: Record<string, Pattern> = {
 };
 
 /**
+ * Lays one of the three star coins in a spot that asks for a skill: the peak of a ramp jump,
+ * high over a barrier wall (only a jump reaches it), or tucked right behind a parked truck (cut in
+ * the moment you pass it). Which spot each coin gets is drawn from the stage seed.
+ */
+export function placeStarCoin(sim: RushSim, rng: Rng, z: number, index: number): number {
+  const variant = (index + rng.int(0, 2)) % 3;
+  const lane = rng.pick(LANES);
+  if (sim.bonusRoad) {
+    // A bonus stage is a reward: its star coins wait in the open, at the end of a coin trail.
+    coinLine(sim, lane, z, 6);
+    const star = sim.spawn('starcoin', laneX(lane), z + 26, 0.3);
+    if (star) star.hp = index;
+    return 30;
+  }
+  if (variant === 0) {
+    sim.spawn('ramp', laneX(lane), z);
+    const t = RAMP_VELOCITY / GRAVITY;
+    const apex = (RAMP_VELOCITY * RAMP_VELOCITY) / (2 * GRAVITY);
+    const star = sim.spawn('starcoin', laneX(lane), z + 2.6 + Math.max(sim.speed, START_FOR_ARC) * t, apex - 0.4);
+    if (star) star.hp = index;
+    coinLine(sim, lane, z - 14, 3);
+    return 34;
+  }
+  if (variant === 1) {
+    for (const l of LANES) sim.spawn('barrier', laneX(l), z);
+    // At 1.5 m it clears a grounded car's roof (1.3 m): only a jump collects it.
+    const star = sim.spawn('starcoin', laneX(lane), z, 1.5);
+    if (star) star.hp = index;
+    return 14;
+  }
+  const open = rng.pick(LANES);
+  const blocked = otherLanes(open);
+  for (const l of blocked) sim.spawn('truck', laneX(l), z);
+  const star = sim.spawn('starcoin', laneX(rng.pick(blocked)), z + 3.6 + 11, 0.3);
+  if (star) star.hp = index;
+  coinLine(sim, open, z - 6, 5);
+  return 30;
+}
+
+/** Arcs are laid assuming at least this speed, so a slow start still lines up with the coins. */
+const START_FOR_ARC = 20;
+
+const BONUS_PATTERNS = ['coins', 'coinSnake', 'ramp', 'coins', 'items'];
+
+/**
  * Pattern weights by difficulty. Early road is coins and single barriers; pressure — trucks,
  * two-car traffic, drones — ramps in as the run goes on.
  */
-function weights(difficulty: number): [string, number][] {
+function weights(difficulty: number, allowDrones = true): [string, number][] {
   const d = difficulty;
   return [
     ['coins', 2.2 - d],
@@ -148,14 +193,14 @@ function weights(difficulty: number): [string, number][] {
     ['traffic', 0.8 + d * 1.6],
     ['crates', 1.2],
     ['ramp', 0.8],
-    ['drone', d < 0.06 ? 0 : 0.7 + d * 1.5],
+    ['drone', !allowDrones || d < 0.06 ? 0 : 0.7 + d * 1.5],
     ['pickup', 0.45],
     ['items', 0.75]
   ];
 }
 
-export function pickPattern(rng: Rng, difficulty: number): string {
-  const table = weights(difficulty);
+export function pickPattern(rng: Rng, difficulty: number, allowDrones = true): string {
+  const table = weights(difficulty, allowDrones);
   let total = 0;
   for (const [, w] of table) total += Math.max(w, 0);
   let roll = rng.next() * total;
@@ -168,7 +213,8 @@ export function pickPattern(rng: Rng, difficulty: number): string {
 
 /** Lays one pattern starting at `z` and returns how much road it used. */
 export function spawnPattern(sim: RushSim, rng: Rng, z: number): number {
-  return patterns[pickPattern(rng, sim.difficulty)](sim, rng, z);
+  if (sim.bonusRoad) return patterns[rng.pick(BONUS_PATTERNS)](sim, rng, z);
+  return patterns[pickPattern(rng, sim.difficulty, sim.dronesAllowed)](sim, rng, z);
 }
 
 export const PATTERN_NAMES = Object.keys(patterns);

@@ -1,5 +1,5 @@
 import { createRng, type Rng } from '../world/Rng';
-import { spawnPattern, OPENING_CLEAR } from './Patterns';
+import { spawnPattern, placeStarCoin, OPENING_CLEAR } from './Patterns';
 
 /**
  * Rush: the whole game as a pure, deterministic simulation.
@@ -103,7 +103,12 @@ export type EntityKind =
   | 'nitro'
   | 'heart'
   | 'ramp'
-  | 'itembox';
+  | 'itembox'
+  | 'starcoin'
+  | 'goldcrate'
+  | 'portal'
+  | 'flag'
+  | 'boss';
 
 /** Collision half-extents and height per kind. Heights decide what a jump clears. */
 export const KIND_SHAPE: Record<EntityKind, { hx: number; hz: number; height: number }> = {
@@ -117,7 +122,12 @@ export const KIND_SHAPE: Record<EntityKind, { hx: number; hz: number; height: nu
   nitro: { hx: 0.8, hz: 0.8, height: 1.6 },
   heart: { hx: 0.8, hz: 0.8, height: 1.6 },
   ramp: { hx: 1.4, hz: 2.6, height: 0.6 },
-  itembox: { hx: 0.8, hz: 0.8, height: 2.0 }
+  itembox: { hx: 0.8, hz: 0.8, height: 2.0 },
+  starcoin: { hx: 0.9, hz: 0.9, height: 1.6 },
+  goldcrate: { hx: 0.9, hz: 0.9, height: 1.6 },
+  portal: { hx: 1.3, hz: 0.6, height: 3.0 },
+  flag: { hx: 6, hz: 0.5, height: 5 },
+  boss: { hx: 2.4, hz: 2.4, height: 2.4 }
 };
 
 const POINTS: Partial<Record<EntityKind, number>> = {
@@ -185,7 +195,12 @@ export type FxType =
   | 'itemGet'
   | 'itemUse'
   | 'shieldPop'
-  | 'lightning';
+  | 'lightning'
+  | 'starCoin'
+  | 'secretReveal'
+  | 'secret'
+  | 'finish'
+  | 'bossHit';
 
 export interface FxRecord {
   type: FxType;
@@ -209,7 +224,32 @@ export interface RushIntent {
   useItem?: boolean;
 }
 
-export type RushPhase = 'ready' | 'running' | 'over';
+export type RushPhase = 'ready' | 'running' | 'over' | 'clear';
+
+/**
+ * A World Tour stage, as the simulation needs it. The tour data lives in `Tour.ts`; the sim only
+ * knows the rules that differ from the endless road.
+ */
+export interface StageConfig {
+  /** Metres to the finish flag; 0 for a boss stage, which ends when the boss falls. */
+  length: number;
+  difficulty: number;
+  /** Hides a golden crate whose warp unlocks the world's secret stage. */
+  hasSecret: boolean;
+  boss: boolean;
+  /** A secret bonus stage: coins and ramps, nothing that hurts. */
+  bonus: boolean;
+}
+
+/** Boss health grows with the world: a few seconds of focus early on, a real fight at the end. */
+export function bossHpFor(difficulty: number): number {
+  return Math.round(30 + difficulty * 40);
+}
+/** How far along a stage the three star coins sit. */
+const STAR_COIN_AT = [0.25, 0.55, 0.85];
+/** Boss stages have no length; their star coins come at fixed distances instead. */
+const BOSS_STAR_COIN_AT = [160, 420, 700];
+const GOLD_CRATE_AT = 0.62;
 
 const ENTITY_CAPACITY = 128;
 const BULLET_CAPACITY = 24;
@@ -251,6 +291,19 @@ export class RushSim {
   /** Seconds into the current flip, or -1 when not flipping. The renderer spins the car by it. */
   public flipTime = -1;
   public heldItem: ItemKind | null = null;
+
+  /** The stage being played, or null on the endless road. */
+  public stage: StageConfig | null = null;
+  /** Which star coins this attempt has collected, as bits. */
+  public starCoins = 0;
+  public foundSecret = false;
+  /** Hearts lost this attempt; a no-crash goal needs zero. */
+  public crashes = 0;
+  public bossMaxHp = 0;
+  private bossId = 0;
+  private starSlots: number[] = [];
+  private goldCrateZ = Infinity;
+  private flagPlaced = false;
   public shieldTime = 0;
   public magnetTime = 0;
   public giantTime = 0;
@@ -303,6 +356,15 @@ export class RushSim {
     this.flipTime = -1;
     this.heldItem = null;
     this.shieldTime = this.magnetTime = this.giantTime = 0;
+    this.stage = null;
+    this.starCoins = 0;
+    this.foundSecret = false;
+    this.crashes = 0;
+    this.bossMaxHp = 0;
+    this.bossId = 0;
+    this.starSlots = [];
+    this.goldCrateZ = Infinity;
+    this.flagPlaced = false;
     this.combo = 1;
     this.comboTimer = 0;
     this.elapsed = 0;
@@ -323,6 +385,35 @@ export class RushSim {
     this.startZ = this.z;
   }
 
+  /** Starts a World Tour stage straight away: no title cruise, the flag is already out there. */
+  public startStage(config: StageConfig, seed: number): void {
+    this.reset(seed);
+    this.stage = config;
+    this.start();
+    const at = config.length > 0 ? STAR_COIN_AT.map((f) => f * config.length) : BOSS_STAR_COIN_AT;
+    this.starSlots = at.map((d) => this.startZ + d);
+    if (config.hasSecret && config.length > 0) this.goldCrateZ = this.startZ + GOLD_CRATE_AT * config.length;
+    if (config.boss) {
+      const boss = this.spawn('boss', 0, this.z + 90, 5);
+      if (boss) {
+        boss.hp = this.bossMaxHp = bossHpFor(config.difficulty);
+        this.bossId = boss.id;
+      }
+    }
+  }
+
+  /** The boss's remaining health, or 0 when there is none. */
+  public get bossHp(): number {
+    if (!this.bossId) return 0;
+    const boss = this.entities.find((e) => e.alive && e.id === this.bossId);
+    return boss ? boss.hp : 0;
+  }
+
+  /** The finish line, in road distance, or Infinity on endless roads and boss stages. */
+  public get finishZ(): number {
+    return this.stage && this.stage.length > 0 ? this.startZ + this.stage.length : Infinity;
+  }
+
   /** Metres covered since the run began. */
   public get distance(): number {
     return this.phase === 'ready' ? 0 : this.z - this.startZ;
@@ -330,7 +421,18 @@ export class RushSim {
 
   /** 0 at the start, 1 once the run is long enough that everything is at full pressure. */
   public get difficulty(): number {
+    if (this.stage) return this.stage.difficulty;
     return Math.min(this.distance / 3200, 1);
+  }
+
+  /** Bonus stages lay only coins and ramps. */
+  public get bonusRoad(): boolean {
+    return this.stage?.bonus === true;
+  }
+
+  /** While a boss is up, it is the only thing in the sky. */
+  public get dronesAllowed(): boolean {
+    return !this.stage?.boss;
   }
 
   public get aliveDrones(): number {
@@ -355,7 +457,7 @@ export class RushSim {
       e.y = y;
       e.z = z;
       e.vz = vz;
-      e.hp = kind === 'traffic' ? 3 : kind === 'drone' ? 2 : kind === 'crate' ? 1 : 0;
+      e.hp = kind === 'traffic' ? 3 : kind === 'drone' ? 2 : kind === 'crate' ? 1 : kind === 'goldcrate' ? 6 : 0;
       e.age = 0;
       e.timer = 1.4;
       e.offset = 0;
@@ -375,8 +477,8 @@ export class RushSim {
       if (intent.jump || intent.fire || intent.nitro || intent.lane !== this.lane) this.start();
     }
 
-    if (this.phase === 'over') {
-      this.speed *= Math.pow(0.25, dt);
+    if (this.phase === 'over' || this.phase === 'clear') {
+      this.speed *= Math.pow(this.phase === 'clear' ? 0.6 : 0.25, dt);
       this.z += this.speed * dt;
       this.integrateVertical(dt);
       this.updateEntities(dt);
@@ -407,6 +509,7 @@ export class RushSim {
     if (this.phase === 'running') {
       this.collide();
       this.checkPasses();
+      if (this.z >= this.finishZ) this.clearStage();
     }
 
     this.invulnerable = Math.max(0, this.invulnerable - dt);
@@ -490,10 +593,35 @@ export class RushSim {
     this.emit('fire', this.x, muzzleY, muzzleZ, 0);
   }
 
+  private clearStage(): void {
+    if (this.phase !== 'running') return;
+    this.phase = 'clear';
+    this.nitroActive = false;
+    this.emit('finish', this.x, this.y + 2, this.z, this.score);
+  }
+
   private spawnAhead(): void {
     if (this.practice) return;
-    while (this.nextSpawnZ < this.z + SPAWN_AHEAD) {
-      const length = spawnPattern(this, this.rng, this.nextSpawnZ);
+    const end = this.finishZ;
+    if (!this.flagPlaced && end < this.z + SPAWN_AHEAD) {
+      this.spawn('flag', 0, end, 0);
+      this.flagPlaced = true;
+    }
+    // Nothing is laid across the finish: the last stretch is a victory lap.
+    while (this.nextSpawnZ < this.z + SPAWN_AHEAD && this.nextSpawnZ < end - 40) {
+      let length: number;
+      const slot = this.starSlots.findIndex((z) => z >= 0 && z <= this.nextSpawnZ + 30);
+      if (slot >= 0) {
+        this.starSlots[slot] = -1;
+        length = placeStarCoin(this, this.rng, this.nextSpawnZ, slot);
+      } else if (this.nextSpawnZ >= this.goldCrateZ) {
+        this.goldCrateZ = Infinity;
+        // Floating overhead: it has to be shot open, not driven into.
+        this.spawn('goldcrate', LANE_WIDTH * this.rng.pick([-1, 0, 1]), this.nextSpawnZ + 20, 2.6);
+        length = 24;
+      } else {
+        length = spawnPattern(this, this.rng, this.nextSpawnZ);
+      }
       // Gaps grow with speed so reaction time, not distance, stays roughly constant.
       const gap = this.rng.range(16, 26) * (this.speed / START_SPEED) * 0.75;
       this.nextSpawnZ += length + Math.max(gap, 14);
@@ -506,6 +634,7 @@ export class RushSim {
       e.age += dt;
       if (this.magnetTime > 0 && e.kind === 'coin') this.pull(e, dt);
       if (e.kind === 'drone') this.updateDrone(e, dt);
+      else if (e.kind === 'boss') this.updateBoss(e, dt);
       else e.z += e.vz * dt;
       if (e.z < this.z - DESPAWN_BEHIND) e.alive = false;
     }
@@ -538,6 +667,49 @@ export class RushSim {
     }
   }
 
+  /**
+   * The boss hangs just ahead and fires volleys. Every volley leaves at least one lane clear at
+   * every distance — a boss that can corner you is not hard, just unfair. Below half health it
+   * fires faster.
+   */
+  private updateBoss(e: Entity, dt: number): void {
+    const before = e.z;
+    e.z = this.z + 36;
+    e.vz = dt > 0 ? (e.z - before) / dt : 0;
+    e.y = 5 + Math.sin(e.age * 1.7) * 0.5;
+    e.x = Math.sin(e.age * 0.45) * LANE_WIDTH * 0.9;
+    if (this.phase !== 'running') return;
+    e.timer -= dt;
+    if (e.timer > 0) return;
+    const enraged = e.hp < this.bossMaxHp / 2;
+    e.timer = (1.9 - this.difficulty * 0.6) * (enraged ? 0.7 : 1);
+    const volley = Math.floor(e.age / 2) % 3;
+    const open = this.rng.pick([-1, 0, 1]);
+    const shotZ = e.z - 2;
+    if (volley === 0) {
+      // Straight at you.
+      this.spawn('shot', this.lane * LANE_WIDTH, shotZ, 0.9, -16);
+    } else if (volley === 1) {
+      // A wall with one gap.
+      for (const lane of [-1, 0, 1]) if (lane !== open) this.spawn('shot', lane * LANE_WIDTH, shotZ, 0.9, -16);
+    } else {
+      // A staircase: the gap moves, so you have to move with it.
+      const second = open === 1 ? 0 : open + 1;
+      for (const lane of [-1, 0, 1]) if (lane !== open) this.spawn('shot', lane * LANE_WIDTH, shotZ, 0.9, -16);
+      for (const lane of [-1, 0, 1]) if (lane !== second) this.spawn('shot', lane * LANE_WIDTH, shotZ + 14, 0.9, -16);
+    }
+    this.emit('enemyFire', e.x, e.y, e.z, 0);
+  }
+
+  /** Damages the boss by `amount`; returns true if that finished it. */
+  private hurtBoss(e: Entity, amount: number): boolean {
+    e.hp -= amount;
+    this.emit('bossHit', e.x, e.y + 1, e.z, e.hp);
+    if (e.hp > 0) return false;
+    this.destroy(e, 'explode');
+    return true;
+  }
+
   private updateBullets(dt: number): void {
     for (const b of this.bullets) {
       if (!b.alive) continue;
@@ -560,18 +732,24 @@ export class RushSim {
         if (b.y < e.y - 0.4 || b.y > e.y + shape.height + 0.4) continue;
         b.alive = false;
         if (b.rocket) {
-          // Everything shootable near the target goes with it.
+          // Everything shootable near the target goes with it — except a boss, which takes a
+          // big hit rather than falling to a single item.
           for (const other of this.entities) {
             if (!other.alive || !isShootable(other.kind)) continue;
             if (Math.abs(other.x - e.x) <= ROCKET_SPLASH && Math.abs(other.z - e.z) <= ROCKET_SPLASH) {
-              this.destroy(other, other.kind === 'crate' ? 'smash' : 'explode');
+              if (other.kind === 'boss') this.hurtBoss(other, 8);
+              else this.destroy(other, other.kind === 'crate' || other.kind === 'goldcrate' ? 'smash' : 'explode');
             }
           }
           break;
         }
+        if (e.kind === 'boss') {
+          this.hurtBoss(e, 1);
+          break;
+        }
         e.hp -= 1;
         this.emit('hit', b.x, b.y, e.z - shape.hz, 0);
-        if (e.hp <= 0) this.destroy(e, e.kind === 'crate' ? 'smash' : 'explode');
+        if (e.hp <= 0) this.destroy(e, e.kind === 'crate' || e.kind === 'goldcrate' ? 'smash' : 'explode');
         break;
       }
     }
@@ -592,7 +770,7 @@ export class RushSim {
 
   private collide(): void {
     for (const e of this.entities) {
-      if (!e.alive || e.kind === 'drone') continue;
+      if (!e.alive || e.kind === 'drone' || e.kind === 'boss' || e.kind === 'flag') continue;
       const shape = KIND_SHAPE[e.kind];
       if (Math.abs(this.x - e.x) > PLAYER_HALF_WIDTH + shape.hx) continue;
       if (Math.abs(this.z - e.z) > PLAYER_HALF_LENGTH + shape.hz) continue;
@@ -643,7 +821,8 @@ export class RushSim {
         for (const e of this.entities) {
           if (!e.alive || e.z < this.z || e.z > this.z + LIGHTNING_RANGE) continue;
           if (e.kind === 'shot') e.alive = false;
-          else if (isShootable(e.kind) && e.kind !== 'crate') this.destroy(e, 'explode');
+          else if (e.kind === 'boss') this.hurtBoss(e, 5);
+          else if (isShootable(e.kind) && e.kind !== 'crate' && e.kind !== 'goldcrate') this.destroy(e, 'explode');
         }
         break;
       case 'rocket':
@@ -735,6 +914,21 @@ export class RushSim {
       return;
     }
     switch (e.kind) {
+      case 'starcoin':
+        e.alive = false;
+        this.starCoins |= 1 << e.hp;
+        this.bonusScore += 500;
+        this.emit('starCoin', e.x, e.y + 0.8, e.z, e.hp);
+        return;
+      case 'portal':
+        e.alive = false;
+        this.foundSecret = true;
+        this.bonusScore += 1000;
+        this.emit('secret', e.x, 1.5, e.z, 1000);
+        return;
+      case 'goldcrate':
+        // Driving into it (you would have to jump) does nothing: it only opens to shots.
+        return;
       case 'itembox':
         e.alive = false;
         if (!this.heldItem) {
@@ -801,6 +995,7 @@ export class RushSim {
       return;
     }
     this.hearts--;
+    this.crashes++;
     this.invulnerable = INVULNERABLE_AFTER_CRASH;
     this.speed *= CRASH_SPEED_KEEP;
     this.combo = 1;
@@ -818,7 +1013,18 @@ export class RushSim {
 
   private destroy(e: Entity, type: FxType): void {
     e.alive = false;
-    if (e.kind === 'traffic' || e.kind === 'drone') this.kills++;
+    if (e.kind === 'traffic' || e.kind === 'drone' || e.kind === 'boss') this.kills++;
+    if (e.kind === 'goldcrate') {
+      // The secret: a warp portal drops onto the road ahead, in the crate's lane.
+      this.spawn('portal', e.x, e.z + 45, 0);
+      this.emit('secretReveal', e.x, e.y, e.z, 0);
+    }
+    if (e.kind === 'boss') {
+      this.bonusScore += 2000;
+      this.emit(type, e.x, e.y + 1, e.z, 2000);
+      this.clearStage();
+      return;
+    }
     // A takedown is worth more than a shot-down car: you had to commit to the ram.
     const points = this.award(e, true) + (type === 'takedown' ? 100 * this.combo : 0);
     if (type === 'takedown') this.bonusScore += 100 * this.combo;
@@ -849,7 +1055,7 @@ export class RushSim {
 }
 
 export function isShootable(kind: EntityKind): boolean {
-  return kind === 'drone' || kind === 'traffic' || kind === 'crate';
+  return kind === 'drone' || kind === 'traffic' || kind === 'crate' || kind === 'goldcrate' || kind === 'boss';
 }
 
 /**
@@ -877,7 +1083,8 @@ export function aimAt(
     const off = Math.abs(e.x - rayX);
     if (off > AIM_ASSIST_RADIUS) continue;
     // Prefer on-ray over near: the player pointed at it, so that is the one they meant.
-    const score = off * 4 + dz * 0.05 - (e.kind === 'drone' ? 2 : 0);
+    const priority = e.kind === 'boss' ? 3 : e.kind === 'drone' ? 2 : e.kind === 'goldcrate' ? 1.5 : 0;
+    const score = off * 4 + dz * 0.05 - priority;
     if (score < bestScore) {
       bestScore = score;
       best = e;
