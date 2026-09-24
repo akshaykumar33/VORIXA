@@ -135,7 +135,7 @@ meshopt-compressed. Content is otherwise unmodified.
 | Ultimate Modular Women | `people/f-*.glb` | Pedestrians, soldiers |
 | Universal Base Characters, Universal Animation Library | not shipped | Fetched and evaluated; the free bodies have no modern clothing |
 | Realistic Car Pack (Nov 2018) | not yet | Cars (phase 3) |
-| Ultimate Gun Pack | not yet | Guns (phase 2) |
+| Ultimate Gun Pack | `guns.glb` | Pistol, SMG, assault rifle, shotgun, sniper rifle (OBJ converted with obj2gltf, Cesium, Apache-2.0, build only) |
 
 Build-only tools (not shipped): glTF-Transform (MIT, Don McCurdy) and meshoptimizer (MIT,
 Arseny Kapoulkine). The meshopt decoder that ships is the copy inside three.js (MIT).
