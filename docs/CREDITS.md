@@ -133,12 +133,37 @@ meshopt-compressed. Content is otherwise unmodified.
 | Downtown City MegaKit (Standard) | `district/` | Streets, intersections, sidewalks, buildings, props, PBR textures |
 | Ultimate Modular Characters (men) | `people/m-*.glb` | The hero (Casual Hoodie), police (Swat), pedestrians |
 | Ultimate Modular Women | `people/f-*.glb` | Pedestrians, soldiers |
-| Universal Base Characters, Universal Animation Library | not shipped | Fetched and evaluated; the free bodies have no modern clothing |
+| Universal Animation Library 1 and 2 (Standard) | `people/mh-anims.glb` | Every clip the realistic cast plays, retargeted onto their skeleton (below) |
+| Universal Base Characters | not shipped | Fetched and evaluated; the free bodies have no modern clothing |
 | Realistic Car Pack (Nov 2018) | `cars.glb` | Seven drivable cars incl. police and taxi (OBJ converted with obj2gltf) |
 | Ultimate Gun Pack | `guns.glb` | Pistol, SMG, assault rifle, shotgun, sniper rifle (OBJ converted with obj2gltf, Cesium, Apache-2.0, build only) |
 
 Build-only tools (not shipped): glTF-Transform (MIT, Don McCurdy) and meshoptimizer (MIT,
 Arseny Kapoulkine). The meshopt decoder that ships is the copy inside three.js (MIT).
+
+### The realistic cast
+
+`public/city/people/mh-*.glb`: the crew, the Choir, Cantor, the police and twelve citizens. Each is
+a [MakeHuman](http://www.makehumancommunity.org) person, made in Blender with the MPFB 2 add-on
+(GPL, build only, not shipped) by `scripts/assets/blender/make-cast.py`, then compressed by
+`scripts/assets/build-city.mjs`. The clips are Quaternius' Universal Animation Library (above),
+retargeted by the same script.
+
+Every asset below is [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode), and
+each was checked in its own files, not only by the pack it came in: the community packs also hold
+AGPL and CC-BY items, which are left out. Clothing with the MakeHuman logo printed on it is left
+out too.
+
+| Assets | Author | Source |
+|---|---|---|
+| Base body, skeleton ("game_engine"), body shapes, skins, eyes, eyebrows, eyelashes; hair `afro01`, `bob01`, `bob02`, `braid01`, `long01`, `ponytail01`, `short01`–`04`; clothes `male_casualsuit01/03/05/06`, `male_elegantsuit01`, `male_worksuit01`, `female_elegantsuit01`, `female_sportsuit01`, `fedora01`, `fedora_cocked`, `shoes01`–`06` | Data Collection AB, Joel Palmius, Jonas Hauquier (released as CC0, September 2020) | MakeHuman system assets and asset packs |
+| `elvs_crude_t-shirt_male` | MakeHuman, edited by Elvaerwyn | MakeHuman community asset pack |
+| `namuhekam_male_polo_shirt` | Namuhekam | MakeHuman community asset pack |
+| `toigo_*`: ankle boots, ballet flats (plain, bows, flowers), flats, cloth shoes, stiletto booties, camisole dress, tiered dress, halter dress, shift dress, fisherman sweater, keyhole tank top, harem pants, wool pants; hair: blunt bob, curled-under bob, inverted bob with bangs | MRT | MakeHuman community asset pack |
+
+Build steps, for the record: bodies at no subdivision, game-engine materials, textures resized to
+1024 px WebP (512 px for the two outfits that would otherwise pass the repo's 2 MB file cap),
+meshes meshopt-compressed.
 
 ### VORIXA City sounds
 

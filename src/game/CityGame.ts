@@ -23,26 +23,28 @@ function loadNumber(key: string): number {
   }
 }
 
-/** A readable accent for a speaker's panel, from the brightest colour in their palette. */
-function accentOf(palette: Record<string, number>): string {
+/** A readable accent for a speaker's panel: their own, or the brightest colour in their palette. */
+function accentOf(def: CharacterDef): string {
+  const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+  if (def.accent !== undefined) return hex(def.accent);
   let best = 0x3fd8ff;
   let bestLight = -1;
-  for (const [name, hex] of Object.entries(palette)) {
+  for (const [name, colour] of Object.entries(def.palette)) {
     if (/skin|hair|black|white|eye/i.test(name)) continue;
-    const r = (hex >> 16) & 255;
-    const g = (hex >> 8) & 255;
-    const b = hex & 255;
+    const r = (colour >> 16) & 255;
+    const g = (colour >> 8) & 255;
+    const b = colour & 255;
     const chroma = Math.max(r, g, b) - Math.min(r, g, b);
     if (chroma > bestLight) {
       bestLight = chroma;
-      best = hex;
+      best = colour;
     }
   }
-  return `#${best.toString(16).padStart(6, '0')}`;
+  return hex(best);
 }
 import { CityRenderer } from '../rendering/city/CityRenderer';
 import { CityHUD, type SlotInfo, type CrewEntry } from '../ui/CityHUD';
-import { CREW, PERKS, perkEffects, unlocked, type CharacterDef, type PerkEffects } from '../city/Crew';
+import { CANTOR, CREW, PERKS, perkEffects, unlocked, type CharacterDef, type PerkEffects } from '../city/Crew';
 
 const PROGRESS_KEY = 'vorixa.city.progress';
 const CREW_KEY = 'vorixa.city.crew';
@@ -266,12 +268,14 @@ export class CityGame {
     const out: StoryPanel[] = [];
     for (const p of lines) {
       if (p.speaker === 'choir') {
-        out.push({ name: 'The Choir', alias: '', line: p.line, portrait: null, accent: '#b01828', villain: true });
+        // The Choir speaks with Cantor's voice, and his face.
+        const portrait = await this.renderer.portrait(CANTOR).catch(() => null);
+        out.push({ name: CANTOR.name, alias: 'The Choir', line: p.line, portrait, accent: '#b01828', villain: true });
         continue;
       }
       const def = CREW.find((c) => c.id === p.speaker) ?? CREW[0];
       const portrait = await this.renderer.portrait(def).catch(() => null);
-      out.push({ name: def.name, alias: def.alias, line: p.line, portrait, accent: accentOf(def.palette), villain: false });
+      out.push({ name: def.name, alias: def.alias, line: p.line, portrait, accent: accentOf(def), villain: false });
     }
     return out;
   }
@@ -515,7 +519,11 @@ export class CityGame {
 
   /** The first-person arms wear the current crew member's skin and sleeves. */
   private applyLook(): void {
-    const palette = this.crew.palette;
+    const { arms, palette } = this.crew;
+    if (arms) {
+      this.renderer.combatView?.setArmColours(arms.skin, arms.sleeve);
+      return;
+    }
     const sleeve = Object.entries(palette).find(([name]) => !/skin|hair|eye|brow|moustache|gold|earring/i.test(name));
     this.renderer.combatView?.setArmColours(palette.Skin ?? 0xd8a67c, sleeve ? sleeve[1] : 0x3a3f4a);
   }

@@ -84,6 +84,29 @@ if (process.argv.includes('--force') || !fs.existsSync(path.join(OUT, 'district'
   }
 }
 
+// ─── The realistic cast (MakeHuman + Universal Animation Library) ─────────────────────────────
+// Made in Blender by scripts/assets/blender/make-cast.py into assets-src/cast: one GLB per person
+// (no clips) and anims.glb, the shared skeleton with every retargeted clip.
+{
+  const dir = 'assets-src/cast';
+  const people = path.join(OUT, 'people');
+  if (fs.existsSync(dir)) {
+    fs.mkdirSync(people, { recursive: true });
+    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.glb'))) {
+      const id = path.basename(file, '.glb');
+      const out = path.join(people, id === 'anims' ? 'mh-anims.glb' : `mh-${id}.glb`);
+      if (fs.existsSync(out) && !process.argv.includes('--force')) continue;
+      const doc = await io.read(path.join(dir, file));
+      if (id === 'anims') await doc.transform(resample());
+      await finish(doc, out, 1024);
+      // The repo takes no file over 2 MB: halve the textures until it fits.
+      for (let px = 512; fs.statSync(out).size > 1.9e6 && px >= 256; px /= 2) {
+        await finish(await io.read(path.join(dir, file)), out, px);
+      }
+    }
+  }
+}
+
 // ─── Guns (Ultimate Gun Pack) ─────────────────────────────────────────────────────────────────
 // The pack ships FBX, OBJ and .blend; the OBJs are converted with obj2gltf (Cesium, Apache-2.0):
 //   npx obj2gltf -i assets-src/quaternius/guns/OBJ/<Gun>.obj -o assets-src/quaternius/guns/glb/<Gun>.glb

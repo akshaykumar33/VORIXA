@@ -2,9 +2,10 @@
  * The people of VORIXA City: HEAT (ADR-0014): the playable crew, the Choir syndicate that runs the
  * city, the police, and the citizens. Pure data plus the rules for perks and unlocks.
  *
- * Every character is one of the Ultimate Modular outfits (`public/city/people`) dressed in its own
- * palette: a map from the outfit's material names to colours. That is what lets thirteen outfits
- * become a cast of distinct people rather than thirteen clones.
+ * Every character is their own realistic person (`public/city/people/mh-*.glb`): a MakeHuman body
+ * with its own skin, hair and clothes, built by `scripts/assets/blender/make-cast.py`. A palette
+ * can still tint a garment (its material is named after the garment), which is how the police get
+ * navy uniforms and each citizen a shirt of their own.
  */
 
 export type Faction = 'crew' | 'choir' | 'police' | 'citizen';
@@ -23,6 +24,10 @@ export interface CharacterDef {
   model: string;
   /** Material name → colour. Materials not listed keep the outfit's own colour. */
   palette: Record<string, number>;
+  /** Their colour on storyboard panels. */
+  accent?: number;
+  /** First-person arms: skin, and sleeve (the skin again when the sleeves stop above the elbow). */
+  arms?: { skin: number; sleeve: number };
   perk?: PerkId;
   /** Waves cleared before this crew member joins; 0 means from the start. */
   unlockAt?: number;
@@ -44,87 +49,105 @@ export const PERKS: Record<PerkId, { name: string; text: string }> = {
 /** The crew: who you can play. Colours are sRGB hex. */
 export const CREW: readonly CharacterDef[] = [
   {
-    id: 'vex', name: 'Vex Marlowe', alias: 'The Spark', role: 'Leader', faction: 'crew', model: 'm-casual_hoodie', perk: 'quickdraw', unlockAt: 0,
+    id: 'vex', name: 'Vex Marlowe', alias: 'The Spark', role: 'Leader', faction: 'crew', model: 'mh-vex', perk: 'quickdraw', unlockAt: 0,
     bio: 'Grew up on these streets. Wants them back, and has the nerve to take them.',
-    palette: { Purple: 0x5a3fd0, LightBlue: 0x1c2436, White: 0xe8e6e1, Hair: 0x1e1612 }
+    palette: {},
+    accent: 0x7a5cf0,
+    arms: { skin: 0xe0b394, sleeve: 0x4a5236 }
   },
   {
-    id: 'rook', name: 'Rook Adeyemi', alias: 'The Wall', role: 'Enforcer', faction: 'crew', model: 'm-punk', perk: 'tank', unlockAt: 0,
+    id: 'rook', name: 'Rook Adeyemi', alias: 'The Wall', role: 'Enforcer', faction: 'crew', model: 'mh-rook', perk: 'tank', unlockAt: 0,
     bio: 'Ex-bouncer. Walks into gunfire so the rest of the crew can walk out of it.',
-    palette: { Red: 0xb3202c, Red_Dark: 0x5a1219, Black: 0x17171a, LightBlue: 0x23262e, Skin: 0x7a5238 }
+    palette: { 'elvs_crude_t-shirt_male': 0x9e1c28 },
+    accent: 0xd0303c,
+    arms: { skin: 0x5c3a28, sleeve: 0x5c3a28 }
   },
   {
-    id: 'silas', name: 'Silas Crane', alias: 'The Planner', role: 'Mastermind', faction: 'crew', model: 'm-suit', perk: 'focus', unlockAt: 0,
+    id: 'silas', name: 'Silas Crane', alias: 'The Planner', role: 'Mastermind', faction: 'crew', model: 'mh-silas', perk: 'focus', unlockAt: 0,
     bio: 'Never raises his voice. Never needs to. Sees the fight three moves ahead.',
-    palette: { Suit: 0x1f2a3d, Tie: 0xc9a13a, Black: 0x121316, White: 0xf2efe8, Hair: 0x2a2a2e }
+    palette: {},
+    accent: 0xc9a13a,
+    arms: { skin: 0xe8c4a8, sleeve: 0x1a1a1e }
   },
   {
-    id: 'mara', name: 'Mara Ostrova', alias: 'Wrench', role: 'Mechanic', faction: 'crew', model: 'f-worker', perk: 'mechanic', unlockAt: 1,
+    id: 'mara', name: 'Mara Ostrova', alias: 'Wrench', role: 'Mechanic', faction: 'crew', model: 'mh-mara', perk: 'mechanic', unlockAt: 1,
     bio: 'Can strip a police cruiser in four minutes. Has, twice.',
-    palette: { Worker_Vest: 0x1f8a8a, Worker_Yellow: 0x2a2f3a, Hair_Brown: 0xb3431f, Black: 0x1a1a1e }
+    palette: {},
+    accent: 0x2aa8a8,
+    arms: { skin: 0xf0cdb0, sleeve: 0xf0cdb0 }
   },
   {
-    id: 'juno', name: 'Juno Reyes', alias: 'Ghost', role: 'Sniper', faction: 'crew', model: 'f-punk', perk: 'marksman', unlockAt: 2,
+    id: 'juno', name: 'Juno Reyes', alias: 'Ghost', role: 'Sniper', faction: 'crew', model: 'mh-juno', perk: 'marksman', unlockAt: 2,
     bio: 'Three hundred metres, crosswind, one shot. She does not miss twice.',
-    palette: { Pink: 0xe0338f, Black: 0x141418, Hair_Brown: 0x16141a, Skin: 0xb8865c }
+    palette: {},
+    accent: 0xe0338f,
+    arms: { skin: 0xc99a78, sleeve: 0xc99a78 }
   },
   {
-    id: 'kai', name: 'Kai Nakamura', alias: 'Drift', role: 'Wheelman', faction: 'crew', model: 'm-beach', perk: 'wheelman', unlockAt: 3,
+    id: 'kai', name: 'Kai Nakamura', alias: 'Drift', role: 'Wheelman', faction: 'crew', model: 'mh-kai', perk: 'wheelman', unlockAt: 3,
     bio: 'Drove getaway for the Choir until they stiffed him. Now he drives for you.',
-    palette: { Red_Dark: 0xf2a33a, LightBrown: 0x2c3e50, Hair: 0x121212, Skin: 0xd8b48c }
+    palette: { namuhekam_male_polo_shirt: 0xe89a2e },
+    accent: 0xf2a33a,
+    arms: { skin: 0xe0bb95, sleeve: 0xe0bb95 }
   },
   {
-    id: 'dex', name: 'Dex Okafor', alias: 'Patch', role: 'Medic', faction: 'crew', model: 'm-casual_2', perk: 'medic', unlockAt: 4,
+    id: 'dex', name: 'Dex Okafor', alias: 'Patch', role: 'Medic', faction: 'crew', model: 'mh-dex', perk: 'medic', unlockAt: 4,
     bio: 'Dropped out of med school to stitch up people who could not go to hospitals.',
-    palette: { Red_Dark: 0x2e8b57, LightBrown: 0xd9d4c7, LightBlue: 0x243447, Skin: 0x5c3a24, Skin_Darker: 0x4e3120 }
+    palette: {},
+    accent: 0x3cb371,
+    arms: { skin: 0x5a3a26, sleeve: 0x5a3a26 }
   },
   {
-    id: 'mo', name: 'Mo Haddad', alias: 'Hammer', role: 'Breacher', faction: 'crew', model: 'm-worker', perk: 'demolition', unlockAt: 5,
+    id: 'mo', name: 'Mo Haddad', alias: 'Hammer', role: 'Breacher', faction: 'crew', model: 'mh-mo', perk: 'demolition', unlockAt: 5,
     bio: 'Opens doors. Usually with the door still attached to the wall.',
-    palette: { Worker_Vest: 0x3a3f47, Worker_Yellow: 0xe5b021, Moustache: 0x2a1a10 }
+    palette: {},
+    accent: 0xe5b021,
+    arms: { skin: 0xd6a784, sleeve: 0xd6a784 }
   },
   {
-    id: 'iris', name: 'Iris Vale', alias: 'Hex', role: 'Infiltrator', faction: 'crew', model: 'f-casual', perk: 'ghost', unlockAt: 6,
+    id: 'iris', name: 'Iris Vale', alias: 'Hex', role: 'Infiltrator', faction: 'crew', model: 'mh-iris', perk: 'ghost', unlockAt: 6,
     bio: 'Walks past a Choir checkpoint like she owns it. Some days she does.',
-    palette: { Orange: 0x6c4ad6, White: 0x1d1d24, Grey: 0x2c2c34, Hair_Blond: 0xd8d8e8, Hair_Brown: 0xd8d8e8 }
+    palette: {},
+    accent: 0x8a6cf0,
+    arms: { skin: 0xeccaa8, sleeve: 0x8e2a2e }
   },
   {
-    id: 'nova', name: 'Nova Laurent', alias: 'Silk', role: 'The Face', faction: 'crew', model: 'f-formal', perk: 'smooth', unlockAt: 7,
+    id: 'nova', name: 'Nova Laurent', alias: 'Silk', role: 'The Face', faction: 'crew', model: 'mh-nova', perk: 'smooth', unlockAt: 7,
     bio: 'Talks her way into rooms the crew has to shoot their way out of.',
-    palette: { Red: 0x0f5c4a, Gold: 0xd9b25a, LimeGreen: 0x0b3b30, Brown: 0x1a120c }
+    palette: {},
+    accent: 0x1fc39a,
+    arms: { skin: 0x6b4630, sleeve: 0x6b4630 }
   }
 ];
 
-/** The Choir: the syndicate that owns the city. Black and red, and a red visor. */
+/** The Choir: the syndicate that owns the city. Black suits, and oxblood on the soldiers. */
 export const CHOIR: readonly CharacterDef[] = [
+  { id: 'choir-enforcer', name: 'Choir Enforcer', alias: '', role: 'Enforcer', bio: '', faction: 'choir', model: 'mh-choir-enforcer', palette: {} },
   {
-    id: 'choir-enforcer', name: 'Choir Enforcer', alias: '', role: 'Enforcer', bio: '', faction: 'choir', model: 'm-swat',
-    palette: { Swat: 0x1c1c22, Swat_Black: 0x0d0d10, Visor: 0xc01828, Grey: 0x2a1a1e }
+    id: 'choir-soldier', name: 'Choir Soldier', alias: '', role: 'Soldier', bio: '', faction: 'choir', model: 'mh-choir-soldier',
+    palette: { female_sportsuit01: 0x8a3a40 }
   },
-  {
-    id: 'choir-soldier', name: 'Choir Soldier', alias: '', role: 'Soldier', bio: '', faction: 'choir', model: 'f-soldier',
-    palette: { Swat: 0x2a1c20, Black: 0x0d0d10, Grey: 0x5a1a22 }
-  },
-  {
-    id: 'choir-lieutenant', name: 'Choir Lieutenant', alias: '', role: 'Lieutenant', bio: '', faction: 'choir', model: 'm-suit',
-    palette: { Suit: 0xe9e4da, Tie: 0xb01828, Black: 0x16161a, White: 0x111114 }
-  }
+  { id: 'choir-lieutenant', name: 'Choir Lieutenant', alias: '', role: 'Lieutenant', bio: '', faction: 'choir', model: 'mh-choir-lieutenant', palette: {} }
 ];
 
-/** The police: the outfits as they come, in blue-grey kit. */
-export const POLICE: CharacterDef = {
-  id: 'police', name: 'Police', alias: '', role: 'Police', bio: '', faction: 'police', model: 'm-swat',
-  palette: { Swat: 0x28374f, Swat_Black: 0x141a24 }
+/** Cantor, who runs the Choir: old, heavy, and in a fedora. */
+export const CANTOR: CharacterDef = {
+  id: 'cantor', name: 'Cantor', alias: 'The Voice', role: 'Boss', bio: 'Owns the city by owning the people who run it.', faction: 'choir',
+  model: 'mh-cantor', palette: {}
 };
 
-/** Citizens: every outfit, each a few palettes of everyday colours, picked per person. */
-export const CITIZEN_MODELS = ['m-casual_2', 'm-casual_hoodie', 'm-beach', 'm-worker', 'm-suit', 'f-casual', 'f-formal', 'f-suit', 'f-worker', 'f-punk', 'm-punk'];
-const CLOTH = [0x3b5b8c, 0x8c3b3b, 0x3b8c5a, 0xc9a13a, 0x6a6a72, 0x2c2c34, 0xd9d4c7, 0x7a4a8c, 0x1f8a8a, 0xb35a2c];
-const SKIN = [0xf1c9a5, 0xd8a67c, 0xb8865c, 0x8d5a3b, 0x5c3a24];
-const HAIR = [0x16141a, 0x3b2a1e, 0x6b4a2a, 0xb38a4a, 0x8a8a8a];
+/** The police: navy polos and trousers. */
+export const POLICE: CharacterDef = {
+  id: 'police', name: 'Police', alias: '', role: 'Police', bio: '', faction: 'police', model: 'mh-police',
+  palette: { namuhekam_male_polo_shirt: 0x2c3e62, toigo_wool_pants: 0x3a4250 }
+};
 
-/** Cloth materials per outfit: what a citizen's palette recolours. */
-const CLOTH_MATERIALS = ['Purple', 'LightBlue', 'Red', 'Red_Dark', 'LightBrown', 'Orange', 'Pink', 'Suit', 'Tie', 'Worker_Vest', 'White', 'Grey', 'Black', 'LimeGreen'];
+/** Citizens: twelve people of every age and background, the plain garments tinted per person. */
+export const CITIZEN_MODELS = Array.from({ length: 12 }, (_, i) => `mh-citizen-${i + 1}`);
+const CLOTH = [0x3b5b8c, 0x8c3b3b, 0x3b8c5a, 0xc9a13a, 0x6a6a72, 0x2c2c34, 0xd9d4c7, 0x7a4a8c, 0x1f8a8a, 0xb35a2c];
+
+/** Plain, light garments: the ones a tint reads well on. */
+const CLOTH_MATERIALS = ['elvs_crude_t-shirt_male', 'namuhekam_male_polo_shirt', 'toigo_wool_pants'];
 
 function hash(n: number, salt: number): number {
   let h = (n * 374761393 + salt * 668265263) | 0;
@@ -133,15 +156,10 @@ function hash(n: number, salt: number): number {
   return (h >>> 0) / 4294967296;
 }
 
-/** A citizen, deterministic per index: an outfit and everyday colours. */
+/** A citizen, deterministic per index: a person and everyday colours. */
 export function citizen(n: number): CharacterDef {
   const model = CITIZEN_MODELS[Math.floor(hash(n, 1) * CITIZEN_MODELS.length)];
-  const palette: Record<string, number> = {
-    Skin: SKIN[Math.floor(hash(n, 2) * SKIN.length)],
-    Hair: HAIR[Math.floor(hash(n, 3) * HAIR.length)],
-    Hair_Brown: HAIR[Math.floor(hash(n, 3) * HAIR.length)],
-    Hair_Blond: HAIR[Math.floor(hash(n, 3) * HAIR.length)]
-  };
+  const palette: Record<string, number> = {};
   CLOTH_MATERIALS.forEach((m, i) => {
     if (hash(n, 10 + i) < 0.6) palette[m] = CLOTH[Math.floor(hash(n, 30 + i) * CLOTH.length)];
   });

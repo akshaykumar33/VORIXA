@@ -80,3 +80,28 @@ Asked to merge the phases into one engaging whole with a large, good-looking cas
 * **Honest limit, again:** the characters are low-poly, flat-coloured CC0 models, dressed and lit
   as well as they can be (palettes, per-material finishes, rim light, a studio for portraits).
   They are not film-quality people; that would need a character artist or paid assets.
+
+## Update (2026-09-25): a realistic cast
+
+The low-poly outfits are replaced by **realistic people**: 27 MakeHuman bodies (the ten crew, three
+Choir, Cantor, the police, twelve citizens), each with their own skin, age, build, hair and
+clothes, all CC0 and checked asset by asset (docs/CREDITS.md).
+
+* **Pipeline.** `scripts/assets/blender/make-cast.py` runs in a portable Blender 4.2 with the MPFB 2
+  add-on, headless: it builds each person on MPFB's "game_engine" skeleton, and retargets the
+  Universal Animation Library 1 and 2 clips (42 of them: locomotion, pistol, reload, hits, deaths,
+  driving, sitting, jumps, crouch, roll, phone, talking…) onto that skeleton once, into a shared
+  `mh-anims.glb`. `build-city.mjs` compresses everything; every file stays under 2 MB.
+* **Retargeting** is per bone in armature space: the target's A-pose is turned to the source's
+  T-pose bone by bone, then each bone takes the source's rotation away from its T-pose. The hips
+  travel in proportion to leg length, applied per body in the game. `check-cast.py` verifies it
+  without a renderer: limb directions match the source in every clip and the feet stay down.
+* **In the game** (`People.ts`) the clips keep the game's names; *Run_Shoot* is composed (running
+  legs under a pistol aim), *Run_Back* is the run reversed. The gun grip is measured from each
+  person's own aim pose, not fitted by eye. Cantor is now a person of his own, and the Choir's
+  storyboard lines carry his portrait.
+* **Honest limits.** These are game-ready people at around 15-40k vertices, not scanned
+  film-quality humans; faces do not animate (no facial rig), and there are no rifle-specific
+  stances in the free library, so rifles use the pistol stances. The older low-poly outfits
+  (`public/city/people/m-*`, `f-*`, 11 MB) are no longer referenced; `People` still loads them if
+  a character names one, and removing them is a separate decision.

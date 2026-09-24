@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { WEAPONS, type WeaponId } from '../../city/Weapons';
 import { BOSS_SCALE, type Combat, type Enemy } from '../../city/Combat';
+import type { Grip } from './People';
 import { ParticleRenderer } from '../ParticleRenderer';
 import { People, type Person } from './People';
 
@@ -119,7 +120,8 @@ export class CombatView {
     private readonly makeEnemy: (kind: 'swat' | 'soldier' | 'police' | 'boss') => Person,
     camera: THREE.PerspectiveCamera,
     private heroHand: THREE.Object3D | null,
-    private heroRoot: THREE.Object3D
+    private heroRoot: THREE.Object3D,
+    private heroGrip: Grip | null = null
   ) {
     this.tracerMaterial = new THREE.MeshBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0.9, toneMapped: false, depthWrite: false });
     this.tracerMaterial.color.multiplyScalar(3);
@@ -140,9 +142,10 @@ export class CombatView {
   }
 
   /** A new hero model (the Safehouse): move the gun into the new hand. */
-  public rebindHero(hand: THREE.Object3D | null, root: THREE.Object3D): void {
+  public rebindHero(hand: THREE.Object3D | null, root: THREE.Object3D, grip: Grip | null = null): void {
     this.heroHand = hand;
     this.heroRoot = root;
+    this.heroGrip = grip;
     const id = this.currentWeapon;
     this.currentWeapon = null;
     if (id) this.setWeapon(id);
@@ -159,12 +162,7 @@ export class CombatView {
     this.viewGun = view;
     if (gun) {
       if (this.heroHand) {
-        // The hand bone's space: carried in the fist, barrel forward with the forearm.
-        this.heroHand.add(gun);
-        const s = 1 / this.worldScaleOf(this.heroHand);
-        gun.scale.setScalar(s);
-        gun.position.set(0, 0.09 * s, 0.03 * s);
-        gun.rotation.set(Math.PI / 2, 0, Math.PI);
+        this.holdIn(this.heroHand, gun, this.heroGrip);
       } else this.heroRoot.add(gun);
       gun.getObjectByName('muzzle')?.add(this.heroFlash);
     }
@@ -177,6 +175,24 @@ export class CombatView {
       view.getObjectByName('muzzle')?.add(this.viewFlash);
     }
     this.reloadDip = 0.5;
+  }
+
+  /**
+   * Puts a gun in a hand. The cast's grip is measured from their own aim pose (People.gripOf);
+   * the older outfits use a fit made by eye for their wrist bone: in the fist, barrel along the
+   * forearm.
+   */
+  private holdIn(hand: THREE.Object3D, gun: THREE.Object3D, grip: Grip | null): void {
+    hand.add(gun);
+    const s = 1 / this.worldScaleOf(hand);
+    gun.scale.setScalar(s);
+    if (grip) {
+      gun.position.copy(grip.position);
+      gun.quaternion.copy(grip.quaternion);
+    } else {
+      gun.position.set(0, 0.09 * s, 0.03 * s);
+      gun.rotation.set(Math.PI / 2, 0, Math.PI);
+    }
   }
 
   private worldScaleOf(o: THREE.Object3D): number {
@@ -288,8 +304,7 @@ export class CombatView {
     const person = this.makeEnemy(e.kind);
     const model = person.model;
     const root = person.root;
-    // Their rifles.
-    // Three.js strips the dot from the rig's "Wrist.R" when it loads.
+    // Their guns.
     const hand = person.hand;
     void model;
     const weapon = e.kind === 'swat' ? 'smg' : e.kind === 'police' ? 'pistol' : 'rifle';
@@ -299,12 +314,8 @@ export class CombatView {
     const flash = flashMesh();
     gun.getObjectByName('muzzle')?.add(flash);
     if (hand) {
-      hand.add(gun);
       root.updateMatrixWorld(true);
-      const s = 1 / this.worldScaleOf(hand);
-      gun.scale.setScalar(s);
-      gun.position.set(0, 0.09 * s, 0.03 * s);
-      gun.rotation.set(Math.PI / 2, 0, Math.PI);
+      this.holdIn(hand, gun, person.grip);
     }
     this.group.add(root);
     v = { enemy: e, person, root, muzzle: gun.getObjectByName('muzzle') ?? gun, flash, flashLife: 0 };

@@ -51,10 +51,19 @@ Every phase ends with a playable build, screenshots and a short video for the ow
 |---|---|
 | Downtown City MegaKit | Streets, sidewalks, modular and prebuilt buildings, props, PBR textures |
 | Ultimate Modular Characters (men) and Ultimate Modular Women | The hero (Casual Hoodie), police (Swat), soldiers, pedestrians: 13 modern outfits, each with 24 clips (idle, walk, run, strafe runs, gun idle/point/shoot, run-and-shoot, hits, death, punches, kicks, roll, wave) |
-| Universal Base Characters, Universal Animation Library | Evaluated, not shipped: the free bodies come without modern clothing, and their skeleton does not match the clothed characters. Moves the clothed rig lacks (jump, driving, reload) are posed procedurally |
+| Universal Animation Library 1 and 2 | Every clip of the realistic cast (below), retargeted onto the MakeHuman skeleton |
+| Universal Base Characters | Evaluated, not shipped: the free bodies come without modern clothing |
 | Realistic Car Pack | Player and traffic cars |
 | Ultimate Gun Pack | Pistols, rifles, shotguns, launchers |
 
 Fetched with `scripts/assets/fetch-itch.mjs` (itch.io's free-download flow; each pack's minimum
 price is $0) into `assets-src/` (not committed). Built into `public/city/` by
 `scripts/assets/build-city.mjs`.
+
+The realistic cast (ADR-0014, 2026-09-25 update) needs Blender 4.2 with the MPFB 2 add-on, and the
+CC0 MakeHuman packs (system assets, pants01, shirts01, shoes01, hair01, dress01, from
+files.makehumancommunity.org) unpacked into MPFB's user data. Then:
+
+    blender -b --python scripts/assets/blender/make-cast.py     # people and mh-anims into assets-src/cast
+    blender -b --python scripts/assets/blender/check-cast.py    # retarget check, no renderer
+    node scripts/assets/build-city.mjs                          # compressed into public/city/people

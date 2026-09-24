@@ -83,8 +83,11 @@ export class Showroom {
     const onStand = this.stand.visible;
     this.stand.visible = false;
     this.scene.add(hold);
-    this.portraitCamera.position.set(0.25, 1.62, 1.45);
-    this.portraitCamera.lookAt(0, 1.52, 0);
+    // Framed on their own head: the cast keep their real heights.
+    hold.updateMatrixWorld(true);
+    const face = person.head ? person.head.getWorldPosition(new THREE.Vector3()).y + 0.08 : 1.6;
+    this.portraitCamera.position.set(0.25, face + 0.1, 1.45);
+    this.portraitCamera.lookAt(0, face - 0.08, 0);
     const size = 256;
     const target = new THREE.WebGLRenderTarget(size, size, { colorSpace: THREE.SRGBColorSpace, samples: 4 });
     const tone = renderer.toneMapping;

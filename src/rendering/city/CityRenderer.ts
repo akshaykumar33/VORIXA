@@ -9,12 +9,12 @@ import { PostFX } from '../rush/PostFX';
 import { rayBoxes, type Combat } from '../../city/Combat';
 import { CombatView } from './CombatView';
 import { VehicleView } from './VehicleView';
-import { People, type Person } from './People';
+import { People, type Grip, type Person } from './People';
 import { Showroom } from './Showroom';
 import { CityLifeView } from './CityLifeView';
 import { JobView } from './JobView';
 import type { CityLife } from '../../city/CityLife';
-import { CHOIR, CREW, POLICE, type CharacterDef } from '../../city/Crew';
+import { CANTOR, CHOIR, CREW, POLICE, type CharacterDef } from '../../city/Crew';
 import { coverBox, type Vehicle } from '../../city/Vehicle';
 
 /**
@@ -72,6 +72,7 @@ export class CityRenderer {
   public driving: Vehicle | null = null;
   private heroHand: THREE.Object3D | null = null;
   private heroHead: THREE.Object3D | null = null;
+  private heroGrip: Grip | null = null;
 
   private renderer!: THREE.WebGLRenderer;
   private post: PostFX | null = null;
@@ -160,33 +161,35 @@ export class CityRenderer {
     let done = 0;
     const track = <T,>(p: Promise<T>) =>
       p.then((v) => {
-        onProgress(++done / 7);
+        onProgress(++done / 8);
         return v;
       });
-    const [city, hero, guns, swat, soldier, cars, lieutenant] = await Promise.all([
+    const [city, hero, guns, swat, soldier, cars, police, cantor] = await Promise.all([
       track(this.loader.loadAsync('/city/district/city.gltf')),
       track(this.people.make(this.heroDef)),
       track(this.loader.loadAsync('/city/guns.glb')),
       track(this.people.load(CHOIR[0].model)),
       track(this.people.load(CHOIR[1].model)),
       track(this.loader.loadAsync('/city/cars.glb')),
-      track(this.people.load(CHOIR[2].model))
+      track(this.people.load(POLICE.model)),
+      track(this.people.load(CANTOR.model))
     ]);
     this.buildDistrict(city, district);
     this.buildHero(hero);
     this.scene.add(this.camera);
-    // The Choir: enforcers in black with red visors, soldiers in oxblood.
+    // The Choir: enforcers in black suits, soldiers in oxblood, and Cantor himself.
     this.combatView = new CombatView(
       guns,
       (kind) =>
         kind === 'boss'
-          ? this.people.makeFrom(lieutenant, CHOIR[2], 0.45)
+          ? this.people.makeFrom(cantor, CANTOR, 0.45)
           : kind === 'police'
-          ? this.people.makeFrom(swat, POLICE, 0.25)
+          ? this.people.makeFrom(police, POLICE, 0.25)
           : this.people.makeFrom(kind === 'swat' ? swat : soldier, kind === 'swat' ? CHOIR[0] : CHOIR[1], 0.25),
       this.camera,
       this.heroHand,
-      this.hero!
+      this.hero!,
+      this.heroGrip
     );
     this.scene.add(this.combatView.group);
     this.vehicleView = new VehicleView(cars);
@@ -263,13 +266,14 @@ export class CityRenderer {
   }
 
   private buildHero(person: Person): void {
-    // An arms-only copy of "Interact" (reach and work with the hands) is the reload: it plays
-    // over whatever the legs are doing, so the hero can reload on the move.
+    // An arms-only copy of "Interact" is the reload (for the cast, the real pistol reload; for the
+    // older outfits, reaching and working with the hands). It plays over whatever the legs are
+    // doing, so the hero can reload on the move.
     const interact = person.actions.get('Interact')?.getClip();
     if (interact) {
       const arms = interact.clone();
       arms.name = 'Reload_Arms';
-      arms.tracks = arms.tracks.filter((t) => /arm|wrist|index|middle|ring|pinky|thumb|shoulder/i.test(t.name));
+      arms.tracks = arms.tracks.filter((t) => /arm|wrist|hand|clavicle|index|middle|ring|pinky|thumb|shoulder/i.test(t.name));
       this.reloadAction = person.mixer.clipAction(arms);
       this.reloadAction.setLoop(THREE.LoopRepeat, Infinity);
       this.reloadAction.weight = 0;
@@ -278,7 +282,8 @@ export class CityRenderer {
     this.hero = person.root;
     this.heroMeshes = person.meshes;
     this.heroHand = person.hand;
-    this.heroHead = person.model.getObjectByName('Head') ?? null;
+    this.heroGrip = person.grip;
+    this.heroHead = person.head;
     this.mixer = person.mixer;
     this.actions = person.actions;
     this.current = null;
@@ -307,7 +312,7 @@ export class CityRenderer {
     }
     this.heroDef = def;
     this.buildHero(person);
-    this.combatView?.rebindHero(person.hand, person.root);
+    this.combatView?.rebindHero(person.hand, person.root, person.grip);
   }
 
   private play(name: Clip, fade = 0.18, once = false, speed = 1): void {
