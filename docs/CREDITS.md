@@ -87,7 +87,8 @@ Characters in use: `scout` (co-pilot), plus `drone`, `gearbot`, `clockwork`, `po
 |---|---|---|
 | Space Grotesk Variable | Florian Karsten | SIL Open Font License 1.1 |
 | JetBrains Mono Variable | JetBrains | SIL Open Font License 1.1 |
-| Lilita One (Rush HUD) | Juan Montoreano | SIL Open Font License 1.1 |
+| Lilita One (comic strips) | Juan Montoreano | SIL Open Font License 1.1 |
+| Barlow Condensed (Rush HUD display) | Jeremy Tribby | SIL Open Font License 1.1 |
 
 Self-hosted through `@fontsource-variable`, not a font CDN — see `src/main.ts`.
 

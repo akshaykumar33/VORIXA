@@ -1,4 +1,5 @@
 import '@fontsource/lilita-one/latin.css';
+import { installRushTheme } from './RushTheme';
 import type { RushPhase } from '../rush/RushSim';
 import type { SchoolState, SchoolTrack } from '../rush/DrivingSchool';
 
@@ -360,7 +361,7 @@ const ITEM_ICONS = {
   "giant": "<svg viewBox=\"0 0 40 40\"><circle cx=\"20\" cy=\"22\" r=\"14\" fill=\"#ff5a36\" stroke=\"#1d1b33\" stroke-width=\"3\"/><path d=\"M13 20 L20 10 L27 20\" stroke=\"#fff\" stroke-width=\"4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M20 12 V30\" stroke=\"#fff\" stroke-width=\"4\" stroke-linecap=\"round\"/></svg>"
 };
 
-const HEART_SVG = `<svg viewBox="0 0 32 30" aria-hidden="true"><path d="M16 28 C 4 19, 1 13, 1 8.5 C 1 4, 4.5 1, 8.5 1 C 12 1, 14.5 3, 16 6 C 17.5 3, 20 1, 23.5 1 C 27.5 1, 31 4, 31 8.5 C 31 13, 28 19, 16 28 Z" fill="#ff4a6a" stroke="#1d1b33" stroke-width="2.5" stroke-linejoin="round"/><ellipse cx="9" cy="8" rx="3" ry="2" fill="#fff" opacity="0.8"/></svg>`;
+const HEART_SVG = `<svg viewBox="0 0 32 30" aria-hidden="true"><path d="M16 28 C 4 19, 1 13, 1 8.5 C 1 4, 4.5 1, 8.5 1 C 12 1, 14.5 3, 16 6 C 17.5 3, 20 1, 23.5 1 C 27.5 1, 31 4, 31 8.5 C 31 13, 28 19, 16 28 Z" fill="#ff4a6a" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linejoin="round"/><ellipse cx="9" cy="8" rx="3" ry="2" fill="#fff" opacity="0.8"/></svg>`;
 
 const MARKUP = `
   <div class="speed"></div>
@@ -494,6 +495,7 @@ export class RushHUD {
     style.textContent = CSS;
     document.head.appendChild(style);
     document.body.classList.add('rush');
+    installRushTheme();
 
     this.root = document.createElement('div');
     this.root.id = 'rush-hud';

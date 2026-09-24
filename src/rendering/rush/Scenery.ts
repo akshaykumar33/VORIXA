@@ -61,13 +61,19 @@ function groundUniforms(): GroundUniforms {
   return { prev0: c(), prev1: c(), here0: c(), here1: c(), next0: c(), next1: c(), behind: { value: 1e4 }, ahead: { value: -1e4 } };
 }
 
-function groundMaterial(mask: THREE.Texture, u: GroundUniforms, roughness: number): THREE.MeshStandardMaterial {
+/**
+ * @param uvMeters How many metres one unit of the mask's UV spans, per axis, so the surface grain
+ *   is drawn at a real-world scale (asphalt aggregate, clumps of grass) whatever the tiling.
+ * @param grain How strongly the grain darkens and lightens the surface.
+ */
+function groundMaterial(mask: THREE.Texture, u: GroundUniforms, roughness: number, uvMeters: [number, number], grain: number): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({ map: mask, roughness, metalness: 0 });
   material.defines = { GROUND_BLEND: '' };
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uPrev0: u.prev0, uPrev1: u.prev1, uHere0: u.here0, uHere1: u.here1,
-      uNext0: u.next0, uNext1: u.next1, uBehind: u.behind, uAhead: u.ahead
+      uNext0: u.next0, uNext1: u.next1, uBehind: u.behind, uAhead: u.ahead,
+      uUvMeters: { value: new THREE.Vector2(...uvMeters) }, uGrain: { value: grain }
     });
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying float vGroundZ;');
     shader.fragmentShader = shader.fragmentShader
@@ -76,7 +82,15 @@ function groundMaterial(mask: THREE.Texture, u: GroundUniforms, roughness: numbe
         `#include <common>
          varying float vGroundZ;
          uniform vec3 uPrev0, uPrev1, uHere0, uHere1, uNext0, uNext1;
-         uniform float uBehind, uAhead;`
+         uniform float uBehind, uAhead;
+         uniform vec2 uUvMeters;
+         uniform float uGrain;
+         float groundHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+         float groundNoise( vec2 p ) {
+           vec2 i = floor( p ); vec2 f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+           return mix( mix( groundHash( i ), groundHash( i + vec2( 1, 0 ) ), f.x ),
+                       mix( groundHash( i + vec2( 0, 1 ) ), groundHash( i + vec2( 1, 1 ) ), f.x ), f.y );
+         }`
       )
       .replace(
         '#include <map_fragment>',
@@ -86,7 +100,11 @@ function groundMaterial(mask: THREE.Texture, u: GroundUniforms, roughness: numbe
          float toPrev = smoothstep( uBehind - 4.0, uBehind + 4.0, vGroundZ );
          vec3 base = mix( mix( uHere0, uNext0, toNext ), uPrev0, toPrev );
          vec3 alt = mix( mix( uHere1, uNext1, toNext ), uPrev1, toPrev );
-         diffuseColor.rgb *= mix( base, alt, groundMask.r ) * ( 1.0 - groundMask.g * 0.3 );`
+         diffuseColor.rgb *= mix( base, alt, groundMask.r ) * ( 1.0 - groundMask.g * 0.3 );
+         // Surface grain at real-world scale: broad patches, then clumps, then fine speckle.
+         vec2 gp = vMapUv * uUvMeters;
+         float grainN = groundNoise( gp * 0.18 ) * 0.5 + groundNoise( gp * 1.3 ) * 0.3 + groundNoise( gp * 9.0 ) * 0.2;
+         diffuseColor.rgb *= 1.0 + ( grainN - 0.5 ) * uGrain;`
       );
   };
   material.customProgramCacheKey = () => 'rush-ground';
@@ -295,7 +313,7 @@ export class Scenery {
     this.roadMap.repeat.set(1, ROAD_LENGTH / ROAD_TILE);
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_LENGTH, 1, ROAD_SEGMENTS).rotateX(-Math.PI / 2),
-      groundMaterial(this.roadMap, this.road, 0.82)
+      groundMaterial(this.roadMap, this.road, 0.82, [ROAD_WIDTH, ROAD_TILE], 0.35)
     );
     road.receiveShadow = true;
     road.position.set(0, 0, (ROAD_BEHIND - ROAD_AHEAD) / 2);
@@ -305,7 +323,7 @@ export class Scenery {
     for (const side of [-1, 1]) {
       const kerb = new THREE.Mesh(
         new THREE.BoxGeometry(0.8, 0.22, ROAD_LENGTH, 1, 1, ROAD_SEGMENTS),
-        groundMaterial(this.kerbMap, this.kerb, 0.6)
+        groundMaterial(this.kerbMap, this.kerb, 0.6, [0.8, 2], 0.15)
       );
       kerb.receiveShadow = true;
       kerb.position.set(side * (ROAD_WIDTH / 2 + 0.4), 0.06, road.position.z);
@@ -315,7 +333,7 @@ export class Scenery {
     this.grassMap.repeat.set(30, ROAD_LENGTH / 8);
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(420, ROAD_LENGTH, 1, ROAD_SEGMENTS).rotateX(-Math.PI / 2),
-      groundMaterial(this.grassMap, this.grass, 0.95)
+      groundMaterial(this.grassMap, this.grass, 0.95, [14, 8], 0.55)
     );
     grass.receiveShadow = true;
     grass.position.set(0, -0.04, road.position.z);
