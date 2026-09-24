@@ -11,6 +11,8 @@ export enum InputAction {
   ITEM = 'ITEM',
   /** Opens the driving school from the title screen (Rush). */
   SCHOOL = 'SCHOOL',
+  /** Enter: confirm on menus and the world map (Rush). */
+  CONFIRM = 'CONFIRM',
   CROUCH = 'CROUCH',
   RESTART = 'RESTART',
   GESTURE_TOGGLE = 'GESTURE_TOGGLE',

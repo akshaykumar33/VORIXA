@@ -37,6 +37,12 @@ import {
   buildHeart,
   buildRamp,
   buildItemBox,
+  buildStarCoin,
+  buildGoldCrate,
+  buildPortal,
+  buildFinishArch,
+  buildBoss,
+  type PortalModel,
   coinGeometry,
   type DroneModel,
   type BarrierModel
@@ -69,6 +75,7 @@ interface Actor {
   car?: CarModel;
   drone?: DroneModel;
   barrier?: BarrierModel;
+  portal?: PortalModel;
   /** Hover height of the model's origin above the entity's y, for bobbing pickups. */
   lift: number;
 }
@@ -103,6 +110,7 @@ export class RushRenderer {
   private readonly lockRing: THREE.Mesh;
   private readonly shieldBubble: THREE.Mesh;
   private giantScale = 1;
+  private bossFlinch = 0;
   private readonly laneBeacon: THREE.Mesh;
   private laneBeaconLane = 0;
 
@@ -313,6 +321,29 @@ export class RushRenderer {
         this.addTrauma(0.6);
         this.cheer = 1.1;
         break;
+      case 'bossHit':
+        this.bossFlinch = 1;
+        p.burst('hazard', x, y, z, { intensity: 0.8 });
+        break;
+      case 'starCoin':
+        p.burst('checkpoint', x, y, z, { intensity: 1.4 });
+        p.burst('coin', x, y, z, { intensity: 2 });
+        this.cheer = 1;
+        break;
+      case 'secretReveal':
+        p.burst('smash', x, y, z, { intensity: 2 });
+        p.burst('coin', x, y, z, { intensity: 2 });
+        this.addTrauma(0.2);
+        break;
+      case 'secret':
+        p.burst('checkpoint', x, y, z, { intensity: 2 });
+        this.addTrauma(0.3);
+        this.cheer = 1.4;
+        break;
+      case 'finish':
+        p.burst('checkpoint', x, y + 2, z - 4, { intensity: 2 });
+        this.cheer = 2;
+        break;
       case 'itemGet':
         p.burst('checkpoint', x, y, z, { intensity: 0.8 });
         break;
@@ -341,6 +372,7 @@ export class RushRenderer {
 
   public render(sim: RushSim, aimX: number, frameDelta: number): void {
     this.time += frameDelta;
+    this.bossFlinch = Math.max(0, this.bossFlinch - frameDelta * 6);
     const travelled = sim.z - this.lastDistance;
     this.lastDistance = sim.z;
     // Particles live in the world, and the world moved toward the camera.
@@ -528,7 +560,7 @@ export class RushRenderer {
   private poolKey(e: Entity): PoolKey {
     if (e.kind === 'traffic') return `traffic${TRAFFIC_KINDS[e.id % TRAFFIC_KINDS.length]}${e.id % 6}`;
     if (e.kind === 'truck') return `truck${e.id % 3}`;
-    if (e.kind === 'drone') return `drone-${this.droneBiomeOf(e)}`;
+    if (e.kind === 'drone' || e.kind === 'boss') return `${e.kind}-${this.droneBiomeOf(e)}`;
     return e.kind;
   }
 
@@ -613,6 +645,34 @@ export class RushRenderer {
         root.add(buildItemBox());
         actor.lift = 1.2;
         break;
+      case 'starcoin':
+        root.add(buildStarCoin());
+        actor.lift = 0.8;
+        break;
+      case 'goldcrate':
+        root.add(buildGoldCrate());
+        actor.lift = 0.8;
+        blob.scale.setScalar(0.8);
+        break;
+      case 'portal': {
+        const portal = buildPortal();
+        root.add(portal.root);
+        actor.portal = portal;
+        break;
+      }
+      case 'flag':
+        root.add(buildFinishArch());
+        blob.visible = false;
+        break;
+      case 'boss': {
+        const biome = this.droneBiomeOf(e);
+        const [style, hull, trim] = DRONE_LOOK[biome];
+        const boss = buildBoss(style, hull, trim, biome === 'beach');
+        root.add(boss.root);
+        actor.drone = boss;
+        blob.scale.setScalar(2);
+        break;
+      }
       case 'coin':
         break;
     }
@@ -668,6 +728,39 @@ export class RushRenderer {
         break;
       case 'crate':
         if (model) model.rotation.y = Math.sin(e.id) * 0.3;
+        break;
+      case 'starcoin':
+        if (model) {
+          model.rotation.y = t * 3;
+          model.position.y = Math.sin(t * 3 + e.id) * 0.2;
+        }
+        break;
+      case 'goldcrate':
+        if (model) {
+          model.rotation.y = t * 0.8;
+          model.position.y = Math.sin(t * 2) * 0.15;
+        }
+        break;
+      case 'portal':
+        if (actor.portal) {
+          actor.portal.rings[0].rotation.z = t * 2;
+          actor.portal.rings[1].rotation.z = -t * 3;
+          actor.portal.root.scale.setScalar(1 + Math.sin(t * 6) * 0.05);
+        }
+        break;
+      case 'boss':
+        if (actor.drone) {
+          const d = actor.drone;
+          if (d.style === 'bee') for (const w of d.spinners) w.rotation.z = Math.sin(t * 36) * 0.6;
+          else if (d.style === 'ufo') for (const r of d.spinners) r.rotation.y = t * 2;
+          else for (const r of d.spinners) r.rotation.y = t * 26;
+          d.pupil.position.x = d.pupilHome.x + THREE.MathUtils.clamp((sim.x - e.x) * 0.05, -0.14, 0.14);
+          d.light.visible = Math.floor(t * 6) % 2 === 0;
+          d.root.rotation.z = Math.sin(t * 1.3) * 0.1;
+          // A flinch on every hit, so damage reads even without watching the health bar.
+          const flinch = Math.max(0, this.bossFlinch);
+          d.root.scale.setScalar(2.4 * (1 + flinch * 0.12));
+        }
         break;
       case 'itembox':
         if (model) {
@@ -751,6 +844,12 @@ export class RushRenderer {
     }
     this.camera.lookAt(this.lookTarget);
     this.camera.rotation.z += Math.sin(this.time * 40) * 0.02 * shake - this.roll * 0.15;
+  }
+
+  /** Locks the scenery to one world for a World Tour stage, or releases it (null). */
+  public setFixedBiome(biome: BiomeId | null): void {
+    this.scenery.setFixedBiome(biome);
+    this.droneBiome.clear();
   }
 
   /** A new run: a new order of worlds, and nothing left over from the last one. */

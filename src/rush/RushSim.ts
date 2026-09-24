@@ -286,6 +286,8 @@ export class RushSim {
   private comboTimer = 0;
   public elapsed = 0;
   public kills = 0;
+  /** Drones (and bosses) only, for the "blast N drones" goals. */
+  public droneKills = 0;
   public nearMisses = 0;
   public flips = 0;
   /** Seconds into the current flip, or -1 when not flipping. The renderer spins the car by it. */
@@ -351,7 +353,7 @@ export class RushSim {
     this.invulnerable = 0;
     this.nitro = 0.5;
     this.nitroActive = false;
-    this.score = this.coins = this.kills = 0;
+    this.score = this.coins = this.kills = this.droneKills = 0;
     this.nearMisses = this.flips = 0;
     this.flipTime = -1;
     this.heldItem = null;
@@ -1014,6 +1016,7 @@ export class RushSim {
   private destroy(e: Entity, type: FxType): void {
     e.alive = false;
     if (e.kind === 'traffic' || e.kind === 'drone' || e.kind === 'boss') this.kills++;
+    if (e.kind === 'drone' || e.kind === 'boss') this.droneKills++;
     if (e.kind === 'goldcrate') {
       // The secret: a warp portal drops onto the road ahead, in the crate's lane.
       this.spawn('portal', e.x, e.z + 45, 0);

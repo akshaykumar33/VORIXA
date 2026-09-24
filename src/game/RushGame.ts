@@ -12,6 +12,22 @@ import { VEHICLES } from '../rendering/rush/Vehicles';
 import { DrivingSchool, type SchoolTrack } from '../rush/DrivingSchool';
 import { loadCalibration, saveCalibration, normalizeGaze, type GazeCalibration } from '../rush/Calibration';
 import { CameraPreview, type PreviewReadout } from '../ui/CameraPreview';
+import { TourUI } from '../ui/TourUI';
+import {
+  TOUR,
+  findStage,
+  goalMet,
+  goalText,
+  nextStage,
+  recordResult,
+  saveProgress,
+  loadProgress,
+  starsFor,
+  stageUnlocked,
+  worldUnlocked,
+  type StageDef,
+  type TourProgress
+} from '../rush/Tour';
 import { LANE_WIDTH } from '../rush/RushSim';
 
 /**
@@ -114,6 +130,12 @@ export class RushGame {
   /** Effects counted over the current frame, for lessons. */
   private frameJumps = 0;
   private frameSmashes = 0;
+  private readonly tour: TourUI;
+  private progress: TourProgress = loadProgress();
+  /** The World Tour stage being played, or null on the endless road. */
+  private stage: StageDef | null = null;
+  private mapWorld = 0;
+  private mapStop = 0;
   /** Mouse position in canvas pixels, or null before the mouse has moved. */
   private mouseScreenX: number | null = null;
 
@@ -139,7 +161,20 @@ export class RushGame {
     this.hud.onPickTrack = (track) => this.startSchool(track);
     this.hud.onCloseSchool = () => this.backToGarage();
     this.hud.onSkipLesson = () => this.school?.skip();
-    this.preview = new CameraPreview(container.querySelector('#rush-hud') ?? container);
+    const hudRoot = container.querySelector<HTMLElement>('#rush-hud') ?? container;
+    this.preview = new CameraPreview(hudRoot);
+    this.tour = new TourUI(hudRoot);
+    this.tour.onMenu = (choice) => {
+      if (choice === 'tour') this.openMap();
+      else if (choice === 'school') this.openSchoolPicker();
+      else if (this.sim.phase === 'ready') this.sim.start();
+    };
+    this.tour.onPlay = (id) => this.playStage(id);
+    this.tour.onSelect = (world, stop) => this.selectOnMap(world, stop);
+    this.tour.onMapBack = () => this.closeMap();
+    this.tour.onNext = () => this.playNext();
+    this.tour.onRetry = () => this.stage && this.playStage(this.stage.id);
+    this.tour.onToMap = () => this.openMap(this.stage?.world);
     // Switching tabs mid-run pauses rather than letting the car drive blind. Window blur is not
     // used: the browser's own camera-permission prompt blurs the window, and pausing the game
     // at the very moment a player turns on eye control made the feature look broken.
@@ -212,8 +247,8 @@ export class RushGame {
     src.gaze = gaze ? this.calibratedGaze : null;
     src.hand = hand;
     const intent = this.controls.resolve(src);
-    if (this.pickerOpen) {
-      // Choosing a lesson must not start a race behind the menu.
+    if (this.pickerOpen || this.tour.mapOpen || this.tour.resultOpen) {
+      // Choosing a lesson or a stage must not start a race behind the menu.
       intent.jump = intent.fire = intent.nitro = intent.useItem = false;
       intent.lane = this.sim.lane;
       this.controls.lane = this.sim.lane;
@@ -221,7 +256,7 @@ export class RushGame {
     this.frameJumps = 0;
     this.frameSmashes = 0;
 
-    if (this.sim.phase === 'over') {
+    if (this.sim.phase === 'over' && !this.stage) {
       this.overFor += frameDelta;
       // The grace period stops a held fire button or a panicked jump from skipping the results.
       const wantsAgain =
@@ -271,6 +306,7 @@ export class RushGame {
     }
     this.updateHud(intent.aimX, gaze?.present ? this.calibratedGaze.gazeX : hand?.present ? hand.steerX : null);
     this.updatePreview(gaze, hand);
+    this.updateStageHud();
     this.input.endFrame();
     requestAnimationFrame((t) => this.frame(t));
   }
@@ -293,6 +329,7 @@ export class RushGame {
   }
 
   private handleMetaKeys(): void {
+    if (this.handleTourKeys()) return;
     if (this.input.isJustPressed(InputAction.PAUSE)) {
       if (this.paused) this.setPaused(false);
       else if (this.sim.phase === 'running') this.setPaused(true);
@@ -325,6 +362,10 @@ export class RushGame {
         this.hitStop = Math.max(this.hitStop, HIT_STOP_KILL);
       } else if (fx.type === 'lightning') {
         this.hud.flashLightning();
+      } else if (fx.type === 'finish' && this.stage) {
+        this.finishStage(true);
+      } else if (fx.type === 'gameOver' && this.stage) {
+        this.finishStage(false);
       } else if (fx.type === 'gameOver') {
         this.overFor = 0;
         this.hud.showResults({
@@ -380,7 +421,8 @@ export class RushGame {
     const sim = this.sim;
     this.hud.setItem(sim.heldItem, sim.shieldTime > 0 ? 'SHIELD' : sim.giantTime > 0 ? 'GIANT!' : sim.magnetTime > 0 ? 'MAGNET' : null);
     this.hud.update({
-      phase: sim.phase,
+      // In a tour stage the stage card owns the ending; the endless game-over card stays away.
+      phase: this.stage && (sim.phase === 'over' || sim.phase === 'clear') ? 'running' : sim.phase,
       score: sim.score,
       best: this.best,
       coins: sim.coins,
@@ -455,6 +497,173 @@ export class RushGame {
   /** Back to the title screen and its garage. */
   private backToGarage(): void {
     this.restart();
+  }
+
+  // ─── World Tour ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Keys on the map and the stage-clear card. Returns true when it handled the frame's keys, so
+   * the same press does not also steer or pause the game.
+   */
+  private handleTourKeys(): boolean {
+    const i = this.input;
+    if (this.tour.mapOpen) {
+      if (i.isJustPressed(InputAction.STRAFE_LEFT)) this.selectOnMap(this.mapWorld, this.mapStop - 1);
+      if (i.isJustPressed(InputAction.STRAFE_RIGHT)) this.selectOnMap(this.mapWorld, this.mapStop + 1);
+      if (i.isJustPressed(InputAction.MOVE_FORWARD)) this.selectOnMap(this.mapWorld - 1, 0);
+      if (i.isJustPressed(InputAction.MOVE_BACKWARD)) this.selectOnMap(this.mapWorld + 1, 0);
+      if (i.isJustPressed(InputAction.JUMP) || i.isJustPressed(InputAction.CONFIRM)) {
+        const stop = this.mapStops(this.mapWorld)[this.mapStop];
+        if (stop) this.playStage(stop.id);
+      }
+      if (i.isJustPressed(InputAction.PAUSE)) this.closeMap();
+      return true;
+    }
+    if (this.tour.resultOpen) {
+      if (i.isJustPressed(InputAction.JUMP) || i.isJustPressed(InputAction.CONFIRM)) {
+        if (this.sim.phase === 'clear' && this.stage && nextStage(this.progress, this.stage)) this.playNext();
+        else if (this.stage) this.playStage(this.stage.id);
+      } else if (i.isJustPressed(InputAction.RESTART) && this.stage) {
+        this.playStage(this.stage.id);
+      } else if (i.isJustPressed(InputAction.PAUSE)) {
+        this.openMap(this.stage?.world);
+      }
+      return true;
+    }
+    if (this.sim.phase === 'ready' && !this.pickerOpen && i.isJustPressed(InputAction.CONFIRM)) {
+      this.openMap();
+      return true;
+    }
+    if (this.stage && this.sim.phase === 'running' && i.isJustPressed(InputAction.RESTART)) {
+      this.playStage(this.stage.id);
+      return true;
+    }
+    return false;
+  }
+
+  /** Map stops in path order: the regular stages and boss, then the secret. */
+  private mapStops(world: number): StageDef[] {
+    const stages = TOUR[world].stages;
+    return [...stages.filter((s) => !s.secret), ...stages.filter((s) => s.secret)];
+  }
+
+  private openMap(world?: number): void {
+    if (this.sim.phase !== 'ready') this.restart();
+    // Open on the furthest world reached, at its first unfinished stop.
+    let w = world ?? 0;
+    if (world === undefined) for (let i = 0; i < TOUR.length; i++) if (worldUnlocked(this.progress, i)) w = i;
+    const stops = this.mapStops(w);
+    const firstOpen = stops.findIndex((s) => stageUnlocked(this.progress, s) && !this.progress.stages[s.id]?.cleared);
+    this.selectOnMap(w, firstOpen >= 0 ? firstOpen : 0);
+    this.tour.setMenuVisible(false);
+  }
+
+  private selectOnMap(world: number, stop: number): void {
+    this.mapWorld = Math.max(0, Math.min(TOUR.length - 1, world));
+    const count = this.mapStops(this.mapWorld).length;
+    this.mapStop = ((stop % count) + count) % count;
+    this.tour.showMap(this.progress, this.mapWorld, this.mapStop);
+    this.audio.swerve(0);
+  }
+
+  private closeMap(): void {
+    this.tour.hideMap();
+    this.tour.setMenuVisible(true);
+  }
+
+  private playStage(id: string): void {
+    const stage = findStage(id);
+    if (!stage || !stageUnlocked(this.progress, stage)) return;
+    this.restart();
+    this.tour.hideMap();
+    this.tour.setMenuVisible(false);
+    this.stage = stage;
+    const world = TOUR[stage.world];
+    this.renderer.setFixedBiome(world.biome);
+    this.renderer.setSeed(stage.seed);
+    this.sim.startStage(
+      { length: stage.length, difficulty: stage.difficulty, hasSecret: stage.hasSecret, boss: stage.boss, bonus: stage.secret },
+      stage.seed
+    );
+    this.lastBiome = world.biome;
+    this.hud.banner(`${world.name} · ${stage.name}`);
+  }
+
+  private playNext(): void {
+    if (!this.stage) return;
+    const next = nextStage(this.progress, this.stage);
+    if (next) this.playStage(next.id);
+    else this.openMap(this.stage.world);
+  }
+
+  /** Scores the attempt, saves progress, and shows the stage card. */
+  private finishStage(cleared: boolean): void {
+    const stage = this.stage;
+    if (!stage) return;
+    const sim = this.sim;
+    const met = cleared && goalMet(stage.goal, { coins: sim.coins, droneKills: sim.droneKills, crashes: sim.crashes, elapsed: sim.elapsed });
+    const { newStars, newSecret } = recordResult(this.progress, stage, {
+      cleared,
+      goalMet: met,
+      starCoins: sim.starCoins,
+      score: sim.score,
+      coins: sim.coins,
+      foundSecret: sim.foundSecret
+    });
+    saveProgress(this.progress);
+    const record = this.progress.stages[stage.id];
+    this.tour.setStageHud(null);
+    this.tour.showResult({
+      stage,
+      cleared,
+      goalMet: met,
+      starCoinsThisRun: sim.starCoins,
+      starCoinsBest: record?.starCoins ?? 0,
+      starsNow: starsFor(record),
+      newStars,
+      newSecret,
+      score: sim.score,
+      hasNext: cleared && nextStage(this.progress, stage) !== null
+    });
+  }
+
+  private updateStageHud(): void {
+    const stage = this.stage;
+    const sim = this.sim;
+    if (!stage || sim.phase !== 'running') {
+      if (!stage) this.tour.setStageHud(null);
+      return;
+    }
+    let goal = goalText(stage.goal);
+    let state: boolean | null = null;
+    switch (stage.goal.kind) {
+      case 'coins':
+        goal = `Coins ${sim.coins}/${stage.goal.target}`;
+        state = sim.coins >= stage.goal.target ? true : null;
+        break;
+      case 'drones':
+        goal = `Drones ${sim.droneKills}/${stage.goal.target}`;
+        state = sim.droneKills >= stage.goal.target ? true : null;
+        break;
+      case 'noCrash':
+        goal = sim.crashes === 0 ? 'No crashes so far' : 'Crashed! Goal missed';
+        state = sim.crashes === 0 ? null : false;
+        break;
+      case 'time':
+        goal = `${sim.elapsed.toFixed(1)}s / ${stage.goal.target}s`;
+        state = sim.elapsed > stage.goal.target ? false : null;
+        break;
+      case 'finish':
+        break;
+    }
+    this.tour.setStageHud({
+      name: `${TOUR[stage.world].name} · ${stage.name}`,
+      progress: stage.length > 0 ? Math.min(sim.distance / stage.length, 1) : null,
+      goal: stage.boss ? '' : goal,
+      goalState: state,
+      starCoins: sim.starCoins,
+      boss: stage.boss ? { name: stage.name.toUpperCase(), hp: sim.bossHp, max: sim.bossMaxHp } : null
+    });
   }
 
   // ─── Driving school ───────────────────────────────────────────────────────────────────────
@@ -563,6 +772,11 @@ export class RushGame {
 
   private restart(): void {
     this.setPaused(false);
+    this.stage = null;
+    this.renderer.setFixedBiome(null);
+    this.tour.setStageHud(null);
+    this.tour.hideResult();
+    this.tour.setMenuVisible(true);
     this.sim.practice = false;
     this.school = null;
     this.pickerOpen = false;

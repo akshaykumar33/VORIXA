@@ -38,6 +38,8 @@ export class InputEngine {
     this.keyMap.set('KeyJ', InputAction.FIRE);
     this.keyMap.set('KeyK', InputAction.FIRE);
     this.keyMap.set('KeyT', InputAction.SCHOOL);
+    this.keyMap.set('Enter', InputAction.CONFIRM);
+    this.keyMap.set('NumpadEnter', InputAction.CONFIRM);
     this.keyMap.set('KeyR', InputAction.RESTART);
     this.keyMap.set('KeyG', InputAction.GESTURE_TOGGLE);
     this.keyMap.set('KeyE', InputAction.GAZE_TOGGLE);

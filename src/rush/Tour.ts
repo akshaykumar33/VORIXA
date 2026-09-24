@@ -54,7 +54,8 @@ export interface WorldDef {
 export function goalText(goal: StageGoal): string {
   switch (goal.kind) {
     case 'finish':
-      return 'Reach the finish flag';
+      // Gentle, but still its own achievement rather than a free star for finishing.
+      return 'Finish with 2 or more hearts';
     case 'coins':
       return `Collect ${goal.target} coins`;
     case 'drones':
@@ -324,4 +325,46 @@ export function saveProgress(progress: TourProgress): void {
   } catch {
     // Progress lasts for this visit only.
   }
+}
+
+/** What the goals are judged on, from one attempt. */
+export interface GoalStats {
+  coins: number;
+  droneKills: number;
+  crashes: number;
+  elapsed: number;
+}
+
+/** Whether a stage's goal was met. Only meaningful for a cleared stage. */
+export function goalMet(goal: StageGoal, stats: GoalStats): boolean {
+  switch (goal.kind) {
+    case 'finish':
+      return stats.crashes <= 1;
+    case 'coins':
+      return stats.coins >= goal.target;
+    case 'drones':
+      return stats.droneKills >= goal.target;
+    case 'noCrash':
+      return stats.crashes === 0;
+    case 'time':
+      return stats.elapsed <= goal.target;
+  }
+}
+
+/**
+ * Where "Next stage" goes: the next regular stage, then the boss, then the first stage of the
+ * next world — whichever is unlocked. Secret stages lead back to the map.
+ */
+export function nextStage(progress: TourProgress, stage: StageDef): StageDef | null {
+  if (stage.secret) return null;
+  const world = TOUR[stage.world];
+  const route = world.stages.filter((s) => !s.secret);
+  const after = route.slice(route.indexOf(stage) + 1);
+  const next = after.find((s) => stageUnlocked(progress, s));
+  if (next) return next;
+  if (stage.boss && stage.world + 1 < TOUR.length) {
+    const first = TOUR[stage.world + 1].stages[0];
+    return stageUnlocked(progress, first) ? first : null;
+  }
+  return null;
 }

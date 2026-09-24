@@ -245,6 +245,8 @@ export class Scenery {
   public readonly group = new THREE.Group();
   public readonly palette = new BlendedPalette();
   private schedule = new ZoneSchedule(1);
+  /** A World Tour stage takes place in one world, start to finish. */
+  private fixed: BiomeId | null = null;
   private readonly looks: Record<BiomeId, BiomeLook>;
   private readonly props = new Map<BiomeId, WorldProps>();
   private readonly allKinds: PropKind[] = [];
@@ -381,21 +383,27 @@ export class Scenery {
     this.schedule = new ZoneSchedule(seed);
   }
 
+  /** Locks the road to one world (World Tour), or back to the endless tour of all six (null). */
+  public setFixedBiome(biome: BiomeId | null): void {
+    this.fixed = biome;
+  }
+
   public biomeOfZone(index: number): BiomeId {
-    return this.schedule.biomeOf(index);
+    return this.fixed ?? this.schedule.biomeOf(index);
   }
 
   public biomeAt(distance: number): BiomeId {
-    return this.schedule.biomeAt(distance);
+    return this.fixed ?? this.schedule.biomeAt(distance);
   }
 
   /** @param distance The car's distance along the road. */
   public update(distance: number, time: number): void {
     const zone = this.schedule.zoneIndex(distance);
-    const here = this.looks[this.schedule.biomeOf(zone)].palette;
-    const next = this.looks[this.schedule.biomeOf(zone + 1)].palette;
-    const prev = this.looks[this.schedule.biomeOf(zone - 1)].palette;
-    const toNext = this.schedule.toNextZone(distance);
+    const here = this.looks[this.biomeOfZone(zone)].palette;
+    const next = this.looks[this.biomeOfZone(zone + 1)].palette;
+    const prev = this.looks[this.biomeOfZone(zone - 1)].palette;
+    // A locked world has no boundary to sweep in; push it out of sight.
+    const toNext = this.fixed ? 1e5 : this.schedule.toNextZone(distance);
     const sinceStart = ZONE_LENGTH - toNext;
 
     // Ground: three worlds, two boundaries, all in render space.
@@ -439,7 +447,7 @@ export class Scenery {
     const last = Math.ceil((distance + ROAD_AHEAD) / SLOT_SPACING);
     for (let k = first; k <= last; k++) {
       const slotZ = k * SLOT_SPACING;
-      const world = this.props.get(this.schedule.biomeAt(slotZ));
+      const world = this.props.get(this.biomeAt(slotZ));
       if (!world) continue;
       const z = -(slotZ - distance);
       for (const side of [-1, 1]) {

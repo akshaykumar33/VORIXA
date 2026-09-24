@@ -237,6 +237,148 @@ export function buildItemBox(): THREE.Group {
   return root;
 }
 
+// ─── World Tour pieces ────────────────────────────────────────────────────────────────────────
+
+function starShape(outer: number, inner: number): THREE.Shape {
+  const s = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = Math.PI / 2 + (i * Math.PI) / 5;
+    if (i === 0) s.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    else s.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  s.closePath();
+  return s;
+}
+
+/** A big spinning star coin: the thing worth going out of your way for. */
+export function buildStarCoin(): THREE.Group {
+  const root = new THREE.Group();
+  const disc = part(new THREE.CylinderGeometry(0.85, 0.85, 0.22, 28).rotateX(Math.PI / 2), 0xffc93c, { outline: 0.06, emissive: 0x6b4a00 });
+  root.add(disc);
+  const star = new THREE.ExtrudeGeometry(starShape(0.6, 0.26), { depth: 0.12, bevelEnabled: false });
+  star.translate(0, 0, 0.1);
+  const front = part(star, 0xfff3b0, { outline: 0.03, emissive: 0x8a6a00 });
+  root.add(front);
+  const back = front.clone();
+  back.rotation.y = Math.PI;
+  root.add(back);
+  return root;
+}
+
+/** A glowing golden crate floating overhead. Shoot it open; something is inside. */
+export function buildGoldCrate(): THREE.Group {
+  const root = new THREE.Group();
+  root.add(part(rounded(1.55, 1.55, 1.55, 0.12), 0xffc93c, { outline: 0.06, emissive: 0x7a5200 }));
+  const emblem = new THREE.ExtrudeGeometry(starShape(0.5, 0.22), { depth: 0.06, bevelEnabled: false });
+  for (const [ry, z] of [[0, 0.78], [Math.PI, 0.78], [Math.PI / 2, 0.78], [-Math.PI / 2, 0.78]] as const) {
+    const face = new THREE.Mesh(emblem, flat(0xfff7e0));
+    face.position.z = z;
+    const pivot = new THREE.Group();
+    pivot.rotation.y = ry;
+    pivot.add(face);
+    root.add(pivot);
+  }
+  bake(root);
+  return root;
+}
+
+export interface PortalModel {
+  root: THREE.Group;
+  rings: THREE.Object3D[];
+}
+
+/** The warp: a swirling ring standing on the road. */
+export function buildPortal(): PortalModel {
+  const root = new THREE.Group();
+  const outer = new THREE.Mesh(new THREE.TorusGeometry(1.7, 0.22, 10, 36), flat(0x9b6bff));
+  outline(outer, 0.05);
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.12, 8, 30), flat(0x3ff7ff));
+  const core = new THREE.Mesh(
+    new THREE.CircleGeometry(1.2, 30),
+    bent(new THREE.MeshBasicMaterial({ color: 0xff4fd8, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }))
+  );
+  for (const m of [outer, inner, core]) m.position.y = 1.9;
+  root.add(outer, inner, core);
+  return { root, rings: [outer, inner] };
+}
+
+function finishTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 64;
+  const g = canvas.getContext('2d');
+  if (!g) throw new Error('2D canvas unavailable for the finish banner');
+  for (let x = 0; x < 32; x++) {
+    for (let y = 0; y < 4; y++) {
+      g.fillStyle = (x + y) % 2 ? '#1d1b33' : '#fff7e0';
+      g.fillRect(x * 16, y * 16, 16, 16);
+    }
+  }
+  g.fillStyle = '#ff5a36';
+  g.fillRect(150, 6, 212, 52);
+  g.font = 'bold 40px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = '#fff7e0';
+  g.fillText('FINISH', 256, 34);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** The finish arch across all three lanes. */
+export function buildFinishArch(): THREE.Group {
+  const root = new THREE.Group();
+  for (const x of [-6.2, 6.2]) {
+    const post = part(new THREE.CylinderGeometry(0.28, 0.34, 5.6, 10), 0xfff7e0, { outline: 0.05 });
+    post.position.set(x, 2.8, 0);
+    root.add(post);
+    const ball = part(new THREE.SphereGeometry(0.45, 14, 10), 0xffd23f, { outline: 0.04 });
+    ball.position.set(x, 5.8, 0);
+    root.add(ball);
+  }
+  const banner = new THREE.Mesh(new THREE.BoxGeometry(12.4, 1.5, 0.2), toon(0xffffff, { map: finishTexture() }));
+  banner.position.y = 5.0;
+  outline(banner, 0.06);
+  root.add(banner);
+  bake(root);
+  return root;
+}
+
+/**
+ * A boss: that world's drone, blown up to giant size and crowned. The last one is Baron Buzz
+ * himself, in a top hat and monocle.
+ */
+export function buildBoss(style: DroneStyle, hull: number, trim: number, baron: boolean): DroneModel {
+  const d = buildDrone(style, hull, trim);
+  if (baron) {
+    const hat = part(new THREE.CylinderGeometry(0.55, 0.6, 1.0, 16), 0x1d1b33, { outline: 0.04 });
+    hat.position.y = 1.55;
+    d.root.add(hat);
+    const brim = part(new THREE.CylinderGeometry(0.95, 0.95, 0.08, 20), 0x1d1b33, { outline: 0.03 });
+    brim.position.y = 1.05;
+    d.root.add(brim);
+    const band = part(new THREE.CylinderGeometry(0.61, 0.61, 0.18, 16), 0xff4d5e, { outline: 0 });
+    band.position.y = 1.2;
+    d.root.add(band);
+    const monocle = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.05, 6, 20), flat(0xffd23f));
+    monocle.position.set(0.2, 0.2, 1.3);
+    d.root.add(monocle);
+  } else {
+    const crown = part(new THREE.CylinderGeometry(0.62, 0.62, 0.35, 5, 1, true), 0xffd23f, { outline: 0.03, emissive: 0x6b4a00 });
+    crown.position.y = 1.05;
+    d.root.add(crown);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      const spike = part(new THREE.ConeGeometry(0.14, 0.4, 6), 0xffd23f, { outline: 0.02 });
+      spike.position.set(Math.cos(a) * 0.62, 1.4, Math.sin(a) * 0.62);
+      d.root.add(spike);
+    }
+  }
+  return d;
+}
+
 export function buildShot(): THREE.Group {
   const root = new THREE.Group();
   const orb = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), flat(0xff4fd8));

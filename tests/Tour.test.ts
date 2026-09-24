@@ -9,6 +9,8 @@ import {
   recordResult,
   findStage,
   goalText,
+  goalMet,
+  nextStage,
   type StageResult
 } from '../src/rush/Tour';
 
@@ -107,5 +109,42 @@ describe('unlocks', () => {
   it('finds stages by id', () => {
     expect(findStage('w1-1')?.name).toBe('Windmill Way');
     expect(findStage('nope')).toBeNull();
+  });
+});
+
+
+describe('goals', () => {
+  const stats = { coins: 50, droneKills: 3, crashes: 0, elapsed: 40 };
+  it('are judged on the attempt', () => {
+    expect(goalMet({ kind: 'coins', target: 60 }, stats)).toBe(false);
+    expect(goalMet({ kind: 'coins', target: 50 }, stats)).toBe(true);
+    expect(goalMet({ kind: 'drones', target: 3 }, stats)).toBe(true);
+    expect(goalMet({ kind: 'noCrash', target: 0 }, { ...stats, crashes: 1 })).toBe(false);
+    expect(goalMet({ kind: 'time', target: 42 }, stats)).toBe(true);
+    expect(goalMet({ kind: 'time', target: 39 }, stats)).toBe(false);
+    expect(goalMet({ kind: 'finish', target: 0 }, { ...stats, crashes: 1 })).toBe(true);
+    expect(goalMet({ kind: 'finish', target: 0 }, { ...stats, crashes: 2 })).toBe(false);
+  });
+});
+
+describe('next stage', () => {
+  it('walks the world in order, then the boss, then the next world', () => {
+    const p = emptyProgress();
+    const w1 = TOUR[0].stages;
+    recordResult(p, w1[0], cleared());
+    expect(nextStage(p, w1[0])?.id).toBe('w1-2');
+    recordResult(p, w1[1], cleared({ goalMet: true }));
+    recordResult(p, w1[2], cleared({ goalMet: true }));
+    expect(nextStage(p, w1[2])?.id).toBe('w1-boss');
+    recordResult(p, w1[3], cleared());
+    expect(nextStage(p, w1[3])?.id).toBe('w2-1');
+  });
+
+  it('stops when the next world is still locked, and after a secret stage', () => {
+    const p = emptyProgress();
+    const w1 = TOUR[0].stages;
+    for (const s of w1.filter((s) => !s.secret)) recordResult(p, s, cleared());
+    expect(nextStage(p, w1[3])).toBeNull();
+    expect(nextStage(p, w1.find((s) => s.secret)!)).toBeNull();
   });
 });
