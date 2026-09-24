@@ -123,7 +123,8 @@ binaries, and a repository is the wrong place for 11 MB of weights.
 All by **Quaternius** ([quaternius.com](https://quaternius.com)),
 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode), each pack's licence file
 checked. Fetched from itch.io by `scripts/assets/fetch-itch.mjs` (every pack's minimum price is
-$0) into `assets-src/` (not committed), then built into `public/city/` by
+$0), and the clothed characters from the Google Drive folders linked on quaternius.com, into
+`assets-src/` (not committed), then built into `public/city/` by
 `scripts/assets/build-city.mjs`: pieces merged, textures resized to 1024 px WebP, meshes
 meshopt-compressed. Content is otherwise unmodified.
 
