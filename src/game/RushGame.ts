@@ -191,6 +191,7 @@ export class RushGame {
       else if (choice === 'tour') this.openMap();
       else if (choice === 'school') this.openSchoolPicker();
       else if (choice === 'onfoot') goOnFoot();
+      else if (choice === 'city') goTo('city');
       else if (this.sim.phase === 'ready') this.sim.start();
     };
     this.tour.onPlay = (id) => this.playStage(id);
@@ -948,8 +949,13 @@ function meter(level: number): string {
 
 /** Climbs out of the car: On Foot runs as its own page (ADR-0012), keeping the current query. */
 function goOnFoot(): void {
+  goTo('onfoot');
+}
+
+/** Each mode is its own page; switching keeps the rest of the query. */
+function goTo(mode: string): void {
   const url = new URL(window.location.href);
-  url.searchParams.set('mode', 'onfoot');
+  url.searchParams.set('mode', mode);
   window.location.href = url.toString();
 }
 

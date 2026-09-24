@@ -20,6 +20,8 @@ import { RushRenderer } from './rendering/rush/RushRenderer';
 import { RushGame } from './game/RushGame';
 import { PlatformRenderer } from './rendering/platformer/PlatformRenderer';
 import { OnFootGame } from './game/OnFootGame';
+import { CityRenderer } from './rendering/city/CityRenderer';
+import { CityGame } from './game/CityGame';
 
 /**
  * Rush (ADR-0011) is the default game; On Foot (ADR-0012) is `?mode=onfoot`. The original parkour time-attack is kept, reachable with
@@ -30,6 +32,7 @@ function bootstrap(): void {
   const mode = params.get('mode');
   if (mode === 'parkour') bootstrapParkour();
   else if (mode === 'onfoot') bootstrapOnFoot();
+  else if (mode === 'city') bootstrapCity();
   else bootstrapRush(params);
 }
 
@@ -59,6 +62,25 @@ function bootstrapRush(params: URLSearchParams): void {
 
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__rush = { game, renderer };
+  }
+}
+
+/** VORIXA City (ADR-0014): the open-city flagship, in development. */
+function bootstrapCity(): void {
+  const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
+  const viewport = document.getElementById('viewport');
+  if (!canvas || !viewport) throw new Error('Could not locate #render-canvas and #viewport.');
+  const renderer = new CityRenderer();
+  renderer.initialize(canvas, new URLSearchParams(window.location.search).has('lowfx'));
+  const applySize = () => {
+    renderer.resize(Math.max(1, canvas.clientWidth || window.innerWidth), Math.max(1, canvas.clientHeight || window.innerHeight));
+  };
+  new ResizeObserver(applySize).observe(canvas);
+  applySize();
+  const game = new CityGame(renderer, canvas, viewport);
+  game.start();
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__city = { game, renderer };
   }
 }
 

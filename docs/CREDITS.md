@@ -118,6 +118,27 @@ binaries, and a repository is the wrong place for 11 MB of weights.
 
 ---
 
+## VORIXA City (ADR-0014)
+
+All by **Quaternius** ([quaternius.com](https://quaternius.com)),
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode), each pack's licence file
+checked. Fetched from itch.io by `scripts/assets/fetch-itch.mjs` (every pack's minimum price is
+$0) into `assets-src/` (not committed), then built into `public/city/` by
+`scripts/assets/build-city.mjs`: pieces merged, textures resized to 1024 px WebP, meshes
+meshopt-compressed. Content is otherwise unmodified.
+
+| Pack | Built into | Used for |
+|---|---|---|
+| Downtown City MegaKit (Standard) | `district/` | Streets, intersections, sidewalks, buildings, props, PBR textures |
+| Ultimate Modular Characters (men) | `people/m-*.glb` | The hero (Casual Hoodie), police (Swat), pedestrians |
+| Ultimate Modular Women | `people/f-*.glb` | Pedestrians, soldiers |
+| Universal Base Characters, Universal Animation Library | not shipped | Fetched and evaluated; the free bodies have no modern clothing |
+| Realistic Car Pack (Nov 2018) | not yet | Cars (phase 3) |
+| Ultimate Gun Pack | not yet | Guns (phase 2) |
+
+Build-only tools (not shipped): glTF-Transform (MIT, Don McCurdy) and meshoptimizer (MIT,
+Arseny Kapoulkine). The meshopt decoder that ships is the copy inside three.js (MIT).
+
 ## Animated people (Rush and On Foot)
 
 [Mini Characters 1.0](https://kenney.nl/assets/mini-characters) by **Kenney** (www.kenney.nl),

@@ -40,7 +40,8 @@ export class PostFX {
     this.ao.configuration.aoRadius = 2.2;
     this.ao.configuration.distanceFalloff = 1.2;
     this.ao.configuration.intensity = 2.2;
-    this.ao.configuration.halfRes = true;
+    // Full resolution: the half-resolution path's red-only buffers bled a red tint into the image.
+    this.ao.configuration.halfRes = false;
     this.ao.configuration.gammaCorrection = false;
     this.ao.setQualityMode('Medium');
     this.composer.addPass(this.ao);

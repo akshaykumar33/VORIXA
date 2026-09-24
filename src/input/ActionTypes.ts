@@ -17,6 +17,8 @@ export enum InputAction {
   SHOP = 'SHOP',
   /** Leaves the car for On Foot, from the title (Rush). */
   ON_FOOT = 'ON_FOOT',
+  /** V: third- and first-person view (VORIXA City). */
+  VIEW_TOGGLE = 'VIEW_TOGGLE',
   CROUCH = 'CROUCH',
   RESTART = 'RESTART',
   GESTURE_TOGGLE = 'GESTURE_TOGGLE',
