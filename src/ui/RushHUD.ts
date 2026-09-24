@@ -388,10 +388,10 @@ const MARKUP = `
     <div class="cta toon">Press Space, an arrow key or click to start</div>
     </div>
     <div class="controls">
-      <div class="control"><h3>Keys</h3><p>A / D or ← → change lane<br>Space jump · Shift nitro<br>J fire</p></div>
+      <div class="control"><h3>Keys</h3><p>A / D or ← → change lane<br>Space jump · Shift nitro<br>J fire · Q item · P pause</p></div>
       <div class="control"><h3>Mouse</h3><p>Move to aim<br>Hold click to fire</p></div>
-      <div class="control"><h3>Eyes · E</h3><p>Look at a lane to steer there<br>Hard blink: slow-mo</p></div>
-      <div class="control"><h3>Hands · G</h3><p>Palm left/right steers<br>Fist jumps · pinch fires<br>Raise open hand: nitro</p></div>
+      <div class="control"><h3>Face · E</h3><p>Look at a lane: steer · Brows up: jump<br>Open mouth: fire · Smile: nitro<br>Wink: item · Hard blink: slow-mo</p></div>
+      <div class="control"><h3>Hands · G</h3><p>Palm left/right: steer · Fist: jump<br>Pinch: fire · Raised palm: nitro<br>Raised fist: item · ✌: slow-mo</p></div>
     </div>
     <button class="school-link" type="button">Driving school<kbd>T</kbd></button>
     <div class="garage" role="group" aria-label="Choose your car">

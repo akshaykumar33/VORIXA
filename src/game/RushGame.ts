@@ -130,6 +130,7 @@ export class RushGame {
   /** Effects counted over the current frame, for lessons. */
   private frameJumps = 0;
   private frameSmashes = 0;
+  private frameItems = 0;
   private readonly tour: TourUI;
   private progress: TourProgress = loadProgress();
   /** The World Tour stage being played, or null on the endless road. */
@@ -222,7 +223,8 @@ export class RushGame {
     }
     const gaze = this.gazeEnabled && this.face.isRunning ? this.face.update() : null;
     const hand = this.handEnabled && this.hand.isRunning ? this.hand.update() : null;
-    if (gaze?.dilationStarted && this.slowmo <= 0) {
+    // Slow motion: a hard blink, or a peace sign for hand players.
+    if ((gaze?.dilationStarted || hand?.vSignStarted) && this.slowmo <= 0) {
       this.slowmo = SLOWMO_DURATION;
       this.audio.slowmoStart();
     }
@@ -245,6 +247,7 @@ export class RushGame {
       this.calibratedGaze.gazeX = normalizeGaze(gaze.gazeX, this.calibration);
     }
     src.gaze = gaze ? this.calibratedGaze : null;
+    src.face = gaze?.present ? this.face.commands : null;
     src.hand = hand;
     const intent = this.controls.resolve(src);
     if (this.pickerOpen || this.tour.mapOpen || this.tour.resultOpen) {
@@ -255,6 +258,7 @@ export class RushGame {
     }
     this.frameJumps = 0;
     this.frameSmashes = 0;
+    this.frameItems = 0;
 
     if (this.sim.phase === 'over' && !this.stage) {
       this.overFor += frameDelta;
@@ -353,6 +357,7 @@ export class RushGame {
       this.renderer.effect(fx, sim.z);
       if (fx.type === 'jump') this.frameJumps++;
       if (fx.type === 'smash' || fx.type === 'explode') this.frameSmashes++;
+      if (fx.type === 'itemUse') this.frameItems++;
       this.audio.play(fx);
       this.popupFor(fx);
       if (fx.type === 'crash') {
@@ -696,15 +701,28 @@ export class RushGame {
       nitroActive: sim.nitroActive,
       firing,
       gaze: this.gazeEnabled
-        ? { on: true, present: gaze?.present ?? false, rawX: gaze?.gazeX ?? 0, blinkStarted: gaze?.dilationStarted ?? false, dilating: gaze?.dilating ?? false }
+        ? {
+            on: true,
+            present: gaze?.present ?? false,
+            rawX: gaze?.gazeX ?? 0,
+            blinkStarted: gaze?.dilationStarted ?? false,
+            dilating: gaze?.dilating ?? false,
+            browsStarted: this.face.commands.jumpStarted,
+            mouthOpen: this.face.commands.firing,
+            smiling: this.face.commands.nitro,
+            winkStarted: this.face.commands.itemStarted
+          }
         : null,
+      itemsUsed: this.frameItems,
       hand: this.handEnabled
         ? {
             on: true,
             present: hand?.present ?? false,
             fistStarted: hand?.fistStarted ?? false,
             pinching: hand?.pinching ?? false,
-            nitro: (hand?.present ?? false) && hand!.thrust >= 0.85 && hand!.steerY >= 0.45
+            nitro: (hand?.present ?? false) && hand!.thrust >= 0.85 && hand!.steerY >= 0.45,
+            vSignStarted: hand?.vSignStarted ?? false,
+            itemStarted: (hand?.fistStarted ?? false) && hand!.steerY >= 0.45
           }
         : null,
       eyesSteering: gaze?.present ?? false
@@ -720,6 +738,8 @@ export class RushGame {
     const request = school.pendingRequest;
     school.pendingRequest = null;
     if (request === 'nitro') sim.nitro = 1;
+    // An item lesson hands the player a shield, the item that is safest to fire off anywhere.
+    if (request === 'item' || (state.lesson?.request === 'item' && !sim.heldItem)) sim.heldItem = 'shield';
     const wantsCrates = state.lesson?.request === 'crates';
     // Targets for a shooting lesson; replaced if the player drives past them all.
     if (request === 'crates' || (wantsCrates && !sim.entities.some((e) => e.alive && e.kind === 'crate'))) {
@@ -750,7 +770,13 @@ export class RushGame {
       else {
         const n = this.calibratedGaze.gazeX;
         readout.push({ text: n <= -0.5 ? 'LOOKING LEFT' : n >= 0.5 ? 'LOOKING RIGHT' : 'LOOKING CENTRE', tone: 'on' });
-        if (gaze.dilating) readout.push({ text: 'BLINK', tone: 'on' });
+        const c = this.face.commands;
+        if (gaze.dilating) readout.push({ text: 'BLINK: SLOW-MO', tone: 'on' });
+        if (c.firing) readout.push({ text: 'MOUTH: FIRE', tone: 'on' });
+        if (c.nitro) readout.push({ text: 'SMILE: NITRO', tone: 'on' });
+        if (c.levels.brows > 0.3) readout.push({ text: 'BROWS: JUMP', tone: 'on' });
+        // Live meters, so a player can see how close a gesture is to counting.
+        readout.push({ text: `mouth ${meter(c.levels.mouth)} brows ${meter(c.levels.brows)} smile ${meter(c.levels.smile)}`, tone: 'plain' });
       }
     }
     if (this.handEnabled) {
@@ -758,7 +784,10 @@ export class RushGame {
       else if (!hand?.present) readout.push({ text: 'NO HAND', tone: 'warn' });
       else {
         const raised = hand.thrust >= 0.85 && hand.steerY >= 0.45;
-        readout.push({ text: hand.fist ? 'FIST' : hand.pinching ? 'PINCH' : raised ? 'RAISED: NITRO' : 'OPEN HAND', tone: 'on' });
+        readout.push({
+          text: hand.fist ? (raised ? 'RAISED FIST: ITEM' : 'FIST: JUMP') : hand.pinching ? 'PINCH: FIRE' : hand.vSign ? 'PEACE: SLOW-MO' : raised ? 'RAISED: NITRO' : 'OPEN HAND',
+          tone: 'on'
+        });
       }
     }
     const video = this.hand.videoElement;
@@ -819,6 +848,12 @@ export class RushGame {
     const ok = await this.hand.start();
     if (!ok) this.handEnabled = this.hand.status === 'loading';
   }
+}
+
+/** A tiny text meter, 0–1 in five steps: "▮▮▯▯▯". */
+function meter(level: number): string {
+  const n = Math.max(0, Math.min(5, Math.round((level / 0.4) * 5)));
+  return '▮'.repeat(n) + '▯'.repeat(5 - n);
 }
 
 function deviceStatus(enabled: boolean, status: string, present: boolean): DeviceStatus {

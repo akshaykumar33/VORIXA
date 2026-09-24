@@ -23,14 +23,26 @@ export interface SchoolFrame {
   smashes: number;
   nitroActive: boolean;
   firing: boolean;
-  gaze: { on: boolean; present: boolean; rawX: number; blinkStarted: boolean; dilating: boolean } | null;
-  hand: { on: boolean; present: boolean; fistStarted: boolean; pinching: boolean; nitro: boolean } | null;
+  gaze: {
+    on: boolean;
+    present: boolean;
+    rawX: number;
+    blinkStarted: boolean;
+    dilating: boolean;
+    browsStarted?: boolean;
+    mouthOpen?: boolean;
+    smiling?: boolean;
+    winkStarted?: boolean;
+  } | null;
+  hand: { on: boolean; present: boolean; fistStarted: boolean; pinching: boolean; nitro: boolean; vSignStarted?: boolean; itemStarted?: boolean } | null;
+  /** Items used this frame, by any device. */
+  itemsUsed?: number;
   /** True when eyes are steering, so hand steering is switched off. */
   eyesSteering: boolean;
 }
 
 /** Something the game should do for the lesson (place targets, top up nitro). */
-export type SchoolRequest = 'crates' | 'nitro' | null;
+export type SchoolRequest = 'crates' | 'nitro' | 'item' | null;
 
 export interface Lesson {
   id: string;
@@ -58,14 +70,20 @@ const LESSONS: Record<SchoolTrack, Lesson[]> = {
     { id: 'cal-left', title: 'Calibrate · left', instruction: 'Now look at the LEFT lane and hold.', hint: 'Look at the far left of the road, not the edge of the screen.', request: null, highlightLane: -1 },
     { id: 'cal-right', title: 'Calibrate · right', instruction: 'Now look at the RIGHT lane and hold.', hint: 'Turn your head a little if your eyes alone do not move the dot.', request: null, highlightLane: 1 },
     { id: 'eye-steer', title: 'Steer with your eyes', instruction: 'Look at the left lane, then the right lane. The car follows your gaze.', hint: 'Watch the pink dot in the lane meter: it is where the game thinks you are looking.', request: null },
-    { id: 'blink', title: 'Slow motion', instruction: 'Blink HARD — squeeze both eyes shut for a moment — to slow time.', hint: 'Normal blinks are ignored on purpose. Squeeze and hold for a quarter second.', request: null }
+    { id: 'blink', title: 'Slow motion', instruction: 'Blink HARD — squeeze both eyes shut for a moment — to slow time.', hint: 'Normal blinks are ignored on purpose. Squeeze and hold for a quarter second.', request: null },
+    { id: 'brows', title: 'Eyebrows = jump', instruction: 'RAISE your eyebrows to jump. Do it twice.', hint: 'Lift them high and drop them again, like being surprised. Watch the BROWS meter.', request: null },
+    { id: 'mouth', title: 'Open mouth = fire', instruction: 'OPEN your mouth to blast the crates. It fires while your mouth is open.', hint: 'A wide "ahh" works best. Close it to stop firing.', request: 'crates' },
+    { id: 'smile', title: 'Smile = nitro', instruction: 'SMILE wide and hold it for NITRO.', hint: 'A big toothy grin. A small smile is ignored so talking does not boost.', request: 'nitro' },
+    { id: 'wink', title: 'Wink = item', instruction: 'WINK one eye to use the item you are holding.', hint: 'Close ONE eye for a moment and keep the other open.', request: 'item' }
   ],
   hands: [
     { id: 'hand-on', title: 'Switch on your hands', instruction: 'Press G and hold your open hand up in front of the camera.', hint: 'Keep your whole hand in the preview, palm facing the camera.', request: null },
     { id: 'hand-steer', title: 'Steer with your hand', instruction: 'Move your open palm to the LEFT, then to the RIGHT.', hint: 'Move your whole hand sideways, about a hand-width from the middle.', request: null },
     { id: 'fist', title: 'Fist = jump', instruction: 'Close your hand into a FIST to jump. Do it twice (open between).', hint: 'Curl all four fingers in, then open again to re-arm.', request: null },
     { id: 'pinch', title: 'Pinch = fire', instruction: 'PINCH your thumb and index finger together to blast the crates.', hint: 'Touch the fingertips and hold — it keeps firing while you pinch.', request: 'crates' },
-    { id: 'hand-nitro', title: 'Raised hand = nitro', instruction: 'Open your hand wide and RAISE it high in the camera view.', hint: 'An open hand at normal height does nothing — lift it toward the top of the preview.', request: 'nitro' }
+    { id: 'hand-nitro', title: 'Raised hand = nitro', instruction: 'Open your hand wide and RAISE it high in the camera view.', hint: 'An open hand at normal height does nothing — lift it toward the top of the preview.', request: 'nitro' },
+    { id: 'hand-item', title: 'Raised fist = item', instruction: 'RAISE your hand high and make a FIST to use your item.', hint: 'High fist is the item; a fist at normal height is a jump.', request: 'item' },
+    { id: 'vsign', title: 'Peace sign = slow-mo', instruction: 'Make a PEACE SIGN (index and middle finger up) to slow time.', hint: 'Fold the ring and little fingers down; keep the two up straight.', request: null }
   ]
 };
 
@@ -205,6 +223,26 @@ export class DrivingSchool {
       }
       case 'blink':
         if (f.gaze?.blinkStarted) this.progress = 1;
+        break;
+      case 'brows':
+        if (f.gaze?.browsStarted) this.counter++;
+        this.progress = this.counter / 2;
+        break;
+      case 'mouth':
+        this.counter += f.gaze?.mouthOpen ? f.smashes : 0;
+        this.progress = this.counter / 2;
+        break;
+      case 'smile':
+        this.holdWhile(f.nitroActive && (f.gaze?.smiling ?? false), f.dt);
+        break;
+      case 'wink':
+        if (f.gaze?.winkStarted && (f.itemsUsed ?? 0) > 0) this.progress = 1;
+        break;
+      case 'hand-item':
+        if (f.hand?.itemStarted && (f.itemsUsed ?? 0) > 0) this.progress = 1;
+        break;
+      case 'vsign':
+        if (f.hand?.vSignStarted) this.progress = 1;
         break;
     }
     if (this.progress >= 1) this.complete();

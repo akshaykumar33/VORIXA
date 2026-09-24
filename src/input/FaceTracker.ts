@@ -1,3 +1,5 @@
+import { VisionGuard, withDelegateFallback } from './VisionGuard';
+import { FaceGestureMapper, type ExpressionScores, type FaceCommands } from './FaceGestures';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
 import { sharedCamera, type CameraSource } from './CameraSource';
 import {
@@ -79,8 +81,8 @@ export class FaceTracker {
       // instantly and waiting on a feature nobody asked for yet.
       const { FilesetResolver, FaceLandmarker } = await import('@mediapipe/tasks-vision');
       const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
-      this.landmarker = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+      this.create = async () => (await withDelegateFallback((delegate) => FaceLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate },
         runningMode: 'VIDEO',
         numFaces: 1,
         // Iris refinement is what lifts the model from 468 to 478 landmarks. Without it there are
@@ -90,7 +92,10 @@ export class FaceTracker {
         minFaceDetectionConfidence: 0.5,
         minFacePresenceConfidence: 0.5,
         minTrackingConfidence: 0.45
-      });
+      }))).value;
+      this.landmarker = await this.create();
+      this.guard.reset();
+      this.gestureMapper.reset();
     } catch (err) {
       this.status = 'error';
       this.errorMessage = `Face model failed to load: ${(err as Error).message}`;
@@ -137,6 +142,33 @@ export class FaceTracker {
    * Re-running inference on an unchanged frame would burn GPU time for an identical answer, but
    * the mapper is still stepped so its smoothing and blink timing advance on the real clock.
    */
+  private readonly guard = new VisionGuard();
+  private create: (() => Promise<NonNullable<typeof this.landmarker>>) | null = null;
+  private rebuilding = false;
+  private readonly gestureMapper = new FaceGestureMapper();
+  private readonly expressions: ExpressionScores = { jawOpen: 0, browInnerUp: 0, mouthSmileLeft: 0, mouthSmileRight: 0, eyeBlinkLeft: 0, eyeBlinkRight: 0 };
+  private hasExpressions = false;
+
+  /** Face gestures for this frame: brows jump, mouth fires, smile boosts, wink uses the item. */
+  public get commands(): FaceCommands {
+    return this.gestureMapper.commands;
+  }
+
+  private async rebuild(): Promise<void> {
+    if (this.rebuilding || !this.create) return;
+    this.rebuilding = true;
+    try {
+      this.landmarker?.close();
+      this.landmarker = await this.create();
+      this.guard.reset();
+    } catch (err) {
+      this.status = 'error';
+      this.errorMessage = `Eye tracking stopped and could not restart (${(err as Error).message}). Press E to try again.`;
+    } finally {
+      this.rebuilding = false;
+    }
+  }
+
   public update(): GazeIntent {
     const now = performance.now();
     const dt = Math.min((now - this.lastUpdate) / 1000, 0.1);
@@ -147,19 +179,23 @@ export class FaceTracker {
       return this.mapper.intent;
     }
 
-    if (video.currentTime !== this.lastVideoTime && video.readyState >= 2) {
+    if (!this.rebuilding && video.currentTime !== this.lastVideoTime && video.readyState >= 2) {
       this.lastVideoTime = video.currentTime;
       try {
-        const result = this.landmarker.detectForVideo(video, now);
+        const result = this.landmarker.detectForVideo(video, this.guard.timestamp(now));
         this.landmarks = result.faceLandmarks?.[0] ?? null;
         this.readBlendshapes(result.faceBlendshapes?.[0]?.categories);
+        this.guard.succeeded();
       } catch {
-        // A dropped frame is not worth tearing the session down; the next one usually succeeds.
+        // One dropped frame is fine; a run of them means the graph is dead, so rebuild it.
         this.landmarks = null;
         this.hasBlend = false;
+        this.hasExpressions = false;
+        if (this.guard.failed()) void this.rebuild();
       }
     }
 
+    this.gestureMapper.update(this.landmarks && this.hasExpressions ? this.expressions : null, dt);
     return this.mapper.update(this.landmarks, this.hasBlend ? this.blend : null, dt);
   }
 
@@ -179,16 +215,37 @@ export class FaceTracker {
     }
 
     let found = 0;
+    let expressions = 0;
+    const e = this.expressions;
     for (const category of categories) {
-      if (category.categoryName === BLINK_LEFT) {
-        this.blend.eyeBlinkLeft = category.score;
-        found++;
-      } else if (category.categoryName === BLINK_RIGHT) {
-        this.blend.eyeBlinkRight = category.score;
-        found++;
+      switch (category.categoryName) {
+        case BLINK_LEFT:
+          this.blend.eyeBlinkLeft = e.eyeBlinkLeft = category.score;
+          found++;
+          break;
+        case BLINK_RIGHT:
+          this.blend.eyeBlinkRight = e.eyeBlinkRight = category.score;
+          found++;
+          break;
+        case 'jawOpen':
+          e.jawOpen = category.score;
+          expressions++;
+          break;
+        case 'browInnerUp':
+          e.browInnerUp = category.score;
+          expressions++;
+          break;
+        case 'mouthSmileLeft':
+          e.mouthSmileLeft = category.score;
+          expressions++;
+          break;
+        case 'mouthSmileRight':
+          e.mouthSmileRight = category.score;
+          expressions++;
+          break;
       }
-      if (found === 2) break;
     }
+    this.hasExpressions = found === 2 && expressions === 4;
     // Partial results would mean judging "both eyes shut" off one eye, so fall back to geometry.
     this.hasBlend = found === 2;
   }

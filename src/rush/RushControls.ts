@@ -54,6 +54,8 @@ export interface ControlSources {
   mouseAimX: number | null;
   /** Calibrated gaze: -1 at the left lane, +1 at the right. */
   gaze: { present: boolean; gazeX: number } | null;
+  /** Face gestures: brows jump, mouth fires, smile boosts, wink uses the item. */
+  face?: { jumpStarted: boolean; firing: boolean; nitro: boolean; itemStarted: boolean } | null;
   hand: {
     present: boolean;
     steerX: number;
@@ -105,12 +107,14 @@ export class RushControls {
     intent.lane = this.lane;
     // A fist is jump — unless the hand is raised high, where it uses the item instead.
     const raised = hand !== null && hand.steerY >= HAND_NITRO_RAISE;
-    intent.jump = src.jumpPressed || (hand?.fistStarted === true && !raised);
-    intent.useItem = src.itemPressed || (hand?.fistStarted === true && raised);
-    intent.fire = src.fireHeld || (hand?.pinching ?? false);
+    const face = src.face ?? null;
+    intent.jump = src.jumpPressed || (hand?.fistStarted === true && !raised) || (face?.jumpStarted ?? false);
+    intent.useItem = src.itemPressed || (hand?.fistStarted === true && raised) || (face?.itemStarted ?? false);
+    intent.fire = src.fireHeld || (hand?.pinching ?? false) || (face?.firing ?? false);
     intent.nitro =
       src.nitroHeld ||
-      (hand !== null && hand.thrust >= HAND_NITRO_THRUST && hand.steerY >= HAND_NITRO_RAISE);
+      (hand !== null && hand.thrust >= HAND_NITRO_THRUST && hand.steerY >= HAND_NITRO_RAISE) ||
+      (face?.nitro ?? false);
     // With no mouse, the crosshair rides the car's lane and aim assist does the rest — eyes and
     // hands are already busy steering.
     intent.aimX = src.mouseAimX ?? this.lane / 1.6;

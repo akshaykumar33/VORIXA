@@ -103,3 +103,14 @@ describe('items', () => {
     expect(low.useItem).toBe(false);
   });
 });
+
+describe('face commands', () => {
+  const face = (over = {}) => ({ jumpStarted: false, firing: false, nitro: false, itemStarted: false, ...over });
+  it('brows jump, mouth fires, smile boosts, wink uses the item', () => {
+    const c = new RushControls();
+    expect(c.resolve(sources({ face: face({ jumpStarted: true }) })).jump).toBe(true);
+    expect(c.resolve(sources({ face: face({ firing: true }) })).fire).toBe(true);
+    expect(c.resolve(sources({ face: face({ nitro: true }) })).nitro).toBe(true);
+    expect(c.resolve(sources({ face: face({ itemStarted: true }) })).useItem).toBe(true);
+  });
+});

@@ -36,6 +36,12 @@ const MIDDLE_TIP = 12;
 const RING_TIP = 16;
 const PINKY_MCP = 17;
 const PINKY_TIP = 20;
+const INDEX_PIP = 6;
+const MIDDLE_PIP = 10;
+const RING_PIP = 14;
+const PINKY_PIP = 18;
+/** A finger counts as extended when its tip is this much further from the wrist than its middle joint. */
+const EXTENDED_RATIO = 1.18;
 
 export interface GestureIntent {
   present: boolean;
@@ -53,6 +59,10 @@ export interface GestureIntent {
   pinchStarted: boolean;
   /** Fires once when a fist closes. */
   fistStarted: boolean;
+  /** True while a peace sign (index and middle up, ring and pinky down) is held. */
+  vSign: boolean;
+  /** Fires once when a peace sign is made: slow motion, for players without eye control. */
+  vSignStarted: boolean;
   /** 0–1 confidence-ish quality measure, used to fade the overlay rather than to gate input. */
   quality: number;
 }
@@ -98,6 +108,24 @@ export function pinchAmount(hand: HandLandmarks): number {
   return distance(hand[THUMB_TIP], hand[INDEX_TIP]) / handScale(hand);
 }
 
+function extended(hand: HandLandmarks, tip: number, pip: number): boolean {
+  const wrist = hand[WRIST];
+  return distance(hand[tip], wrist) > distance(hand[pip], wrist) * EXTENDED_RATIO;
+}
+
+/**
+ * A peace sign: index and middle fingers up, ring and pinky folded. Distinct from an open palm
+ * (all four up), a fist (none up) and a pinch (thumb on index), so it never collides with them.
+ */
+export function isVSign(hand: HandLandmarks): boolean {
+  return (
+    extended(hand, INDEX_TIP, INDEX_PIP) &&
+    extended(hand, MIDDLE_TIP, MIDDLE_PIP) &&
+    !extended(hand, RING_TIP, RING_PIP) &&
+    !extended(hand, PINKY_TIP, PINKY_PIP)
+  );
+}
+
 /** Mean extension of the four fingers. Low means a closed fist. */
 export function curlAmount(hand: HandLandmarks): number {
   const scale = handScale(hand);
@@ -123,6 +151,7 @@ function deadzone(value: number): number {
 export class GestureMapper {
   private pinching = false;
   private fist = false;
+  private vSign = false;
   private smoothX = 0;
   private smoothY = 0;
   private hasSmoothed = false;
@@ -136,12 +165,15 @@ export class GestureMapper {
     fist: false,
     pinchStarted: false,
     fistStarted: false,
+    vSign: false,
+    vSignStarted: false,
     quality: 0
   };
 
   public reset(): void {
     this.pinching = false;
     this.fist = false;
+    this.vSign = false;
     this.hasSmoothed = false;
     const i = this.intent;
     i.present = false;
@@ -152,6 +184,8 @@ export class GestureMapper {
     i.fist = false;
     i.pinchStarted = false;
     i.fistStarted = false;
+    i.vSign = false;
+    i.vSignStarted = false;
     i.quality = 0;
   }
 
@@ -165,6 +199,7 @@ export class GestureMapper {
     const i = this.intent;
     i.pinchStarted = false;
     i.fistStarted = false;
+    i.vSignStarted = false;
 
     if (!hand || hand.length < 21) {
       // Losing the hand must zero the controls rather than freeze them: a stuck "full throttle"
@@ -214,6 +249,11 @@ export class GestureMapper {
       this.fist = false;
     }
     i.fist = this.fist;
+
+    const v = !this.fist && !this.pinching && isVSign(hand);
+    i.vSignStarted = v && !this.vSign;
+    this.vSign = v;
+    i.vSign = v;
 
     // An open palm is the throttle. Ramp between the fist threshold and a clearly open hand so
     // thrust is proportional rather than a switch — half-open means half speed.

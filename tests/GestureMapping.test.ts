@@ -244,3 +244,42 @@ describe('GestureMapper tracking quality', () => {
     expect(mapper.intent.quality).toBeLessThan(0.4);
   });
 });
+
+import { isVSign } from '../src/input/GestureMapping';
+
+/** A hand with each finger set separately, middle joints where a real hand has them. */
+function fingers(ext: { index: number; middle: number; ring: number; pinky: number }): Landmark[] {
+  const hand = makeHand({ extension: 2, pinch: 1 });
+  const wrist = hand[0];
+  const at = (dx: number, reach: number): Landmark => ({ x: wrist.x + dx * PALM, y: wrist.y - reach * PALM, z: 0 });
+  // Middle joints sit about 1.3 palm lengths out on a real hand.
+  hand[6] = at(-0.3, 1.3);
+  hand[10] = at(-0.02, 1.35);
+  hand[14] = at(0.26, 1.3);
+  hand[18] = at(0.5, 1.2);
+  hand[8] = at(-0.3, ext.index);
+  hand[12] = at(-0.02, ext.middle);
+  hand[16] = at(0.26, ext.ring);
+  hand[20] = at(0.5, ext.pinky);
+  return hand;
+}
+
+describe('peace sign', () => {
+  it('is index and middle up, ring and pinky down', () => {
+    expect(isVSign(fingers({ index: 2, middle: 2.1, ring: 1, pinky: 0.95 }))).toBe(true);
+  });
+
+  it('is not an open palm, a fist, or one finger pointing', () => {
+    expect(isVSign(fingers({ index: 2, middle: 2.1, ring: 2, pinky: 1.8 }))).toBe(false);
+    expect(isVSign(fingers({ index: 1, middle: 1, ring: 1, pinky: 0.95 }))).toBe(false);
+    expect(isVSign(fingers({ index: 2, middle: 1, ring: 1, pinky: 0.95 }))).toBe(false);
+  });
+
+  it('fires slow motion once per sign', () => {
+    const m = new GestureMapper();
+    const v = fingers({ index: 2, middle: 2.1, ring: 1, pinky: 0.95 });
+    expect(m.update(v, 1 / 30).vSignStarted).toBe(true);
+    expect(m.update(v, 1 / 30).vSignStarted).toBe(false);
+    expect(m.update(v, 1 / 30).vSign).toBe(true);
+  });
+});

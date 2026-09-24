@@ -1,3 +1,4 @@
+import { VisionGuard, withDelegateFallback } from './VisionGuard';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
 import { sharedCamera, type CameraSource } from './CameraSource';
 import { GestureMapper, type GestureIntent, type HandLandmarks } from './GestureMapping';
@@ -69,8 +70,8 @@ export class HandTracker {
       // the game starting instantly and waiting on a feature nobody asked for yet.
       const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
       const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
-      this.landmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+      this.create = async () => (await withDelegateFallback((delegate) => HandLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate },
         runningMode: 'VIDEO',
         numHands: 1,
         // Tracking confidence is kept lower than detection: re-acquiring a lost hand is expensive
@@ -78,7 +79,9 @@ export class HandTracker {
         minHandDetectionConfidence: 0.55,
         minHandPresenceConfidence: 0.5,
         minTrackingConfidence: 0.45
-      });
+      }))).value;
+      this.landmarker = await this.create();
+      this.guard.reset();
     } catch (err) {
       this.status = 'error';
       this.errorMessage = `Hand model failed to load: ${(err as Error).message}`;
@@ -129,6 +132,26 @@ export class HandTracker {
    * Re-running inference on an unchanged frame would burn GPU time for an identical answer, but
    * the mapper is still stepped so its smoothing and hysteresis advance on the real clock.
    */
+  private readonly guard = new VisionGuard();
+  private create: (() => Promise<NonNullable<typeof this.landmarker>>) | null = null;
+  private rebuilding = false;
+
+  /** The graph died: build a fresh landmarker, or give up with an error the player can see. */
+  private async rebuild(): Promise<void> {
+    if (this.rebuilding || !this.create) return;
+    this.rebuilding = true;
+    try {
+      this.landmarker?.close();
+      this.landmarker = await this.create();
+      this.guard.reset();
+    } catch (err) {
+      this.status = 'error';
+      this.errorMessage = `Hand tracking stopped and could not restart (${(err as Error).message}). Press G to try again.`;
+    } finally {
+      this.rebuilding = false;
+    }
+  }
+
   public update(): GestureIntent {
     const now = performance.now();
     const dt = Math.min((now - this.lastUpdate) / 1000, 0.1);
@@ -139,14 +162,16 @@ export class HandTracker {
       return this.mapper.intent;
     }
 
-    if (video.currentTime !== this.lastVideoTime && video.readyState >= 2) {
+    if (!this.rebuilding && video.currentTime !== this.lastVideoTime && video.readyState >= 2) {
       this.lastVideoTime = video.currentTime;
       try {
-        const result = this.landmarker.detectForVideo(video, now);
+        const result = this.landmarker.detectForVideo(video, this.guard.timestamp(now));
         this.landmarks = result.landmarks?.[0] ?? null;
+        this.guard.succeeded();
       } catch {
-        // A dropped frame is not worth tearing the session down; the next one usually succeeds.
+        // One dropped frame is fine; a run of them means the graph is dead, so rebuild it.
         this.landmarks = null;
+        if (this.guard.failed()) void this.rebuild();
       }
     }
 
