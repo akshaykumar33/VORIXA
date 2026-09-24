@@ -186,7 +186,7 @@ export class TourUI {
       <button class="btn m-school" type="button">Driving School<kbd>T</kbd></button>
       <button class="btn m-garage" type="button">Garage &amp; Upgrades<kbd>U</kbd></button>
       <button class="btn m-onfoot" type="button">On Foot<kbd>O</kbd></button>
-      <button class="btn m-city" type="button">VORIXA City · preview</button>`;
+      <button class="btn m-city" type="button">VORIXA City: HEAT</button>`;
     hudRoot.querySelector('.card.title .head')?.appendChild(this.menu);
     this.wire(this.menu.querySelector('.m-tour'), () => this.onMenu('tour'));
     this.wire(this.menu.querySelector('.m-endless'), () => this.onMenu('endless'));

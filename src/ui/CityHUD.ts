@@ -180,7 +180,7 @@ const MARKUP = `
     <div class="bar" role="progressbar" aria-label="Loading the city" aria-valuemin="0" aria-valuemax="100"><i></i></div>
     <button class="btn primary play" type="button" disabled>Loading…</button>
     <button class="btn crewbtn" type="button">Choose crew <kbd>H</kbd></button>
-    <button class="btn back" type="button">Back to Rush</button>
+    <button class="btn back" type="button">Arcade: Rush</button>
   </section>
   <section class="card safehouse" hidden aria-labelledby="safe-name">
     <p class="kicker">Safehouse · choose your crew</p>

@@ -24,7 +24,8 @@ import { CityRenderer } from './rendering/city/CityRenderer';
 import { CityGame } from './game/CityGame';
 
 /**
- * Rush (ADR-0011) is the default game; On Foot (ADR-0012) is `?mode=onfoot`. The original parkour time-attack is kept, reachable with
+ * VORIXA City: HEAT (ADR-0014) is the game. Its arcade modes are Rush (ADR-0011, `?mode=rush`) and
+ * On Foot (ADR-0012, `?mode=onfoot`). The original parkour time-attack is kept, reachable with
  * `?mode=parkour`, until a later decision retires it.
  */
 function bootstrap(): void {
@@ -32,8 +33,9 @@ function bootstrap(): void {
   const mode = params.get('mode');
   if (mode === 'parkour') bootstrapParkour();
   else if (mode === 'onfoot') bootstrapOnFoot();
-  else if (mode === 'city') bootstrapCity();
-  else bootstrapRush(params);
+  else if (mode === 'rush') bootstrapRush(params);
+  // VORIXA City: HEAT is the game (ADR-0014); Rush and On Foot are its arcade modes.
+  else bootstrapCity();
 }
 
 function bootstrapRush(params: URLSearchParams): void {

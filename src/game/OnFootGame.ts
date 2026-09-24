@@ -303,7 +303,7 @@ function deviceStatus(enabled: boolean, status: string, present: boolean): ChipS
 
 function backToCar(): void {
   const url = new URL(window.location.href);
-  url.searchParams.delete('mode');
+  url.searchParams.set('mode', 'rush');
   window.location.href = url.toString();
 }
 

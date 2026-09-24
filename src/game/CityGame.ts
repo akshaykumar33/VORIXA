@@ -167,7 +167,7 @@ export class CityGame {
     this.hud.onRespawn = () => this.respawn();
     this.hud.onBack = () => {
       const url = new URL(window.location.href);
-      url.searchParams.delete('mode');
+      url.searchParams.set('mode', 'rush');
       window.location.href = url.toString();
     };
     canvas.addEventListener('click', () => {
