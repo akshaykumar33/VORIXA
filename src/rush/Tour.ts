@@ -221,10 +221,12 @@ export interface TourProgress {
   secrets: string[];
   /** Coins banked across the tour, for the garage shop. */
   bank: number;
+  /** Story scenes already shown, so each plays once. */
+  seen: string[];
 }
 
 export function emptyProgress(): TourProgress {
-  return { stages: {}, secrets: [], bank: 0 };
+  return { stages: {}, secrets: [], bank: 0, seen: [] };
 }
 
 export function bitCount(bits: number): number {
@@ -311,7 +313,8 @@ export function loadProgress(): TourProgress {
     return {
       stages: typeof parsed.stages === 'object' && parsed.stages ? parsed.stages : {},
       secrets: Array.isArray(parsed.secrets) ? parsed.secrets.filter((s) => typeof s === 'string') : [],
-      bank: Number.isFinite(parsed.bank) ? Number(parsed.bank) : 0
+      bank: Number.isFinite(parsed.bank) ? Number(parsed.bank) : 0,
+      seen: Array.isArray(parsed.seen) ? parsed.seen.filter((s) => typeof s === 'string') : []
     };
   } catch {
     // Corrupt or blocked storage: start fresh rather than crash the menu.

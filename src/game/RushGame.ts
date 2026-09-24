@@ -14,6 +14,8 @@ import { loadCalibration, saveCalibration, normalizeGaze, type GazeCalibration }
 import { CameraPreview, type PreviewReadout } from '../ui/CameraPreview';
 import { TourUI } from '../ui/TourUI';
 import { GarageUI } from '../ui/GarageUI';
+import { ComicUI } from '../ui/ComicUI';
+import { introScene, outroScene, type Scene } from '../rush/Story';
 import { loadLoadout, saveLoadout, statsFor, buyUpgrade, buyWeapon, equip, type Loadout } from '../rush/Garage';
 import {
   TOUR,
@@ -135,6 +137,7 @@ export class RushGame {
   private frameItems = 0;
   private readonly tour: TourUI;
   private readonly shop: GarageUI;
+  private readonly comic: ComicUI;
   private loadout: Loadout = loadLoadout();
   private progress: TourProgress = loadProgress();
   /** The World Tour stage being played, or null on the endless road. */
@@ -170,6 +173,7 @@ export class RushGame {
     this.preview = new CameraPreview(hudRoot);
     this.tour = new TourUI(hudRoot);
     this.shop = new GarageUI(hudRoot);
+    this.comic = new ComicUI(hudRoot);
     this.shop.onBuyUpgrade = (id) => this.spend(buyUpgrade(this.loadout, id, this.progress.bank));
     this.shop.onBuyWeapon = (id) => this.spend(buyWeapon(this.loadout, id, this.progress.bank));
     this.shop.onEquip = (id) => {
@@ -265,7 +269,7 @@ export class RushGame {
     src.face = gaze?.present ? this.face.commands : null;
     src.hand = hand;
     const intent = this.controls.resolve(src);
-    if (this.pickerOpen || this.tour.mapOpen || this.tour.resultOpen || this.shop.open) {
+    if (this.pickerOpen || this.tour.mapOpen || this.tour.resultOpen || this.shop.open || this.comic.open) {
       // Choosing a lesson or a stage must not start a race behind the menu.
       intent.jump = intent.fire = intent.nitro = intent.useItem = false;
       intent.lane = this.sim.lane;
@@ -529,6 +533,10 @@ export class RushGame {
    */
   private handleTourKeys(): boolean {
     const i = this.input;
+    if (this.comic.open) {
+      if (i.isJustPressed(InputAction.JUMP) || i.isJustPressed(InputAction.CONFIRM) || i.isJustPressed(InputAction.PAUSE)) this.comic.finish();
+      return true;
+    }
     if (this.shop.open) {
       if (i.isJustPressed(InputAction.PAUSE)) this.closeShop();
       return true;
@@ -626,9 +634,27 @@ export class RushGame {
     this.tour.setMenuVisible(true);
   }
 
+  /** Plays a story scene once; true if it is playing and `then` will run after it. */
+  private playSceneOnce(scene: Scene, then: () => void): boolean {
+    if (this.progress.seen.includes(scene.id)) return false;
+    this.progress.seen.push(scene.id);
+    saveProgress(this.progress);
+    this.comic.play(scene, then);
+    return true;
+  }
+
   private playStage(id: string): void {
     const stage = findStage(id);
     if (!stage || !stageUnlocked(this.progress, stage)) return;
+    // Entering a world for the first time: its story strip first, then the stage.
+    if (!stage.secret) {
+      this.tour.hideMap();
+      if (this.playSceneOnce(introScene(stage.world), () => this.beginStage(stage))) return;
+    }
+    this.beginStage(stage);
+  }
+
+  private beginStage(stage: StageDef): void {
     this.restart();
     this.tour.hideMap();
     this.tour.setMenuVisible(false);
@@ -668,7 +694,7 @@ export class RushGame {
     saveProgress(this.progress);
     const record = this.progress.stages[stage.id];
     this.tour.setStageHud(null);
-    this.tour.showResult({
+    const outcome = {
       stage,
       cleared,
       goalMet: met,
@@ -679,7 +705,11 @@ export class RushGame {
       newSecret,
       score: sim.score,
       hasNext: cleared && nextStage(this.progress, stage) !== null
-    });
+    };
+    const show = () => this.tour.showResult(outcome);
+    // Beating a boss for the first time earns the victory strip before the scores.
+    if (cleared && stage.boss && this.playSceneOnce(outroScene(stage.world), show)) return;
+    show();
   }
 
   private updateStageHud(): void {
