@@ -111,6 +111,27 @@ binaries, and a repository is the wrong place for 11 MB of weights.
 |---|---|---|
 | three.js | Rendering (ADR-0010) | MIT |
 | @mediapipe/tasks-vision | Hand and gaze tracking (ADR-0008) | Apache 2.0 |
+| postprocessing (Raoul van Rüschen) | Post-processing pipeline (ADR-0013) | zlib |
+| n8ao (N8python) | Ambient occlusion (ADR-0013) | CC0 1.0 |
+| sharp | Build-time image resizing (asset scripts only, not shipped) | Apache 2.0 |
+
+---
+
+## Skies (Rush and On Foot)
+
+HDR sky photographs from [Poly Haven](https://polyhaven.com), all
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode). Each world ships a 1k HDR
+for lighting and reflections and a 2048-wide JPEG backdrop made from Poly Haven's tone-mapped
+image. Fetched and prepared by `scripts/assets/fetch-skies.mjs`.
+
+| World | Poly Haven asset | Authors |
+|---|---|---|
+| Sunny Meadow | Kloofendal 48d Partly Cloudy (Pure Sky) | Greg Zaal, Jarod Guest |
+| Cactus Canyon | Qwantani Sunset (Pure Sky) | Greg Zaal, Jarod Guest |
+| Frosty Peaks | Kloofendal Misty Morning (Pure Sky) | Greg Zaal |
+| Sugar Rush | Belfast Sunset (Pure Sky) | Greg Zaal, Dimitrios Savva, Jarod Guest |
+| Neon Nights | Qwantani Night (Pure Sky) | Greg Zaal, Jarod Guest |
+| Coconut Coast | Qwantani Noon (Pure Sky) | Greg Zaal, Jarod Guest |
 
 ---
 
