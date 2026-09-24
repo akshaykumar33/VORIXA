@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { WEAPONS, type WeaponId } from '../../city/Weapons';
-import type { Combat, Enemy } from '../../city/Combat';
+import { BOSS_SCALE, type Combat, type Enemy } from '../../city/Combat';
 import { ParticleRenderer } from '../ParticleRenderer';
 import { People, type Person } from './People';
 
@@ -110,7 +110,7 @@ export class CombatView {
 
   public constructor(
     private readonly gunsGltf: GLTF,
-    private readonly makeEnemy: (kind: 'swat' | 'soldier' | 'police') => Person,
+    private readonly makeEnemy: (kind: 'swat' | 'soldier' | 'police' | 'boss') => Person,
     camera: THREE.PerspectiveCamera,
     private heroHand: THREE.Object3D | null,
     private heroRoot: THREE.Object3D
@@ -244,6 +244,7 @@ export class CombatView {
     const hand = person.hand;
     void model;
     const weapon = e.kind === 'swat' ? 'smg' : e.kind === 'police' ? 'pistol' : 'rifle';
+    if (e.kind === 'boss') root.scale.setScalar(BOSS_SCALE);
     const source = this.gunsGltf.scene.getObjectByName(WEAPONS[weapon].model);
     const gun = source ? prepareGun(source, WEAPONS[weapon].length) : new THREE.Group();
     const flash = flashMesh();

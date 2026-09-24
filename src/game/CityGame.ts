@@ -10,6 +10,37 @@ import { Combat, HERO_MAX_ARMOR } from '../city/Combat';
 import { Vehicle, VEHICLE_SPECS, separate, coverBox, type DriveIntent } from '../city/Vehicle';
 import { CityLife } from '../city/CityLife';
 import { direction } from '../city/Combat';
+import { CHAPTER_ONE, JobRunner, COIN_REACH, type Job, type Panel } from '../city/Jobs';
+import { CityJobUI, type Blip, type StoryPanel } from '../ui/CityJobUI';
+
+const CHAPTER_KEY = 'vorixa.city.chapter';
+const CASH_KEY = 'vorixa.city.cash';
+
+function loadNumber(key: string): number {
+  try {
+    return Number(localStorage.getItem(key)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** A readable accent for a speaker's panel, from the brightest colour in their palette. */
+function accentOf(palette: Record<string, number>): string {
+  let best = 0x3fd8ff;
+  let bestLight = -1;
+  for (const [name, hex] of Object.entries(palette)) {
+    if (/skin|hair|black|white|eye/i.test(name)) continue;
+    const r = (hex >> 16) & 255;
+    const g = (hex >> 8) & 255;
+    const b = hex & 255;
+    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+    if (chroma > bestLight) {
+      bestLight = chroma;
+      best = hex;
+    }
+  }
+  return `#${best.toString(16).padStart(6, '0')}`;
+}
 import { CityRenderer } from '../rendering/city/CityRenderer';
 import { CityHUD, type SlotInfo, type CrewEntry } from '../ui/CityHUD';
 import { CREW, PERKS, perkEffects, unlocked, type CharacterDef, type PerkEffects } from '../city/Crew';
@@ -79,6 +110,15 @@ export class CityGame {
   private readonly vehicles: Vehicle[];
   private readonly life: CityLife;
   private policeTimer = 0;
+  private readonly jobUI: CityJobUI;
+  private chapter = loadNumber(CHAPTER_KEY);
+  private cash = loadNumber(CASH_KEY);
+  private runner: JobRunner | null = null;
+  /** What happens when the storyboard on screen is closed. */
+  private afterStory: (() => void) | null = null;
+  private briefingDue = true;
+  private jobCar: Vehicle | null = null;
+  private coins: { x: number; y: number; z: number; taken: boolean }[] = [];
   private driving: Vehicle | null = null;
   private readonly drive: DriveIntent = { throttle: 0, steer: 0, handbrake: false };
   private mouseMovedAt = -99;
@@ -119,6 +159,10 @@ export class CityGame {
     this.hud.onBrowse = (i) => this.browse(i);
     this.hud.onPick = () => this.pick();
     this.hud.onCloseSafehouse = () => this.closeSafehouse();
+    this.jobUI = new CityJobUI(container.querySelector<HTMLElement>('#rush-hud.city') ?? container);
+    this.jobUI.onContinue = () => this.continueStory();
+    this.jobUI.onRetry = () => this.retryJob();
+    this.jobUI.setCash(this.cash);
     this.hud.onPlay = () => this.capture();
     this.hud.onRespawn = () => this.respawn();
     this.hud.onBack = () => {
@@ -134,6 +178,14 @@ export class CityGame {
       if (!this.hud.safehouseOpen) this.hud.showCard(!this.playing && !this.down, this.started);
     });
     window.addEventListener('keydown', (e) => {
+      if (this.jobUI.storyOpen) {
+        if (e.code === 'Space' || e.code === 'Enter') this.continueStory();
+        return;
+      }
+      if (this.jobUI.failOpen) {
+        if (e.code === 'KeyR' || e.code === 'Enter') this.retryJob();
+        return;
+      }
       if (this.hud.safehouseOpen) {
         if (e.code === 'ArrowRight' || e.code === 'KeyD') this.browse((this.browsing + 1) % CREW.length);
         else if (e.code === 'ArrowLeft' || e.code === 'KeyA') this.browse((this.browsing - 1 + CREW.length) % CREW.length);
@@ -163,7 +215,11 @@ export class CityGame {
       .then(() => {
         this.hud.loaded();
         this.renderer.combatView?.setWeapon(this.arsenal.current);
-        this.startWave();
+        // The chapter first; once it is done, the turf war never stops.
+        if (!this.currentJob) {
+          this.briefingDue = false;
+          this.startWave();
+        }
       })
       .catch((error: unknown) => {
         console.error('[city] could not load', error);
@@ -177,8 +233,15 @@ export class CityGame {
 
   private capture(): void {
     if (!this.renderer.ready) return;
+    if (this.briefingDue && this.currentJob) {
+      this.briefingDue = false;
+      void this.openBriefing(this.currentJob);
+      return;
+    }
+    if (this.jobUI.storyOpen || this.jobUI.failOpen) return;
     this.started = true;
-    void this.canvas.requestPointerLock?.();
+    // Some browsers refuse pointer lock (and say so by rejecting); the game still works.
+    Promise.resolve(this.canvas.requestPointerLock?.()).catch(() => {});
     if (!('requestPointerLock' in this.canvas)) {
       this.playing = true;
       this.hud.showCard(false);
@@ -190,6 +253,204 @@ export class CityGame {
     if (a.ammo[id].mag + a.ammo[id].reserve <= 0 && id !== a.current) return;
     a.select(id);
     this.renderer.combatView?.setWeapon(id);
+  }
+
+  // ─── The story: jobs and storyboards ─────────────────────────────────────────────────────
+
+  private get currentJob(): Job | null {
+    return CHAPTER_ONE[this.chapter] ?? null;
+  }
+
+  private async panelsFor(lines: readonly Panel[]): Promise<StoryPanel[]> {
+    const out: StoryPanel[] = [];
+    for (const p of lines) {
+      if (p.speaker === 'choir') {
+        out.push({ name: 'The Choir', alias: '', line: p.line, portrait: null, accent: '#b01828', villain: true });
+        continue;
+      }
+      const def = CREW.find((c) => c.id === p.speaker) ?? CREW[0];
+      const portrait = await this.renderer.portrait(def).catch(() => null);
+      out.push({ name: def.name, alias: def.alias, line: p.line, portrait, accent: accentOf(def.palette), villain: false });
+    }
+    return out;
+  }
+
+  private async openStory(kicker: string, title: string, lines: readonly Panel[], after: () => void): Promise<void> {
+    void document.exitPointerLock?.();
+    this.playing = false;
+    this.hud.showCard(false);
+    this.afterStory = after;
+    this.jobUI.showStory(kicker, title, await this.panelsFor(lines));
+  }
+
+  private openBriefing(job: Job): Promise<void> {
+    return this.openStory(`Chapter 1 · Job ${this.chapter + 1} of ${CHAPTER_ONE.length}`, job.title, job.briefing, () => this.startJob(job));
+  }
+
+  private continueStory(): void {
+    if (this.jobUI.reveal()) return;
+    this.jobUI.closeStory();
+    const after = this.afterStory;
+    this.afterStory = null;
+    after?.();
+    this.capture();
+  }
+
+  private startJob(job: Job): void {
+    this.runner = new JobRunner(job);
+    this.runner.start();
+    this.handleJobEvents();
+    this.hud.banner(job.title, job.steps[0].text);
+  }
+
+  private retryJob(): void {
+    this.jobUI.showFail(false);
+    this.combat.clearChoir();
+    this.combat.standDownPolice();
+    this.life.heat = 0;
+    this.coins = [];
+    this.renderer.jobView.setCoins([]);
+    if (this.jobCar && this.jobCar !== this.driving) {
+      this.vehicles.splice(this.vehicles.indexOf(this.jobCar), 1);
+      this.jobCar = null;
+    }
+    if (this.down) {
+      this.downFor = 99;
+      this.respawn();
+    }
+    const job = this.currentJob;
+    if (job) this.startJob(job);
+    this.capture();
+  }
+
+  private failJob(reason: string): void {
+    if (!this.runner) return;
+    this.runner = null;
+    this.renderer.jobView.setTarget(null);
+    this.jobUI.setObjective(null);
+    void document.exitPointerLock?.();
+    this.jobUI.showFail(true, 'Job failed', reason);
+  }
+
+  private completeJob(cash: number): void {
+    const job = this.currentJob!;
+    this.runner = null;
+    this.cash += cash;
+    save(CASH_KEY, String(this.cash));
+    this.jobUI.setCash(this.cash);
+    this.chapter++;
+    save(CHAPTER_KEY, String(this.chapter));
+    this.renderer.jobView.setTarget(null);
+    this.jobUI.setObjective(null);
+    this.coins = [];
+    this.renderer.jobView.setCoins([]);
+    this.hud.banner('Job complete', `${job.title} · +${cash.toLocaleString('en-US')}`);
+    void this.openStory(`${job.title} · complete`, `+${cash.toLocaleString('en-US')}`, job.outro, () => {
+      const next = this.currentJob;
+      if (next) void this.openBriefing(next);
+      else {
+        this.hud.banner('Chapter 1 complete', 'Downtown is yours. The Choir keeps coming: turf war');
+        this.startWave();
+      }
+    });
+  }
+
+  private handleJobEvents(): void {
+    const r = this.runner;
+    if (!r) return;
+    for (const e of [...r.events]) {
+      switch (e.type) {
+        case 'placeCar': {
+          // Clear the kerb, then park the target car.
+          for (let i = this.vehicles.length - 1; i >= 0; i--) {
+            const v = this.vehicles[i];
+            if (v !== this.driving && Math.hypot(v.x - e.x, v.z - e.z) < 6) this.vehicles.splice(i, 1);
+          }
+          const car = new Vehicle(1000 + this.chapter, VEHICLE_SPECS[e.model], this.district.colliders, this.district.bounds).place(e.x, e.z, e.heading);
+          car.speedScale = this.perks.carSpeed;
+          car.damageScale = this.perks.carDamage;
+          this.vehicles.push(car);
+          this.jobCar = car;
+          break;
+        }
+        case 'spawnCrew':
+          this.combat.spawnWave(e.x, e.z, e.count);
+          break;
+        case 'setHeat':
+          this.life.heat = e.stars;
+          this.life.raiseHeat(0);
+          break;
+        case 'placeCoins':
+          this.coins = e.coins.map((c) => ({ ...c, taken: false }));
+          this.renderer.jobView.setCoins(this.coins);
+          break;
+        case 'spawnBoss':
+          this.combat.spawn('boss', e.x, e.z, Math.atan2(this.hero.x - e.x, this.hero.z - e.z));
+          this.combat.spawnWave(e.x, e.z, e.guards);
+          this.hud.banner('Cantor', 'Plated. Aim for the head');
+          break;
+        case 'step':
+          if (e.index > 0) this.hud.feed(`Objective: ${e.text}`);
+          break;
+        case 'complete':
+          this.completeJob(e.cash);
+          return;
+        case 'failed':
+          this.failJob(e.reason);
+          return;
+      }
+    }
+  }
+
+  private stepJob(dt: number): void {
+    const r = this.runner;
+    if (!r) return;
+    // Stars: collected by touching them (from the middle of the hero).
+    for (const c of this.coins) {
+      if (c.taken) continue;
+      if (Math.hypot(this.hero.x - c.x, this.hero.y + 1 - c.y, this.hero.z - c.z) < COIN_REACH + 0.25) {
+        c.taken = true;
+        this.renderer.jobView.setCoins(this.coins);
+        this.hud.feed(`★ ${this.coins.filter((k) => k.taken).length} / ${this.coins.length}`, true);
+        this.play('pickup', c.x, c.z);
+      }
+    }
+    r.update(
+      {
+        heroX: this.hero.x,
+        heroZ: this.hero.z,
+        driving: this.driving?.spec.model ?? null,
+        inJobCar: !!this.jobCar && this.driving === this.jobCar,
+        choirAlive: this.combat.alive,
+        stars: this.life.stars,
+        coinsTaken: this.coins.filter((c) => c.taken).length,
+        bossAlive: this.combat.bossAlive
+      },
+      dt
+    );
+    this.handleJobEvents();
+    const s = r.current;
+    if (!s || !this.runner) return;
+    const t = r.target;
+    this.renderer.jobView.setTarget(t);
+    let meta = '';
+    if (t) meta = `${Math.round(Math.hypot(t.x - this.hero.x, t.z - this.hero.z))} m`;
+    if (s.kind === 'clear' || s.kind === 'boss') meta = `${this.combat.alive} left${this.combat.bossAlive ? ` · Cantor ${Math.max(0, Math.round(this.combat.boss!.hp))} HP` : ''}`;
+    if (s.kind === 'escape') meta = this.combat.policeWatching ? 'They can see you: break line of sight' : 'Out of sight: stay hidden';
+    if (s.kind === 'collect') meta = `${this.coins.filter((c) => c.taken).length} / ${this.coins.length} stars`;
+    this.jobUI.setObjective(`Job ${this.chapter + 1} · ${r.job.title}`, s.text, meta, r.timeLeft);
+  }
+
+  private drawRadar(): void {
+    const blips: Blip[] = [];
+    for (const e of this.combat.enemies) {
+      if (e.state === 'dead') continue;
+      blips.push({ x: e.motor.x, z: e.motor.z, kind: e.kind === 'police' ? 'police' : e.kind === 'boss' ? 'boss' : 'enemy' });
+    }
+    for (const c of this.coins) if (!c.taken) blips.push({ x: c.x, z: c.z, kind: 'coin' });
+    const t = this.runner?.target;
+    if (t) blips.push({ x: t.x, z: t.z, kind: 'objective' });
+    this.jobUI.drawRadar(this.hero.x, this.hero.z, this.renderer.yaw, { pitch: this.district.pitch, count: this.district.roadsX }, blips);
   }
 
   // ─── The Safehouse: choose who to play ────────────────────────────────────────────────────
@@ -335,6 +596,13 @@ export class CityGame {
     pistol.reserve = Math.max(pistol.reserve, WEAPONS.pistol.reserve);
     for (const e of this.combat.enemies) if (e.state !== 'dead') e.state = 'idle';
     this.hud.showDown(false);
+    const job = this.currentJob;
+    if (job && !this.runner) {
+      this.combat.clearChoir();
+      this.coins = [];
+      this.renderer.jobView.setCoins([]);
+      this.startJob(job);
+    }
     this.capture();
   }
 
@@ -436,6 +704,9 @@ export class CityGame {
     this.audio.update(car ? Math.abs(car.forwardSpeed) : 0, car ? Math.abs(car.forwardSpeed) / car.spec.maxSpeed : 0, drive.handbrake, null);
     this.hud.setVehicle(car ? { speed: Math.abs(car.forwardSpeed), health: car.health } : null, !car && active && !!this.carNearHero());
     this.hud.setHeat(this.life.stars);
+    // The objective panel shows even while paused; the job only advances in play.
+    this.stepJob(active ? dt : 0);
+    this.drawRadar();
     r.render(this.hero, dt, this.combat, this.vehicles, this.life);
     i.endFrame();
     requestAnimationFrame((t) => this.frame(t));
@@ -603,6 +874,11 @@ export class CityGame {
           break;
         }
         case 'heroDown':
+          if (this.runner) {
+            this.runner = null;
+            this.renderer.jobView.setTarget(null);
+            this.jobUI.setObjective(null);
+          }
           this.down = true;
           this.downFor = 0;
           this.hud.showDown(true, `${c.kills} down · ${c.headshots} headshots · wave ${c.wave}`);
@@ -627,9 +903,13 @@ export class CityGame {
             this.hud.banner(`${j.name} joins the crew`, `"${j.alias}" · ${j.perk ? PERKS[j.perk].text : ''} · press H at the Safehouse`);
           } else this.hud.banner('Intersection clear', `Wave ${fx.wave} down · next crew in ${NEXT_WAVE_DELAY} s`);
           this.play('itemGet', this.hero.x, 0);
-          this.nextWaveIn = NEXT_WAVE_DELAY;
+          // Waves roll on only in the turf war, after the chapter.
+          if (!this.currentJob) this.nextWaveIn = NEXT_WAVE_DELAY;
           break;
         }
+        case 'bossDown':
+          this.hud.banner('Cantor is down', 'Finish his choir');
+          break;
       }
     }
   }

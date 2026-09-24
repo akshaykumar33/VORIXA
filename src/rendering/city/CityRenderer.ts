@@ -12,6 +12,7 @@ import { VehicleView } from './VehicleView';
 import { People, type Person } from './People';
 import { Showroom } from './Showroom';
 import { CityLifeView } from './CityLifeView';
+import { JobView } from './JobView';
 import type { CityLife } from '../../city/CityLife';
 import { CHOIR, CREW, POLICE, type CharacterDef } from '../../city/Crew';
 import { coverBox, type Vehicle } from '../../city/Vehicle';
@@ -62,6 +63,7 @@ export class CityRenderer {
   public combatView: CombatView | null = null;
   public vehicleView: VehicleView | null = null;
   public lifeView: CityLifeView | null = null;
+  public readonly jobView = new JobView();
   /** The car the hero is driving, or null on foot. */
   public driving: Vehicle | null = null;
   private heroHand: THREE.Object3D | null = null;
@@ -101,7 +103,7 @@ export class CityRenderer {
   public constructor() {
     this.scene.fog = new THREE.Fog(0xbfd0e0, 120, 420);
     this.scene.background = new THREE.Color(0xa9c6e6);
-    this.scene.add(this.hemi, this.sun, this.sun.target);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.jobView.group);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
@@ -153,16 +155,17 @@ export class CityRenderer {
     let done = 0;
     const track = <T,>(p: Promise<T>) =>
       p.then((v) => {
-        onProgress(++done / 6);
+        onProgress(++done / 7);
         return v;
       });
-    const [city, hero, guns, swat, soldier, cars] = await Promise.all([
+    const [city, hero, guns, swat, soldier, cars, lieutenant] = await Promise.all([
       track(this.loader.loadAsync('/city/district/city.gltf')),
       track(this.people.make(this.heroDef)),
       track(this.loader.loadAsync('/city/guns.glb')),
       track(this.people.load(CHOIR[0].model)),
       track(this.people.load(CHOIR[1].model)),
-      track(this.loader.loadAsync('/city/cars.glb'))
+      track(this.loader.loadAsync('/city/cars.glb')),
+      track(this.people.load(CHOIR[2].model))
     ]);
     this.buildDistrict(city, district);
     this.buildHero(hero);
@@ -171,7 +174,9 @@ export class CityRenderer {
     this.combatView = new CombatView(
       guns,
       (kind) =>
-        kind === 'police'
+        kind === 'boss'
+          ? this.people.makeFrom(lieutenant, CHOIR[2], 0.45)
+          : kind === 'police'
           ? this.people.makeFrom(swat, POLICE, 0.25)
           : this.people.makeFrom(kind === 'swat' ? swat : soldier, kind === 'swat' ? CHOIR[0] : CHOIR[1], 0.25),
       this.camera,
@@ -264,6 +269,11 @@ export class CityRenderer {
     this.play('Idle', 0);
   }
 
+  /** A storyboard portrait of a character (rendered in the Safehouse studio, cached). */
+  public portrait(def: CharacterDef): Promise<string> {
+    return this.showroom.portrait(def, this.renderer, this.scene.environment);
+  }
+
   /** Swaps who the hero is (the Safehouse), keeping position, facing and the gun in hand. */
   public async setHero(def: CharacterDef): Promise<void> {
     if (!this.ready) {
@@ -318,6 +328,7 @@ export class CityRenderer {
       this.carBoxes.push(coverBox(v, { minX: 0, maxX: 0, minZ: 0, maxZ: 0, height: 0 }));
     }
     if (life) this.lifeView?.update(life, dt);
+    this.jobView.update(performance.now() / 1000);
     if (this.driving) this.placeDriveCamera(this.driving, dt);
     else this.placeCamera(hero, dt);
     if (combat && this.combatView) {

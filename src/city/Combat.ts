@@ -77,7 +77,12 @@ const BODY: readonly { y: number; r: number }[] = [
   { y: 0.38, r: 0.2 }
 ];
 
-export type EnemyKind = 'swat' | 'soldier' | 'police';
+export type EnemyKind = 'swat' | 'soldier' | 'police' | 'boss';
+
+/** Cantor, the district's boss: huge health, plated body (the head is the weak point), heavy bursts. */
+export const BOSS_HP = 1400;
+export const BOSS_SCALE = 1.35;
+const BOSS_PLATE = 0.35;
 export type EnemyState = 'idle' | 'alert' | 'fight' | 'dead';
 
 export interface Enemy {
@@ -120,7 +125,8 @@ export type CombatFx =
   | { type: 'impact'; x: number; y: number; z: number }
   | { type: 'pickup'; weapon: WeaponId; rounds: number }
   | { type: 'waveClear'; wave: number }
-  | { type: 'policeDown' };
+  | { type: 'policeDown' }
+  | { type: 'bossDown' };
 
 const SIGHT = 48;
 const REACTION = 0.55;
@@ -175,7 +181,8 @@ export class Combat {
     const motor = new HeroMotor(this.colliders, this.bounds);
     motor.place(x, z, facing);
     const e: Enemy = {
-      id: this.nextId++, kind, motor, hp: kind === 'swat' ? 120 : 100, state: kind === 'police' ? 'alert' : 'idle', alertTimer: kind === 'police' ? 1.2 : 0, cooldown: 0,
+      id: this.nextId++, kind, motor, hp: kind === 'boss' ? BOSS_HP : kind === 'swat' ? 120 : 100,
+      state: kind === 'police' || kind === 'boss' ? 'alert' : 'idle', alertTimer: kind === 'police' ? 1.2 : kind === 'boss' ? 1.5 : 0, cooldown: 0,
       burst: 0, strafe: 1, strafeTimer: 0, hitTime: 99, deadTime: 0, homeX: x, homeZ: z, lastSeen: 99
     };
     this.enemies.push(e);
@@ -197,6 +204,14 @@ export class Combat {
     return this.enemies.filter((e) => e.state !== 'dead' && e.kind !== 'police').length;
   }
 
+  public get bossAlive(): boolean {
+    return this.enemies.some((e) => e.kind === 'boss' && e.state !== 'dead');
+  }
+
+  public get boss(): Enemy | null {
+    return this.enemies.find((e) => e.kind === 'boss') ?? null;
+  }
+
   public get policeOnScene(): number {
     return this.enemies.filter((e) => e.state !== 'dead' && e.kind === 'police').length;
   }
@@ -204,6 +219,11 @@ export class Combat {
   /** Police who can see the hero right now: while they can, the heat does not cool. */
   public get policeWatching(): boolean {
     return this.enemies.some((e) => e.kind === 'police' && e.state === 'fight' && e.lastSeen < 1);
+  }
+
+  /** Clears every Choir fighter off the street (a job restarting). */
+  public clearChoir(): void {
+    for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].kind !== 'police') this.enemies.splice(i, 1);
   }
 
   /** The heat is off: the police go home. */
@@ -221,11 +241,12 @@ export class Combat {
     for (const e of this.enemies) {
       if (e.state === 'dead') continue;
       const m = e.motor;
-      const head = raySphere(ox, oy, oz, dx, dy, dz, m.x, m.y + HEAD.y, m.z, HEAD.r);
+      const k = e.kind === 'boss' ? BOSS_SCALE : 1;
+      const head = raySphere(ox, oy, oz, dx, dy, dz, m.x, m.y + HEAD.y * k, m.z, HEAD.r * k);
       let t = head;
       let headshot = head < Infinity;
       for (const s of BODY) {
-        const b = raySphere(ox, oy, oz, dx, dy, dz, m.x, m.y + s.y, m.z, s.r);
+        const b = raySphere(ox, oy, oz, dx, dy, dz, m.x, m.y + s.y * k, m.z, s.r * k);
         if (b < t) {
           t = b;
           headshot = false;
@@ -255,7 +276,8 @@ export class Combat {
   }
 
   private damage(e: Enemy, amount: number, headshot: boolean, at: Hit): void {
-    e.hp -= amount;
+    // Cantor's plate turns most body shots; the head is bare.
+    e.hp -= e.kind === 'boss' && !headshot ? amount * BOSS_PLATE : amount;
     e.hitTime = 0;
     // Being shot gives the hero away, from any direction.
     if (e.state === 'idle') {
@@ -270,6 +292,7 @@ export class Combat {
       if (headshot) this.headshots++;
       this.fx.push({ type: 'enemyKilled', enemy: e, headshot });
       const weapon: WeaponId = e.kind === 'swat' ? 'smg' : e.kind === 'police' ? 'pistol' : 'rifle';
+      if (e.kind === 'boss') this.fx.push({ type: 'bossDown' });
       this.drops.push({ x: e.motor.x, z: e.motor.z, weapon, rounds: WEAPONS[weapon].magazine, alive: true });
       if (e.kind === 'police') this.fx.push({ type: 'policeDown' });
       else if (this.alive === 0) this.fx.push({ type: 'waveClear', wave: this.wave });
@@ -391,8 +414,9 @@ export class Combat {
     e.cooldown -= dt;
     if (e.state === 'fight' && sees && e.cooldown <= 0) {
       e.burst++;
-      e.cooldown = e.burst >= BURST ? 0.9 + hash(e.id, this.tick) * 0.8 : BURST_GAP;
-      if (e.burst >= BURST) e.burst = 0;
+      const burst = e.kind === 'boss' ? 7 : BURST;
+      e.cooldown = e.burst >= burst ? 0.9 + hash(e.id, this.tick) * 0.8 : BURST_GAP * (e.kind === 'boss' ? 0.7 : 1);
+      if (e.burst >= burst) e.burst = 0;
       const chance = Math.max(0.08, 0.62 - dist * 0.012 - hero.speed * 0.045 - (hero.grounded ? 0 : 0.2));
       const hit = hash(this.tick, e.id * 7) < chance;
       const miss = hit ? 0 : 0.6 + hash(e.id, this.tick * 3) * 1.2;
@@ -401,7 +425,7 @@ export class Combat {
         type: 'enemyShot', enemy: e, hit,
         tx: hero.x + Math.cos(toHero) * miss * side, ty: hero.y + 1.2 + (hit ? 0 : miss * 0.3), tz: hero.z - Math.sin(toHero) * miss * side
       });
-      if (hit) this.hurtHero(ENEMY_DAMAGE, m.x, m.z);
+      if (hit) this.hurtHero(e.kind === 'boss' ? ENEMY_DAMAGE * 1.6 : ENEMY_DAMAGE, m.x, m.z);
     } else if (e.state === 'fight' && !sees && e.lastSeen > 8) {
       e.state = 'idle';
     }

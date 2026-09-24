@@ -63,6 +63,54 @@ export class Showroom {
     this.waved = false;
   }
 
+  private readonly portraits = new Map<string, string>();
+  private readonly portraitCamera = new THREE.PerspectiveCamera(24, 1, 0.1, 20);
+
+  /**
+   * A head-and-shoulders portrait of a character in the studio's light, as an image URL, for the
+   * storyboards. Rendered once per character and cached.
+   */
+  public async portrait(def: CharacterDef, renderer: THREE.WebGLRenderer, environment: THREE.Texture | null): Promise<string> {
+    const cached = this.portraits.get(def.id);
+    if (cached) return cached;
+    const person = await this.people.make(def, 0.6);
+    People.play(person, 'Idle', 0);
+    person.mixer.update(0.6);
+    const hold = new THREE.Group();
+    hold.add(person.root);
+    hold.rotation.y = 0.35;
+    // Stand them where the turntable stands, and hide whoever is on it for the moment.
+    const onStand = this.stand.visible;
+    this.stand.visible = false;
+    this.scene.add(hold);
+    this.portraitCamera.position.set(0.25, 1.62, 1.45);
+    this.portraitCamera.lookAt(0, 1.52, 0);
+    const size = 256;
+    const target = new THREE.WebGLRenderTarget(size, size, { colorSpace: THREE.SRGBColorSpace, samples: 4 });
+    const tone = renderer.toneMapping;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.scene.environment = environment;
+    renderer.setRenderTarget(target);
+    renderer.render(this.scene, this.portraitCamera);
+    const pixels = new Uint8Array(size * size * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
+    renderer.setRenderTarget(null);
+    renderer.toneMapping = tone;
+    this.scene.remove(hold);
+    this.stand.visible = onStand;
+    target.dispose();
+    // Render targets read bottom-up; flip into a canvas.
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const g = canvas.getContext('2d')!;
+    const image = g.createImageData(size, size);
+    for (let y = 0; y < size; y++) image.data.set(pixels.subarray((size - 1 - y) * size * 4, (size - y) * size * 4), y * size * 4);
+    g.putImageData(image, 0, 0);
+    const url = canvas.toDataURL('image/png');
+    this.portraits.set(def.id, url);
+    return url;
+  }
+
   public resize(aspect: number): void {
     this.camera.aspect = aspect;
     // Framing: the character stands left of centre, the crew panel takes the right.

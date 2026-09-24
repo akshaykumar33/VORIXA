@@ -162,9 +162,9 @@ const MARKUP = `
   </div>
   <div class="prompt chip" hidden>Get in <kbd>F</kbd></div>
   <section class="card intro" aria-labelledby="city-title">
-    <p class="kicker">Chapter 1 · Preview</p>
+    <p class="kicker">VORIXA City · HEAT · Chapter 1</p>
     <h1 id="city-title">VORIXA <span>City</span></h1>
-    <p class="lede">A crew has taken the downtown intersection. Clear them out: aim down the sights, control your recoil, reload behind cover, pick up the ammo they drop.</p>
+    <p class="lede">The Choir owns this city. Your crew is taking it back, one job at a time: steal their cars, hit their stash, lose the heat, take their stars, and face Cantor. Press H for the Safehouse and pick who you play.</p>
     <div class="keys">
       <div>Move <span>W A S D</span></div>
       <div>Look <span>Mouse</span></div>

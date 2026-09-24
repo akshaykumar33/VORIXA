@@ -60,3 +60,23 @@ reachable, reviewed by the owner with screenshots and video, before anything exp
 * **Negative:** Rush and On Foot stop being the focus; they are kept as side modes.
 * **Honest limit:** a browser game made with free assets will not look like GTA V. The target is
   the finish of a polished stylized game, and the owner judges each phase against it.
+
+## Update (2026-09-24): VORIXA City: HEAT, everything merged
+
+Asked to merge the phases into one engaging whole with a large, good-looking cast, the city became
+**VORIXA City: HEAT**: a crew taking the city back from the **Choir** syndicate.
+
+* **Crew (Safehouse, H).** Ten playable characters, each a clothed outfit in a palette of its own
+  with a role, a bio and a perk that changes play (Quickdraw, Plated, Focus bullet time, Mechanic,
+  Marksman, Wheelman, Field medic, Breacher, Ghost, Smooth). Clearing waves and jobs recruits
+  them. The Choir, the police and the citizens are dressed the same way.
+* **Chapter 1** strings the styles into five jobs, each a storyboard briefing with rendered
+  portraits of the crew, a run of steps, and an outro: *Wheels* (steal and deliver, GTA), *Stash
+  House* (clear a crew, Counter-Strike), *Loud Exit* (lose three stars of heat), *Tithe* (star
+  coins high over planters, Mario), *Cantor* (a plated boss with a bare head, Contra). After the
+  chapter, the turf war's waves never stop.
+* **City life.** Citizens walk the sidewalks and panic at gunfire; hurting them raises HEAT (1-5
+  stars) and police respond; it cools only out of their sight. Cars are cover.
+* **Honest limit, again:** the characters are low-poly, flat-coloured CC0 models, dressed and lit
+  as well as they can be (palettes, per-material finishes, rim light, a studio for portraits).
+  They are not film-quality people; that would need a character artist or paid assets.

@@ -185,3 +185,19 @@ describe('Cover', () => {
     expect(c.trace(0, 1.63, 0, 0, 0, -1, 100).kind).toBe('enemy');
   });
 });
+
+describe('Cantor', () => {
+  it('shrugs off body shots but not headshots', () => {
+    const c = new Combat([], open);
+    const boss = c.spawn('boss', 0, -12, 0);
+    const start = boss.hp;
+    c.fire('rifle', [{ yaw: 0, pitch: 0 }], 0, 1.0 * 1.35, 0, 0, 0, 0);
+    const bodyLoss = start - boss.hp;
+    const mid = boss.hp;
+    c.fire('rifle', [{ yaw: 0, pitch: 0 }], 0, 1.63 * 1.35, 0, 0, 0, 0);
+    const headLoss = mid - boss.hp;
+    expect(bodyLoss).toBeGreaterThan(0);
+    expect(headLoss).toBeGreaterThan(bodyLoss * 5);
+    expect(c.bossAlive).toBe(true);
+  });
+});
