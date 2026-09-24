@@ -7,6 +7,8 @@ export enum InputAction {
   DASH = 'DASH',
   /** Held to shoot (Rush). Mouse button or J/K. */
   FIRE = 'FIRE',
+  /** Uses the held item (Rush). Q, F or the right mouse button. */
+  ITEM = 'ITEM',
   /** Opens the driving school from the title screen (Rush). */
   SCHOOL = 'SCHOOL',
   CROUCH = 'CROUCH',

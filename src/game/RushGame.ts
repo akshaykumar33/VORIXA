@@ -42,6 +42,8 @@ const MOUSE_AIM_TIMEOUT = 4;
 /** Words and colours for trick popups. */
 const TRICK_POPUPS: Partial<Record<FxRecord['type'], { text: string; color: string }>> = {
   nearMiss: { text: 'CLOSE CALL!', color: '#3fa7ff' },
+  shieldPop: { text: 'SHIELD SAVED YOU!', color: '#3ff7ff' },
+  lightning: { text: 'ZAP!', color: '#ffd23f' },
   jumpOver: { text: 'JUMPED IT!', color: '#5ad16b' },
   flip: { text: 'FLIP!', color: '#ff5fa8' },
   sloppyLanding: { text: 'SLOPPY LANDING', color: '#ff4d5e' },
@@ -90,6 +92,7 @@ export class RushGame {
     leftPressed: false,
     rightPressed: false,
     jumpPressed: false,
+    itemPressed: false,
     fireHeld: false,
     nitroHeld: false,
     mouseAimX: null,
@@ -198,6 +201,7 @@ export class RushGame {
     src.jumpPressed =
       this.input.isJustPressed(InputAction.JUMP) || this.input.isJustPressed(InputAction.MOVE_FORWARD);
     src.fireHeld = this.input.isPressed(InputAction.FIRE);
+    src.itemPressed = this.input.isJustPressed(InputAction.ITEM);
     src.nitroHeld = this.input.isPressed(InputAction.DASH);
     src.mouseAimX = this.clock - this.mouseMovedAt < MOUSE_AIM_TIMEOUT ? this.mouseAimX : null;
     // Gaze steers against this player's calibration, not a fixed threshold.
@@ -210,7 +214,7 @@ export class RushGame {
     const intent = this.controls.resolve(src);
     if (this.pickerOpen) {
       // Choosing a lesson must not start a race behind the menu.
-      intent.jump = intent.fire = intent.nitro = false;
+      intent.jump = intent.fire = intent.nitro = intent.useItem = false;
       intent.lane = this.sim.lane;
       this.controls.lane = this.sim.lane;
     }
@@ -244,6 +248,7 @@ export class RushGame {
         if (first) {
           // Edges belong to the first tick of the frame; repeating them would jump twice.
           intent.jump = false;
+          intent.useItem = false;
           first = false;
         }
         this.accumulator -= TICK;
@@ -318,6 +323,8 @@ export class RushGame {
         this.hud.flashCrash();
       } else if (fx.type === 'explode') {
         this.hitStop = Math.max(this.hitStop, HIT_STOP_KILL);
+      } else if (fx.type === 'lightning') {
+        this.hud.flashLightning();
       } else if (fx.type === 'gameOver') {
         this.overFor = 0;
         this.hud.showResults({
@@ -371,6 +378,7 @@ export class RushGame {
 
   private updateHud(aimX: number, pointer: number | null): void {
     const sim = this.sim;
+    this.hud.setItem(sim.heldItem, sim.shieldTime > 0 ? 'SHIELD' : sim.giantTime > 0 ? 'GIANT!' : sim.magnetTime > 0 ? 'MAGNET' : null);
     this.hud.update({
       phase: sim.phase,
       score: sim.score,

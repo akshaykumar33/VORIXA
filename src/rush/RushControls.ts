@@ -47,6 +47,7 @@ export interface ControlSources {
   leftPressed: boolean;
   rightPressed: boolean;
   jumpPressed: boolean;
+  itemPressed: boolean;
   fireHeld: boolean;
   nitroHeld: boolean;
   /** Crosshair from the mouse, -1..1, or null when the mouse has not moved recently. */
@@ -72,7 +73,7 @@ export class RushControls {
   private gazeZone = 0;
   private handZone = 0;
 
-  public readonly intent: RushIntent = { lane: 0, jump: false, fire: false, nitro: false, aimX: 0 };
+  public readonly intent: RushIntent = { lane: 0, jump: false, fire: false, nitro: false, aimX: 0, useItem: false };
 
   public reset(): void {
     this.lane = 0;
@@ -102,7 +103,10 @@ export class RushControls {
     const hand = src.hand?.present ? src.hand : null;
     const intent = this.intent;
     intent.lane = this.lane;
-    intent.jump = src.jumpPressed || (hand?.fistStarted ?? false);
+    // A fist is jump — unless the hand is raised high, where it uses the item instead.
+    const raised = hand !== null && hand.steerY >= HAND_NITRO_RAISE;
+    intent.jump = src.jumpPressed || (hand?.fistStarted === true && !raised);
+    intent.useItem = src.itemPressed || (hand?.fistStarted === true && raised);
     intent.fire = src.fireHeld || (hand?.pinching ?? false);
     intent.nitro =
       src.nitroHeld ||

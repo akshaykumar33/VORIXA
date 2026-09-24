@@ -58,6 +58,28 @@ const FLIP_MIN_HEIGHT = 1.2;
 /** Speed kept after landing mid-flip. */
 const SLOPPY_LANDING_KEEP = 0.75;
 
+/**
+ * Mario Kart-style items. One is held at a time; driving through a box while holding one does
+ * nothing, so using an item is always a choice about *when*.
+ */
+export type ItemKind = 'shield' | 'magnet' | 'rocket' | 'lightning' | 'giant';
+export const ITEM_WEIGHTS: readonly [ItemKind, number][] = [
+  ['shield', 26],
+  ['magnet', 24],
+  ['rocket', 26],
+  ['lightning', 10],
+  ['giant', 14]
+];
+export const SHIELD_SECONDS = 12;
+export const MAGNET_SECONDS = 8;
+export const GIANT_SECONDS = 6;
+/** Lightning reaches this far up the road. */
+const LIGHTNING_RANGE = 110;
+/** A rocket's blast clears everything shootable this close to its target. */
+const ROCKET_SPLASH = 4.5;
+const MAGNET_REACH_X = 7;
+const MAGNET_REACH_Z = 45;
+
 /** Seconds a kill or smash keeps the combo alive. */
 const COMBO_WINDOW = 2.5;
 const MAX_COMBO = 5;
@@ -80,7 +102,8 @@ export type EntityKind =
   | 'shot'
   | 'nitro'
   | 'heart'
-  | 'ramp';
+  | 'ramp'
+  | 'itembox';
 
 /** Collision half-extents and height per kind. Heights decide what a jump clears. */
 export const KIND_SHAPE: Record<EntityKind, { hx: number; hz: number; height: number }> = {
@@ -93,7 +116,8 @@ export const KIND_SHAPE: Record<EntityKind, { hx: number; hz: number; height: nu
   shot: { hx: 0.4, hz: 0.4, height: 0.8 },
   nitro: { hx: 0.8, hz: 0.8, height: 1.6 },
   heart: { hx: 0.8, hz: 0.8, height: 1.6 },
-  ramp: { hx: 1.4, hz: 2.6, height: 0.6 }
+  ramp: { hx: 1.4, hz: 2.6, height: 0.6 },
+  itembox: { hx: 0.8, hz: 0.8, height: 2.0 }
 };
 
 const POINTS: Partial<Record<EntityKind, number>> = {
@@ -135,6 +159,8 @@ export interface Bullet {
   life: number;
   /** Entity the aim assist locked on to, or 0. Homing on it is what makes eye aiming viable. */
   targetId: number;
+  /** A rocket from an item: kills outright and splashes. */
+  rocket: boolean;
 }
 
 export type FxType =
@@ -155,7 +181,11 @@ export type FxType =
   | 'flipStart'
   | 'flip'
   | 'sloppyLanding'
-  | 'takedown';
+  | 'takedown'
+  | 'itemGet'
+  | 'itemUse'
+  | 'shieldPop'
+  | 'lightning';
 
 export interface FxRecord {
   type: FxType;
@@ -175,6 +205,8 @@ export interface RushIntent {
   nitro: boolean;
   /** Crosshair, -1 (left) to +1 (right). */
   aimX: number;
+  /** Use the held item. Edge-triggered. */
+  useItem?: boolean;
 }
 
 export type RushPhase = 'ready' | 'running' | 'over';
@@ -218,6 +250,10 @@ export class RushSim {
   public flips = 0;
   /** Seconds into the current flip, or -1 when not flipping. The renderer spins the car by it. */
   public flipTime = -1;
+  public heldItem: ItemKind | null = null;
+  public shieldTime = 0;
+  public magnetTime = 0;
+  public giantTime = 0;
 
   public readonly entities: Entity[] = [];
   public readonly bullets: Bullet[] = [];
@@ -243,7 +279,7 @@ export class RushSim {
       this.entities.push({ id: 0, kind: 'coin', alive: false, x: 0, y: 0, z: 0, vz: 0, hp: 0, age: 0, timer: 0, offset: 0, passed: false });
     }
     for (let i = 0; i < BULLET_CAPACITY; i++) {
-      this.bullets.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, life: 0, targetId: 0 });
+      this.bullets.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, life: 0, targetId: 0, rocket: false });
     }
     for (let i = 0; i < FX_CAPACITY; i++) this.fx.push({ type: 'coin', x: 0, y: 0, z: 0, amount: 0 });
   }
@@ -265,6 +301,8 @@ export class RushSim {
     this.score = this.coins = this.kills = 0;
     this.nearMisses = this.flips = 0;
     this.flipTime = -1;
+    this.heldItem = null;
+    this.shieldTime = this.magnetTime = this.giantTime = 0;
     this.combo = 1;
     this.comboTimer = 0;
     this.elapsed = 0;
@@ -357,6 +395,10 @@ export class RushSim {
     this.integrateVertical(dt);
 
     if (this.phase === 'running') {
+      if (intent.useItem) this.useItem();
+      this.shieldTime = Math.max(0, this.shieldTime - dt);
+      this.magnetTime = Math.max(0, this.magnetTime - dt);
+      this.giantTime = Math.max(0, this.giantTime - dt);
       this.fire(intent, dt);
       this.spawnAhead();
     }
@@ -444,6 +486,7 @@ export class RushSim {
     bullet.vy = aim.vy;
     bullet.life = BULLET_LIFE;
     bullet.targetId = aim.target?.id ?? 0;
+    bullet.rocket = false;
     this.emit('fire', this.x, muzzleY, muzzleZ, 0);
   }
 
@@ -461,6 +504,7 @@ export class RushSim {
     for (const e of this.entities) {
       if (!e.alive) continue;
       e.age += dt;
+      if (this.magnetTime > 0 && e.kind === 'coin') this.pull(e, dt);
       if (e.kind === 'drone') this.updateDrone(e, dt);
       else e.z += e.vz * dt;
       if (e.z < this.z - DESPAWN_BEHIND) e.alive = false;
@@ -515,6 +559,16 @@ export class RushSim {
         if (b.z < e.z - shape.hz || b.z - step > e.z + shape.hz) continue;
         if (b.y < e.y - 0.4 || b.y > e.y + shape.height + 0.4) continue;
         b.alive = false;
+        if (b.rocket) {
+          // Everything shootable near the target goes with it.
+          for (const other of this.entities) {
+            if (!other.alive || !isShootable(other.kind)) continue;
+            if (Math.abs(other.x - e.x) <= ROCKET_SPLASH && Math.abs(other.z - e.z) <= ROCKET_SPLASH) {
+              this.destroy(other, other.kind === 'crate' ? 'smash' : 'explode');
+            }
+          }
+          break;
+        }
         e.hp -= 1;
         this.emit('hit', b.x, b.y, e.z - shape.hz, 0);
         if (e.hp <= 0) this.destroy(e, e.kind === 'crate' ? 'smash' : 'explode');
@@ -546,6 +600,83 @@ export class RushSim {
       if (this.y >= e.y + shape.height || this.y + 1.3 <= e.y) continue;
       this.touch(e);
     }
+  }
+
+  /** Magnet: coins nearby slide toward the car and are collected as it reaches them. */
+  private pull(e: Entity, dt: number): void {
+    const dz = e.z - this.z;
+    if (dz < -1 || dz > MAGNET_REACH_Z || Math.abs(e.x - this.x) > MAGNET_REACH_X) return;
+    const k = 1 - Math.exp(-6 * dt);
+    e.x += (this.x - e.x) * k;
+    e.y += (this.y + 0.6 - e.y) * k;
+    e.z -= Math.max(dz, 0) * k;
+  }
+
+  public rollItem(): ItemKind {
+    let total = 0;
+    for (const [, w] of ITEM_WEIGHTS) total += w;
+    let roll = this.rng.next() * total;
+    for (const [kind, w] of ITEM_WEIGHTS) {
+      roll -= w;
+      if (roll <= 0) return kind;
+    }
+    return 'shield';
+  }
+
+  private useItem(): void {
+    const item = this.heldItem;
+    if (!item) return;
+    this.heldItem = null;
+    this.emit('itemUse', this.x, this.y + 1, this.z, ITEM_WEIGHTS.findIndex(([k]) => k === item));
+    switch (item) {
+      case 'shield':
+        this.shieldTime = SHIELD_SECONDS;
+        break;
+      case 'magnet':
+        this.magnetTime = MAGNET_SECONDS;
+        break;
+      case 'giant':
+        this.giantTime = GIANT_SECONDS;
+        break;
+      case 'lightning':
+        this.emit('lightning', this.x, 0, this.z, 0);
+        for (const e of this.entities) {
+          if (!e.alive || e.z < this.z || e.z > this.z + LIGHTNING_RANGE) continue;
+          if (e.kind === 'shot') e.alive = false;
+          else if (isShootable(e.kind) && e.kind !== 'crate') this.destroy(e, 'explode');
+        }
+        break;
+      case 'rocket':
+        this.launchRocket();
+        break;
+    }
+  }
+
+  private launchRocket(): void {
+    const bullet = this.bullets.find((b) => !b.alive);
+    if (!bullet) return;
+    // The nearest enemy ahead, drones first: a rocket is for the thing that is shooting at you.
+    let target: Entity | null = null;
+    let best = Infinity;
+    for (const e of this.entities) {
+      if (!e.alive || !isShootable(e.kind)) continue;
+      const dz = e.z - this.z;
+      if (dz < 3 || dz > 120) continue;
+      const score = dz - (e.kind === 'drone' ? 60 : 0);
+      if (score < best) {
+        best = score;
+        target = e;
+      }
+    }
+    bullet.alive = true;
+    bullet.rocket = true;
+    bullet.x = this.x;
+    bullet.y = this.y + 1.4;
+    bullet.z = this.z + PLAYER_HALF_LENGTH;
+    bullet.vx = 0;
+    bullet.vy = 0;
+    bullet.life = 2.5;
+    bullet.targetId = target?.id ?? 0;
   }
 
   private startFlip(): void {
@@ -597,7 +728,20 @@ export class RushSim {
   }
 
   private touch(e: Entity): void {
+    // Giant: everything in the way is flattened, trucks included.
+    if (this.giantTime > 0 && (e.kind === 'barrier' || e.kind === 'traffic' || e.kind === 'truck' || e.kind === 'crate' || e.kind === 'shot')) {
+      if (e.kind === 'shot') e.alive = false;
+      else this.destroy(e, e.kind === 'crate' ? 'smash' : 'takedown');
+      return;
+    }
     switch (e.kind) {
+      case 'itembox':
+        e.alive = false;
+        if (!this.heldItem) {
+          this.heldItem = this.rollItem();
+          this.emit('itemGet', e.x, e.y + 1, e.z, ITEM_WEIGHTS.findIndex(([k]) => k === this.heldItem));
+        }
+        return;
       case 'coin':
         this.coins++;
         this.award(e, false);
@@ -642,6 +786,14 @@ export class RushSim {
 
   private crash(e: Entity): void {
     if (this.invulnerable > 0) return;
+    if (this.shieldTime > 0) {
+      // The bubble takes the hit instead of a heart, then it is gone.
+      this.shieldTime = 0;
+      e.alive = false;
+      this.invulnerable = 0.6;
+      this.emit('shieldPop', this.x, this.y + 1, this.z + PLAYER_HALF_LENGTH, 0);
+      return;
+    }
     if (this.practice) {
       e.alive = false;
       this.emit('crash', this.x, this.y + 0.8, this.z + PLAYER_HALF_LENGTH, this.hearts);

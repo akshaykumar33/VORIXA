@@ -339,3 +339,73 @@ describe('tricks', () => {
 function PLAYER_EDGE_GAP(gap: number): number {
   return 0.95 + 1.0 + gap;
 }
+
+describe('items', () => {
+  it('driving through a box grants an item; a second box does not replace it', () => {
+    const sim = running();
+    sim.spawn('itembox', 0, sim.z + 6, 0.2);
+    step(sim, 0.5);
+    const first = sim.heldItem;
+    expect(first).not.toBeNull();
+    sim.spawn('itembox', 0, sim.z + 6, 0.2);
+    step(sim, 0.5);
+    expect(sim.heldItem).toBe(first);
+  });
+
+  it('the shield takes a crash instead of a heart, once', () => {
+    const sim = running();
+    sim.heldItem = 'shield';
+    sim.update(intent({ useItem: true }), DT);
+    sim.spawn('truck', 0, sim.z + 8);
+    step(sim, 1);
+    expect(sim.hearts).toBe(MAX_HEARTS);
+    expect(sim.shieldTime).toBe(0);
+    sim.spawn('truck', 0, sim.z + 8);
+    step(sim, 1);
+    expect(sim.hearts).toBe(MAX_HEARTS - 1);
+  });
+
+  it('giant flattens even trucks', () => {
+    const sim = running();
+    sim.heldItem = 'giant';
+    sim.update(intent({ useItem: true }), DT);
+    sim.spawn('truck', 0, sim.z + 8);
+    step(sim, 1);
+    expect(sim.hearts).toBe(MAX_HEARTS);
+  });
+
+  it('lightning clears drones and their shots up the road', () => {
+    const sim = running();
+    sim.spawn('drone', LANE_WIDTH, sim.z + 40, 3.4);
+    sim.spawn('shot', 0, sim.z + 30, 0.9, -16);
+    sim.heldItem = 'lightning';
+    sim.update(intent({ useItem: true }), DT);
+    expect(sim.entities.some((e) => e.alive && (e.kind === 'drone' || e.kind === 'shot'))).toBe(false);
+    expect(sim.kills).toBe(1);
+  });
+
+  it('the magnet pulls in coins from the next lane', () => {
+    const sim = running();
+    sim.heldItem = 'magnet';
+    sim.update(intent({ useItem: true }), DT);
+    sim.spawn('coin', LANE_WIDTH, sim.z + 25, 0.6);
+    step(sim, 1.5);
+    expect(sim.coins).toBe(1);
+  });
+
+  it('a rocket homes in on a drone', () => {
+    const sim = running();
+    sim.spawn('drone', -LANE_WIDTH, sim.z + 50, 3.4);
+    sim.heldItem = 'rocket';
+    sim.update(intent({ useItem: true }), DT);
+    step(sim, 2);
+    expect(sim.kills).toBe(1);
+  });
+
+  it('every item can be rolled', () => {
+    const sim = new RushSim(3);
+    const seen = new Set<string>();
+    for (let i = 0; i < 400; i++) seen.add(sim.rollItem());
+    expect(seen.size).toBe(5);
+  });
+});

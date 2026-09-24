@@ -36,6 +36,7 @@ import {
   buildNitro,
   buildHeart,
   buildRamp,
+  buildItemBox,
   coinGeometry,
   type DroneModel,
   type BarrierModel
@@ -100,6 +101,8 @@ export class RushRenderer {
   private readonly coinHulls: THREE.InstancedMesh;
   private readonly bullets: THREE.InstancedMesh;
   private readonly lockRing: THREE.Mesh;
+  private readonly shieldBubble: THREE.Mesh;
+  private giantScale = 1;
   private readonly laneBeacon: THREE.Mesh;
   private laneBeaconLane = 0;
 
@@ -176,6 +179,21 @@ export class RushRenderer {
     this.lockRing.renderOrder = 10;
     this.lockRing.visible = false;
     this.scene.add(this.lockRing);
+
+    // The shield: a soap bubble around the car that wobbles and pops.
+    this.shieldBubble = new THREE.Mesh(
+      new THREE.SphereGeometry(2.6, 24, 16).scale(1, 0.8, 1.35),
+      new THREE.MeshBasicMaterial({ color: 0x3ff7ff, transparent: true, opacity: 0.22, depthWrite: false })
+    );
+    const rim = new THREE.Mesh(
+      this.shieldBubble.geometry,
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, side: THREE.BackSide, depthWrite: false })
+    );
+    rim.scale.setScalar(1.03);
+    this.shieldBubble.add(rim);
+    this.shieldBubble.visible = false;
+    this.shieldBubble.renderOrder = 4;
+    this.scene.add(this.shieldBubble);
 
     // A glowing arrow painted on a lane, for the driving school's "look here" lessons.
     const arrow = new THREE.Shape();
@@ -295,6 +313,20 @@ export class RushRenderer {
         this.addTrauma(0.6);
         this.cheer = 1.1;
         break;
+      case 'itemGet':
+        p.burst('checkpoint', x, y, z, { intensity: 0.8 });
+        break;
+      case 'itemUse':
+        this.squashVelocity += 6;
+        break;
+      case 'shieldPop':
+        p.burst('dash', x, y, z, { intensity: 2 });
+        p.burst('coin', x, y, z, { intensity: 1.5 });
+        this.addTrauma(0.3);
+        break;
+      case 'lightning':
+        this.addTrauma(0.5);
+        break;
       case 'gameOver':
         p.burst('explode', x, y + 0.6, z, { intensity: 2 });
         p.burst('smoke', x, y + 1, z, { intensity: 2 });
@@ -387,6 +419,22 @@ export class RushRenderer {
     }
 
     this.animateDriver(sim, dt);
+
+    // Giant: the car swells up (and back down) with a little overshoot, like a power-up should.
+    const giantTarget = sim.giantTime > 0 ? 1.8 : 1;
+    this.giantScale += (giantTarget - this.giantScale) * (1 - Math.exp(-6 * dt));
+    car.root.scale.setScalar(this.giantScale);
+
+    const shielded = sim.shieldTime > 0;
+    this.shieldBubble.visible = shielded;
+    if (shielded) {
+      this.shieldBubble.position.set(sim.x, sim.y + 1.1 * this.giantScale, 0);
+      const wobble = 1 + Math.sin(this.time * 7) * 0.03;
+      // Blinks out over its last two seconds, so its end is never a surprise.
+      const fading = sim.shieldTime < 2 && Math.floor(this.time * 8) % 2 === 0;
+      this.shieldBubble.scale.set(wobble * this.giantScale, (2 - wobble) * this.giantScale, wobble * this.giantScale);
+      this.shieldBubble.visible = !fading;
+    }
 
     // Blink while invulnerable: the universal "you got hit, you're safe for a moment" signal.
     car.root.visible = sim.invulnerable <= 0 || Math.floor(this.time * 14) % 2 === 0;
@@ -561,6 +609,10 @@ export class RushRenderer {
         root.add(buildRamp());
         blob.visible = false;
         break;
+      case 'itembox':
+        root.add(buildItemBox());
+        actor.lift = 1.2;
+        break;
       case 'coin':
         break;
     }
@@ -617,6 +669,12 @@ export class RushRenderer {
       case 'crate':
         if (model) model.rotation.y = Math.sin(e.id) * 0.3;
         break;
+      case 'itembox':
+        if (model) {
+          model.rotation.set(t * 1.3 + e.id, t * 1.9, 0);
+          model.position.y = Math.sin(t * 3 + e.id) * 0.2;
+        }
+        break;
       default:
         break;
     }
@@ -629,7 +687,9 @@ export class RushRenderer {
       this.position.set(b.x, b.y, -(b.z - sim.z));
       this.euler.set(0, Math.atan2(-b.vx, 110 + sim.speed), 0);
       this.quaternion.setFromEuler(this.euler);
-      this.scale.setScalar(1);
+      // Rockets are fat and leave a smoke trail, so you can follow them to their target.
+      this.scale.setScalar(b.rocket ? 3 : 1);
+      if (b.rocket) this.particles.burst('smoke', b.x, b.y, -(b.z - sim.z) + 1, { intensity: 0.15 });
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.bullets.setMatrixAt(n++, this.matrix);
     }

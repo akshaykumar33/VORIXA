@@ -118,6 +118,12 @@ const patterns: Record<string, Pattern> = {
     return patterns.coinSnake(sim, rng, z);
   },
 
+  // A row across all three lanes, Mario Kart style: nobody has to steer for one.
+  items(sim, _rng, z) {
+    for (const lane of LANES) sim.spawn('itembox', laneX(lane), z, 0.2);
+    return 8;
+  },
+
   pickup(sim, rng, z) {
     const kind: EntityKind = sim.hearts < MAX_HEARTS && rng.chance(0.35) ? 'heart' : 'nitro';
     const lane = rng.pick(LANES);
@@ -143,7 +149,8 @@ function weights(difficulty: number): [string, number][] {
     ['crates', 1.2],
     ['ramp', 0.8],
     ['drone', d < 0.06 ? 0 : 0.7 + d * 1.5],
-    ['pickup', 0.45]
+    ['pickup', 0.45],
+    ['items', 0.75]
   ];
 }
 

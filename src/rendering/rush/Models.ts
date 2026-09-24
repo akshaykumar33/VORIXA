@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { part, flat, toon, outline, bake } from './Toon';
+import { part, flat, toon, outline, bake, bent } from './Toon';
 import { hazardTexture, chevronTexture, crateTexture, trailerTexture } from './Textures';
 
 /**
@@ -164,7 +164,7 @@ export function buildDrone(style: DroneStyle, hullColor = 0x8e5cff, trimColor = 
     }
     root.add(ring);
     spinners.push(ring);
-    const domeMaterial = new THREE.MeshToonMaterial({ color: 0xbff4ff, transparent: true, opacity: 0.45, depthWrite: false });
+    const domeMaterial = bent(new THREE.MeshToonMaterial({ color: 0xbff4ff, transparent: true, opacity: 0.45, depthWrite: false }));
     const dome = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), domeMaterial);
     dome.position.y = 0.22;
     dome.renderOrder = 2;
@@ -175,7 +175,7 @@ export function buildDrone(style: DroneStyle, hullColor = 0x8e5cff, trimColor = 
     root.add(alien);
     const beam = new THREE.Mesh(
       new THREE.ConeGeometry(1.1, 2.6, 20, 1, true).translate(0, -1.3, 0),
-      new THREE.MeshBasicMaterial({ color: 0x3ff7ff, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })
+      bent(new THREE.MeshBasicMaterial({ color: 0x3ff7ff, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }))
     );
     beam.position.y = -0.2;
     root.add(beam);
@@ -207,6 +207,34 @@ export function buildDrone(style: DroneStyle, hullColor = 0x8e5cff, trimColor = 
   root.add(light);
   bake(root, [...spinners, pupil, light]);
   return { root, style, spinners, pupil, pupilHome: pupil.position.clone(), light };
+}
+
+/** A spinning rainbow "?" box: the promise of something good. */
+export function buildItemBox(): THREE.Group {
+  const root = new THREE.Group();
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const g = canvas.getContext('2d');
+  if (!g) throw new Error('2D canvas unavailable for the item box texture');
+  const gradient = g.createLinearGradient(0, 0, 128, 128);
+  ['#ff5a36', '#ffd23f', '#5ad16b', '#3fa7ff', '#9b6bff'].forEach((c, i) => gradient.addColorStop(i / 4, c));
+  g.fillStyle = gradient;
+  g.fillRect(0, 0, 128, 128);
+  g.font = 'bold 96px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = 10;
+  g.strokeStyle = '#1d1b33';
+  g.strokeText('?', 64, 70);
+  g.fillStyle = '#ffffff';
+  g.fillText('?', 64, 70);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // Its own material (it carries a texture), bent like everything else so it sits on the road.
+  const box = new THREE.Mesh(rounded(1.4, 1.4, 1.4, 0.18), bent(new THREE.MeshBasicMaterial({ map: texture })));
+  outline(box, 0.07);
+  root.add(box);
+  return root;
 }
 
 export function buildShot(): THREE.Group {

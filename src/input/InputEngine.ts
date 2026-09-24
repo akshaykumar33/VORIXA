@@ -33,6 +33,8 @@ export class InputEngine {
     this.keyMap.set('ControlLeft', InputAction.CROUCH);
     this.keyMap.set('ControlRight', InputAction.CROUCH);
     this.keyMap.set('KeyC', InputAction.CROUCH);
+    this.keyMap.set('KeyQ', InputAction.ITEM);
+    this.keyMap.set('KeyF', InputAction.ITEM);
     this.keyMap.set('KeyJ', InputAction.FIRE);
     this.keyMap.set('KeyK', InputAction.FIRE);
     this.keyMap.set('KeyT', InputAction.SCHOOL);
@@ -70,13 +72,28 @@ export class InputEngine {
     // The primary button fires. Held, like the keys, so shooting streams rather than needing a
     // click per shot.
     this.element.addEventListener('mousedown', (e: any) => {
+      if (e.button === 2) {
+        const item = this.actions.get(InputAction.ITEM)!;
+        if (item.value === 0) item.justPressed = true;
+        item.value = 1.0;
+        return;
+      }
       if (e.button !== 0) return;
       const state = this.actions.get(InputAction.FIRE)!;
       if (state.value === 0) state.justPressed = true;
       state.value = 1.0;
     });
 
+    // The right button is a game control, not a context menu.
+    this.element.addEventListener('contextmenu', (e: any) => e.preventDefault?.());
+
     this.element.addEventListener('mouseup', (e: any) => {
+      if (e.button === 2) {
+        const item = this.actions.get(InputAction.ITEM)!;
+        item.value = 0.0;
+        item.justReleased = true;
+        return;
+      }
       if (e.button !== 0) return;
       const state = this.actions.get(InputAction.FIRE)!;
       state.value = 0.0;

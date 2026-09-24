@@ -6,6 +6,7 @@ function sources(over: Partial<ControlSources> = {}): ControlSources {
     leftPressed: false,
     rightPressed: false,
     jumpPressed: false,
+    itemPressed: false,
     fireHeld: false,
     nitroHeld: false,
     mouseAimX: null,
@@ -83,5 +84,22 @@ describe('aim', () => {
     expect(c.resolve(sources({ mouseAimX: -0.9 })).aimX).toBe(-0.9);
     c.resolve(sources({ rightPressed: true }));
     expect(c.resolve(sources()).aimX).toBeCloseTo(1 / 1.6);
+  });
+});
+
+describe('items', () => {
+  it('Q or F uses the item', () => {
+    const c = new RushControls();
+    expect(c.resolve(sources({ itemPressed: true })).useItem).toBe(true);
+  });
+
+  it('a raised fist uses the item; a low fist still jumps', () => {
+    const c = new RushControls();
+    const raised = c.resolve(sources({ hand: hand({ fistStarted: true, steerY: 0.6 }) }));
+    expect(raised.useItem).toBe(true);
+    expect(raised.jump).toBe(false);
+    const low = c.resolve(sources({ hand: hand({ fistStarted: true, steerY: 0 }) }));
+    expect(low.jump).toBe(true);
+    expect(low.useItem).toBe(false);
   });
 });

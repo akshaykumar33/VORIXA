@@ -308,6 +308,21 @@ body.rush.racing #render-canvas { cursor: none; }
 #rush-hud .lesson .row { display: flex; gap: 8px; margin-top: 8px; }
 #rush-hud .lesson .btn { font-size: 14px; padding: 6px 12px; border-radius: 12px; }
 #rush-hud.school .score-block, #rush-hud.school .hearts, #rush-hud.school .combo { display: none; }
+#rush-hud .item {
+  position: absolute; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+}
+#rush-hud .item .slot {
+  width: 58px; height: 58px; border-radius: 16px; display: grid; place-items: center;
+  background: rgba(255,247,224,0.9); box-shadow: 0 0 0 4px var(--ink), 0 6px 0 4px var(--ink);
+}
+#rush-hud .item .slot svg { width: 42px; height: 42px; }
+#rush-hud .item .slot.empty { background: rgba(29,27,51,0.35); }
+#rush-hud .item .slot.new { animation: rush-bump 0.35s cubic-bezier(.3,1.8,.5,1); }
+#rush-hud .item .key { font-size: 13px; padding: 3px 7px; border-radius: 7px; background: var(--cream); color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+#rush-hud .item .active { font-size: 20px; color: #3ff7ff; }
+#rush-hud.ready .item, #rush-hud.school .item { display: none; }
+#rush-hud .flash.zap { background: rgba(255,255,230,0.85); animation: rush-flash 0.35s ease-out; }
 @keyframes rush-pop { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.5); } 20% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
 @keyframes rush-bump { 50% { transform: scale(1.35); } }
 @keyframes rush-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -337,11 +352,20 @@ body.rush.racing #render-canvas { cursor: none; }
 }
 `;
 
+const ITEM_ICONS = {
+  "shield": "<svg viewBox=\"0 0 40 40\"><circle cx=\"20\" cy=\"20\" r=\"15\" fill=\"#3ff7ff\" opacity=\"0.5\" stroke=\"#1d1b33\" stroke-width=\"3\"/><path d=\"M14 13 Q20 9 26 13\" stroke=\"#fff\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+  "magnet": "<svg viewBox=\"0 0 40 40\"><path d=\"M10 8 V22 A10 10 0 0 0 30 22 V8 H24 V22 A4 4 0 0 1 16 22 V8 Z\" fill=\"#ff4d5e\" stroke=\"#1d1b33\" stroke-width=\"3\" stroke-linejoin=\"round\"/><rect x=\"10\" y=\"8\" width=\"6\" height=\"5\" fill=\"#dfe3ee\"/><rect x=\"24\" y=\"8\" width=\"6\" height=\"5\" fill=\"#dfe3ee\"/></svg>",
+  "rocket": "<svg viewBox=\"0 0 40 40\"><path d=\"M20 4 C28 10 28 24 25 30 H15 C12 24 12 10 20 4 Z\" fill=\"#dfe3ee\" stroke=\"#1d1b33\" stroke-width=\"3\"/><circle cx=\"20\" cy=\"16\" r=\"4\" fill=\"#3fa7ff\" stroke=\"#1d1b33\" stroke-width=\"2\"/><path d=\"M15 30 L20 38 L25 30 Z\" fill=\"#ffa62b\" stroke=\"#1d1b33\" stroke-width=\"2\"/></svg>",
+  "lightning": "<svg viewBox=\"0 0 40 40\"><path d=\"M23 3 L9 23 H19 L15 37 L31 15 H21 Z\" fill=\"#ffd23f\" stroke=\"#1d1b33\" stroke-width=\"3\" stroke-linejoin=\"round\"/></svg>",
+  "giant": "<svg viewBox=\"0 0 40 40\"><circle cx=\"20\" cy=\"22\" r=\"14\" fill=\"#ff5a36\" stroke=\"#1d1b33\" stroke-width=\"3\"/><path d=\"M13 20 L20 10 L27 20\" stroke=\"#fff\" stroke-width=\"4\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M20 12 V30\" stroke=\"#fff\" stroke-width=\"4\" stroke-linecap=\"round\"/></svg>"
+};
+
 const HEART_SVG = `<svg viewBox="0 0 32 30" aria-hidden="true"><path d="M16 28 C 4 19, 1 13, 1 8.5 C 1 4, 4.5 1, 8.5 1 C 12 1, 14.5 3, 16 6 C 17.5 3, 20 1, 23.5 1 C 27.5 1, 31 4, 31 8.5 C 31 13, 28 19, 16 28 Z" fill="#ff4a6a" stroke="#1d1b33" stroke-width="2.5" stroke-linejoin="round"/><ellipse cx="9" cy="8" rx="3" ry="2" fill="#fff" opacity="0.8"/></svg>`;
 
 const MARKUP = `
   <div class="speed"></div>
   <div class="flash"></div>
+  <div class="item" aria-live="polite"><div class="slot empty" role="img" aria-label="No item"></div><span class="key">Q</span><span class="active toon" hidden></span></div>
   <div class="banner toon" role="status" aria-live="polite"><small>Welcome to</small><b></b></div>
   <div class="crosshair hidden"></div>
   <div class="score-block">
@@ -493,7 +517,7 @@ export class RushHUD {
       lessonText: '.lesson .instruction', lessonHint: '.lesson .hint', lessonProblem: '.lesson .problem', lessonBar: '.lesson .bar i',
       lessonSkip: '.lesson-skip', lessonExit: '.lesson-exit', graduate: '.card.graduate', gradText: '.grad-text',
       gradRace: '.grad-race', gradMore: '.grad-more', gaze: '.chip.gaze', hand: '.chip.hand', lanes: '.lanes', laneDot: '.lanes b',
-      flash: '.flash', speed: '.speed', muted: '.muted', carName: '.garage .car b', carBlurb: '.garage .car small', carPrev: '.garage .prev', carNext: '.garage .next', banner: '.banner', bannerName: '.banner b'
+      flash: '.flash', itemSlot: '.item .slot', itemActive: '.item .active', speed: '.speed', muted: '.muted', carName: '.garage .car b', carBlurb: '.garage .car small', carPrev: '.garage .prev', carNext: '.garage .next', banner: '.banner', bannerName: '.banner b'
     })) {
       this.el[key] = q(selector);
     }
@@ -690,6 +714,37 @@ export class RushHUD {
     b.classList.remove('show');
     void b.offsetWidth;
     b.classList.add('show');
+  }
+
+  private lastItem: string | null = null;
+  private lastActive: string | null = null;
+
+  /** The held item, and any item effect currently running. */
+  public setItem(item: string | null, active: string | null): void {
+    if (item !== this.lastItem) {
+      this.lastItem = item;
+      const slot = this.el.itemSlot;
+      slot.innerHTML = item ? (ITEM_ICONS as Record<string, string>)[item] ?? '' : '';
+      slot.classList.toggle('empty', !item);
+      slot.setAttribute('aria-label', item ? `Holding ${item}. Press Q to use.` : 'No item');
+      slot.classList.remove('new');
+      if (item) {
+        void slot.offsetWidth;
+        slot.classList.add('new');
+      }
+    }
+    if (active !== this.lastActive) {
+      this.lastActive = active;
+      this.el.itemActive.hidden = !active;
+      this.el.itemActive.textContent = active ?? '';
+    }
+  }
+
+  public flashLightning(): void {
+    const f = this.el.flash;
+    f.classList.remove('crash', 'zap');
+    void f.offsetWidth;
+    f.classList.add('zap');
   }
 
   public flashCrash(): void {
