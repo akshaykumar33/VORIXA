@@ -88,6 +88,13 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 @keyframes city-banner { 0% { opacity: 0; transform: translateX(-50%) scale(0.9); } 10% { opacity: 1; transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
 #rush-hud.city .down h1 { color: var(--t-bad); }
+#rush-hud.city .car { position: absolute; right: 20px; bottom: max(20px, env(safe-area-inset-bottom)); text-align: right; }
+#rush-hud.city .car .kmh { font-size: 64px; line-height: 0.9; font-variant-numeric: tabular-nums; }
+#rush-hud.city .car .kmh small { font-size: 18px; color: var(--t-muted); margin-left: 4px; }
+#rush-hud.city .car .meter { width: 180px; margin: 8px 0 0 auto; }
+#rush-hud.city .car .meter i { background: linear-gradient(90deg, #ffc23d, #ffe08a); }
+#rush-hud.city .prompt { position: absolute; left: 50%; bottom: max(90px, calc(env(safe-area-inset-bottom) + 90px)); transform: translateX(-50%); font-size: 18px; padding: 8px 14px; border-radius: 10px; }
+#rush-hud.city.driving .weapon, #rush-hud.city.driving .crosshair { display: none; }
 #rush-hud.city .corner { position: absolute; right: 20px; bottom: calc(max(20px, env(safe-area-inset-bottom)) + 110px); }
 #rush-hud.city .chip { font-size: 13px; padding: 5px 10px; border-radius: 999px; }
 @media (max-width: 640px) { #rush-hud.city .keys { grid-template-columns: 1fr; } }
@@ -113,6 +120,11 @@ const MARKUP = `
     <div class="slots"></div>
   </div>
   <div class="corner"><span class="chip view">Third person <kbd>V</kbd></span></div>
+  <div class="car toon" hidden>
+    <div class="kmh"><span>0</span><small>km/h</small></div>
+    <div class="meter" role="meter" aria-label="Car condition"><i></i></div>
+  </div>
+  <div class="prompt chip" hidden>Get in <kbd>F</kbd></div>
   <section class="card intro" aria-labelledby="city-title">
     <p class="kicker">Chapter 1 · Preview</p>
     <h1 id="city-title">VORIXA <span>City</span></h1>
@@ -126,6 +138,8 @@ const MARKUP = `
       <div>Weapons <span>1 – 5, wheel</span></div>
       <div>Sprint · Jump <span>Shift · Space</span></div>
       <div>First / third person <span>V</span></div>
+      <div>Get in / out of a car <span>F</span></div>
+      <div>Drive · handbrake <span>W A S D · Space</span></div>
     </div>
     <div class="bar" role="progressbar" aria-label="Loading the city" aria-valuemin="0" aria-valuemax="100"><i></i></div>
     <button class="btn primary play" type="button" disabled>Loading…</button>
@@ -268,6 +282,16 @@ export class CityHUD {
         })
       );
     }
+  }
+
+  /** The speedometer and car condition while driving; the "get in" prompt near a car. */
+  public setVehicle(car: { speed: number; health: number } | null, canEnter: boolean): void {
+    this.root.classList.toggle('driving', car !== null);
+    this.q('.car').hidden = car === null;
+    this.q('.prompt').hidden = !canEnter;
+    if (!car) return;
+    this.q('.car .kmh span').textContent = String(Math.round(car.speed * 3.6));
+    (this.q('.car .meter i')).style.width = `${Math.max(0, car.health)}%`;
   }
 
   public setEnemies(left: number): void {

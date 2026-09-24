@@ -134,7 +134,7 @@ meshopt-compressed. Content is otherwise unmodified.
 | Ultimate Modular Characters (men) | `people/m-*.glb` | The hero (Casual Hoodie), police (Swat), pedestrians |
 | Ultimate Modular Women | `people/f-*.glb` | Pedestrians, soldiers |
 | Universal Base Characters, Universal Animation Library | not shipped | Fetched and evaluated; the free bodies have no modern clothing |
-| Realistic Car Pack (Nov 2018) | not yet | Cars (phase 3) |
+| Realistic Car Pack (Nov 2018) | `cars.glb` | Seven drivable cars incl. police and taxi (OBJ converted with obj2gltf) |
 | Ultimate Gun Pack | `guns.glb` | Pistol, SMG, assault rifle, shotgun, sniper rifle (OBJ converted with obj2gltf, Cesium, Apache-2.0, build only) |
 
 Build-only tools (not shipped): glTF-Transform (MIT, Don McCurdy) and meshoptimizer (MIT,

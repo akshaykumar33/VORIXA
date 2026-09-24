@@ -7,6 +7,7 @@ import { buildDistrict, type District } from '../city/CityLayout';
 import { HeroMotor, type HeroIntent } from '../city/HeroMotor';
 import { Arsenal, LOADOUT, WEAPONS, type WeaponId } from '../city/Weapons';
 import { Combat, HERO_MAX_ARMOR } from '../city/Combat';
+import { Vehicle, VEHICLE_SPECS, separate, type DriveIntent } from '../city/Vehicle';
 import { CityRenderer } from '../rendering/city/CityRenderer';
 import { CityHUD, type SlotInfo } from '../ui/CityHUD';
 
@@ -52,6 +53,11 @@ export class CityGame {
   private downFor = 0;
   private nextWaveIn = -1;
   private readonly wavePoints: [number, number][];
+  private readonly vehicles: Vehicle[];
+  private driving: Vehicle | null = null;
+  private readonly drive: DriveIntent = { throttle: 0, steer: 0, handbrake: false };
+  private mouseMovedAt = -99;
+  private clock = 0;
   private waveIndex = 0;
 
   public constructor(
@@ -61,6 +67,9 @@ export class CityGame {
   ) {
     this.hero = new HeroMotor(this.district.colliders, this.district.bounds);
     this.combat = new Combat(this.district.colliders, this.district.bounds);
+    this.vehicles = this.district.parking.map((p, n) =>
+      new Vehicle(n + 1, VEHICLE_SPECS[p.model], this.district.colliders, this.district.bounds).place(p.x, p.z, p.heading)
+    );
     const s = this.district.spawn;
     this.hero.place(s.x, s.z, s.yaw + Math.PI);
     this.renderer.yaw = s.yaw;
@@ -84,6 +93,7 @@ export class CityGame {
       this.hud.showCard(!this.playing && !this.down, this.started);
     });
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyF' && this.playing && !this.down) this.toggleCar();
       const slot = Number(e.code.replace('Digit', '')) - 1;
       if (e.code.startsWith('Digit') && slot >= 0 && slot < LOADOUT.length) this.select(LOADOUT[slot]);
     });
@@ -130,6 +140,53 @@ export class CityGame {
     this.renderer.combatView?.setWeapon(id);
   }
 
+  /** Nearest car within reach of the hero, or null. */
+  private carNearHero(): Vehicle | null {
+    let best: Vehicle | null = null;
+    let bestD = 3.2;
+    for (const v of this.vehicles) {
+      const d = Math.hypot(v.x - this.hero.x, v.z - this.hero.z);
+      if (d < bestD) {
+        best = v;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /** F: get into the nearest car, or out of this one (on the driver's side, or the other if blocked). */
+  private toggleCar(): void {
+    const r = this.renderer;
+    if (this.driving) {
+      const car = this.driving;
+      if (Math.abs(car.forwardSpeed) > 6) return;
+      const rx = Math.cos(car.heading);
+      const rz = -Math.sin(car.heading);
+      for (const side of [-1, 1]) {
+        const x = car.x + rx * side * 1.7;
+        const z = car.z + rz * side * 1.7;
+        const blocked = this.district.colliders.some((b) => b.height > 0.4 && x > b.minX - 0.4 && x < b.maxX + 0.4 && z > b.minZ - 0.4 && z < b.maxZ + 0.4);
+        if (blocked) continue;
+        this.hero.place(x, z, car.heading);
+        break;
+      }
+      car.occupied = false;
+      this.driving = null;
+      r.driving = null;
+      this.hud.feed('On foot');
+      return;
+    }
+    const car = this.carNearHero();
+    if (!car || car.health <= 0) return;
+    car.occupied = true;
+    this.driving = car;
+    r.driving = car;
+    // Look down the road the car is facing.
+    r.yaw = car.heading + Math.PI;
+    r.pitch = -0.08;
+    this.hud.feed(`${car.spec.model.replace(/(\d)/, ' $1')} · F to get out`);
+  }
+
   private startWave(): void {
     const [x, z] = this.wavePoints[this.waveIndex % this.wavePoints.length];
     this.waveIndex++;
@@ -171,6 +228,8 @@ export class CityGame {
     const i = this.input;
     const active = this.playing && !this.down;
 
+    this.clock += dt;
+    if (i.getAxis(InputAction.LOOK_X) !== 0 || i.getAxis(InputAction.LOOK_Y) !== 0) this.mouseMovedAt = this.clock;
     if (active) {
       r.yaw -= i.getAxis(InputAction.LOOK_X) * MOUSE_SENSITIVITY;
       r.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, r.pitch - i.getAxis(InputAction.LOOK_Y) * MOUSE_SENSITIVITY));
@@ -180,18 +239,41 @@ export class CityGame {
     r.aiming = active && i.isPressed(InputAction.ITEM);
     r.aimFov = WEAPONS[this.arsenal.current].aimFov;
 
+    // Driving: WASD drive the car, Space is the handbrake, and the camera settles behind the car
+    // unless the mouse has just looked around.
+    const car = this.driving;
+    const drive = this.drive;
+    drive.throttle = car && active ? (i.isPressed(InputAction.MOVE_FORWARD) ? 1 : 0) - (i.isPressed(InputAction.MOVE_BACKWARD) ? 1 : 0) : 0;
+    drive.steer = car && active ? (i.isPressed(InputAction.STRAFE_RIGHT) ? 1 : 0) - (i.isPressed(InputAction.STRAFE_LEFT) ? 1 : 0) : 0;
+    drive.handbrake = !!car && active && i.isPressed(InputAction.JUMP);
+    if (car && this.clock - this.mouseMovedAt > 1.2) {
+      const behind = car.heading + Math.PI;
+      const d = Math.atan2(Math.sin(behind - r.yaw), Math.cos(behind - r.yaw));
+      r.yaw += d * (1 - Math.exp(-3 * dt));
+      r.pitch += (-0.1 - r.pitch) * (1 - Math.exp(-3 * dt));
+    }
+
     const intent = this.intent;
-    intent.forward = active ? (i.isPressed(InputAction.MOVE_FORWARD) ? 1 : 0) - (i.isPressed(InputAction.MOVE_BACKWARD) ? 1 : 0) : 0;
-    intent.right = active ? (i.isPressed(InputAction.STRAFE_RIGHT) ? 1 : 0) - (i.isPressed(InputAction.STRAFE_LEFT) ? 1 : 0) : 0;
+    intent.forward = active && !car ? (i.isPressed(InputAction.MOVE_FORWARD) ? 1 : 0) - (i.isPressed(InputAction.MOVE_BACKWARD) ? 1 : 0) : 0;
+    intent.right = active && !car ? (i.isPressed(InputAction.STRAFE_RIGHT) ? 1 : 0) - (i.isPressed(InputAction.STRAFE_LEFT) ? 1 : 0) : 0;
     intent.cameraYaw = r.yaw;
-    intent.sprint = active && i.isPressed(InputAction.DASH) && !r.aiming;
-    intent.jumpPressed = active && i.isJustPressed(InputAction.JUMP);
+    intent.sprint = active && !car && i.isPressed(InputAction.DASH) && !r.aiming;
+    intent.jumpPressed = active && !car && i.isJustPressed(InputAction.JUMP);
     intent.faceCamera = r.aiming || r.view === 'first' || r.sinceFired < 0.6;
-    const trigger = active && (i.isPressed(InputAction.FIRE) || i.isJustPressed(InputAction.FIRE));
+    const trigger = active && !car && (i.isPressed(InputAction.FIRE) || i.isJustPressed(InputAction.FIRE));
 
     this.accumulator += dt;
     while (this.accumulator >= TICK) {
+      this.stepCars();
       this.hero.step(intent, TICK);
+      if (car) {
+        // The hero rides along: enemies aim at the car, and its speed makes it hard to hit.
+        this.hero.x = car.x;
+        this.hero.z = car.z;
+        this.hero.vx = car.vx;
+        this.hero.vz = car.vz;
+        this.hero.facing = car.heading;
+      }
       for (const fx of this.hero.fx) r.heroEvent(fx);
       intent.jumpPressed = false;
       this.stepGuns(trigger);
@@ -219,9 +301,48 @@ export class CityGame {
     this.hud.setCrosshair(active, spread, r.camera.fov);
     r.combatView?.reloading(a.reloadProgress);
 
-    r.render(this.hero, dt, this.combat);
+    this.audio.update(car ? Math.abs(car.forwardSpeed) : 0, car ? Math.abs(car.forwardSpeed) / car.spec.maxSpeed : 0, drive.handbrake, null);
+    this.hud.setVehicle(car ? { speed: Math.abs(car.forwardSpeed), health: car.health } : null, !car && active && !!this.carNearHero());
+    r.render(this.hero, dt, this.combat, this.vehicles);
     i.endFrame();
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  private stepCars(): void {
+    for (const v of this.vehicles) {
+      v.step(v === this.driving ? this.drive : { throttle: 0, steer: 0, handbrake: true }, TICK);
+      for (const fx of v.fx) {
+        if (fx.type === 'crash') {
+          this.renderer.vehicleView?.crash(fx.x, fx.z, fx.impact);
+          if (v === this.driving) {
+            this.renderer.punchPitch += Math.min(0.08, fx.impact * 0.004);
+            this.play('crash', fx.x, fx.z);
+          }
+        } else if (fx.type === 'wrecked') {
+          this.hud.feed('Car wrecked');
+          this.play('explode', v.x, v.z);
+        }
+      }
+    }
+    for (let a = 0; a < this.vehicles.length; a++) {
+      for (let b = a + 1; b < this.vehicles.length; b++) {
+        const va = this.vehicles[a];
+        const vb = this.vehicles[b];
+        if (Math.abs(va.x - vb.x) > 6 || Math.abs(va.z - vb.z) > 6) continue;
+        const impact = separate(va, vb);
+        if (impact > 4 && (va === this.driving || vb === this.driving)) {
+          this.play('crash', va.x, va.z);
+          this.renderer.vehicleView?.crash((va.x + vb.x) / 2, (va.z + vb.z) / 2, impact);
+        }
+      }
+    }
+    const car = this.driving;
+    if (car) {
+      const [ax, az, bx, bz] = car.circles();
+      const speed = Math.abs(car.forwardSpeed);
+      const hits = this.combat.runOver(ax, az, car.spec.radius, speed) + this.combat.runOver(bx, bz, car.spec.radius, speed);
+      if (hits > 0) this.renderer.punchPitch += 0.03;
+    }
   }
 
   private stepGuns(trigger: boolean): void {
@@ -275,6 +396,11 @@ export class CityGame {
           view?.impact(fx.x, fx.y, fx.z, false);
           break;
         case 'heroHurt': {
+          if (this.driving) {
+            // The car's body takes some of it.
+            c.hp = Math.min(100, c.hp + fx.amount * 0.4);
+            this.driving.health = Math.max(0, this.driving.health - fx.amount * 0.5);
+          }
           // Where the shot came from, relative to the view: 0 is straight ahead.
           const world = Math.atan2(fx.fromX - this.hero.x, fx.fromZ - this.hero.z);
           const viewYaw = Math.atan2(-Math.sin(this.renderer.yaw), -Math.cos(this.renderer.yaw));

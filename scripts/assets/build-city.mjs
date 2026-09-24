@@ -106,3 +106,29 @@ if (process.argv.includes('--force') || !fs.existsSync(path.join(OUT, 'district'
     await finish(doc, out, 512);
   }
 }
+
+// ─── Cars (Realistic Car Pack) ────────────────────────────────────────────────────────────────
+// OBJ converted like the guns (obj2gltf), into assets-src/quaternius/cars/glb. Each car keeps its
+// body and its wheel groups (BackWheels, FrontLeftWheel, FrontRightWheel) as separate nodes, so
+// the wheels can spin and the front ones steer.
+{
+  const dir = path.join(SRC, 'cars/glb');
+  const out = path.join(OUT, 'cars.glb');
+  if (fs.existsSync(dir) && (process.argv.includes('--force') || !fs.existsSync(out))) {
+    const doc = new Document();
+    const scene = doc.createScene('cars');
+    for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.glb'))) {
+      const piece = await io.read(path.join(dir, f));
+      const map = mergeDocuments(doc, piece);
+      const holder = doc.createNode(path.basename(f, '.glb'));
+      for (const s of piece.getRoot().listScenes()) for (const child of s.listChildren()) holder.addChild(map.get(child));
+      scene.addChild(holder);
+    }
+    for (const s of doc.getRoot().listScenes()) if (s !== scene) s.dispose();
+    doc.getRoot().setDefaultScene(scene);
+    // Keep the wheel nodes apart: no flattening or joining of the car's parts.
+    await doc.transform(dedup(), prune(), textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [512, 512] }), unpartition(), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+    await io.write(out, doc);
+    console.log('wrote', out, size(out));
+  }
+}

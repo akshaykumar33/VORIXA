@@ -30,8 +30,17 @@ export interface Box {
   height: number;
 }
 
+/** A car parked at the kerb, nose along the road. */
+export interface Parking {
+  x: number;
+  z: number;
+  heading: number;
+  model: string;
+}
+
 export interface District {
   placements: Placement[];
+  parking: Parking[];
   colliders: Box[];
   /** Where the player may walk: the district's roads and blocks. */
   bounds: Box;
@@ -55,6 +64,9 @@ export const BUILDINGS: Record<string, { minX: number; maxX: number; minZ: numbe
   Building_Medium_2_001: { minX: -7.53, maxX: 7.53, minZ: -12.49, maxZ: 0.57, height: 25 },
   Building_Small_1: { minX: -7.23, maxX: 5.23, minZ: -12.23, maxZ: 2.31, height: 17 }
 };
+
+/** Models parked at the kerb (police cars and taxis more rarely than ordinary cars). */
+const PARKED = ['NormalCar1', 'NormalCar2', 'SUV', 'NormalCar1', 'NormalCar2', 'Taxi', 'SportsCar2', 'Cop'];
 
 /** Pairs of buildings that fit side by side along one block face. */
 const PAIRS: [string, string][] = [
@@ -90,6 +102,7 @@ export function footprint(piece: string, x: number, z: number, rot: number): Box
 export function buildDistrict(roads = 4): District {
   const placements: Placement[] = [];
   const colliders: Box[] = [];
+  const parking: Parking[] = [];
   const P = PITCH;
 
   // Intersections and the roads between them.
@@ -128,6 +141,12 @@ export function buildDistrict(roads = 4): District {
           colliders.push({ minX: p.x - hw, maxX: p.x + hw, minZ: p.z - hd, maxZ: p.z + hd, height: 0.51 });
         }
         if (hash(i, j, dir + 7) < 0.6) placements.push({ piece: 'Prop_ManholeCover', chunk, ...at(P / 2, 1.5), rot: 0 });
+        // Cars parked in the outer lanes, noses with the traffic on each side.
+        for (const [along, across] of [[P / 2 - 14, -4.6], [P / 2 + 3, 4.6], [P / 2 + 13, -4.6]] as const) {
+          if (hash(i * 7 + dir, j, along) < 0.35) continue;
+          const heading = dir === 0 ? (across < 0 ? Math.PI / 2 : -Math.PI / 2) : across < 0 ? 0 : Math.PI;
+          parking.push({ ...at(along, across), heading, model: PARKED[Math.floor(hash(i, j * 5 + dir, along) * PARKED.length)] });
+        }
       }
     }
   }
@@ -169,8 +188,11 @@ export function buildDistrict(roads = 4): District {
     maxZ: (roads - 1) * P + ROAD_HALF_WIDTH - 0.5,
     height: 100
   };
+  // The hero's first ride, at the kerb beside the spawn point.
+  parking.push({ x: INTERSECTION / 2 + 11, z: -4.6, heading: Math.PI / 2, model: 'SportsCar' });
   return {
     placements,
+    parking,
     colliders,
     bounds,
     // On the sidewalk by the first intersection, looking up the avenue.

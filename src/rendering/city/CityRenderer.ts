@@ -8,6 +8,8 @@ import { SkyLibrary } from '../rush/SkyLibrary';
 import { PostFX } from '../rush/PostFX';
 import { rayBoxes, type Combat } from '../../city/Combat';
 import { CombatView } from './CombatView';
+import { VehicleView } from './VehicleView';
+import type { Vehicle } from '../../city/Vehicle';
 
 /**
  * Draws VORIXA City (ADR-0014) from the CC0 Quaternius assets built by
@@ -56,6 +58,9 @@ export class CityRenderer {
   public punchPitch = 0;
   public punchYaw = 0;
   public combatView: CombatView | null = null;
+  public vehicleView: VehicleView | null = null;
+  /** The car the hero is driving, or null on foot. */
+  public driving: Vehicle | null = null;
   private heroHand: THREE.Object3D | null = null;
 
   private renderer!: THREE.WebGLRenderer;
@@ -136,21 +141,24 @@ export class CityRenderer {
     let done = 0;
     const track = <T,>(p: Promise<T>) =>
       p.then((v) => {
-        onProgress(++done / 5);
+        onProgress(++done / 6);
         return v;
       });
-    const [city, hero, guns, swat, soldier] = await Promise.all([
+    const [city, hero, guns, swat, soldier, cars] = await Promise.all([
       track(this.loader.loadAsync('/city/district/city.gltf')),
       track(this.loader.loadAsync(HERO_MODEL)),
       track(this.loader.loadAsync('/city/guns.glb')),
       track(this.loader.loadAsync('/city/people/m-swat.glb')),
-      track(this.loader.loadAsync('/city/people/f-soldier.glb'))
+      track(this.loader.loadAsync('/city/people/f-soldier.glb')),
+      track(this.loader.loadAsync('/city/cars.glb'))
     ]);
     this.buildDistrict(city, district);
     this.buildHero(hero);
     this.scene.add(this.camera);
     this.combatView = new CombatView(guns, { swat, soldier }, this.camera, this.heroHand, this.hero!);
     this.scene.add(this.combatView.group);
+    this.vehicleView = new VehicleView(cars);
+    this.scene.add(this.vehicleView.group);
     this.ready = true;
   }
 
@@ -269,13 +277,15 @@ export class CityRenderer {
     if (fx === 'land') this.landing = 0.15;
   }
 
-  public render(hero: HeroMotor, dt: number, combat?: Combat): void {
+  public render(hero: HeroMotor, dt: number, combat?: Combat, vehicles: readonly Vehicle[] = []): void {
     if (!this.ready || !this.hero) {
       this.renderer.render(this.scene, this.camera);
       return;
     }
     this.animateHero(hero, dt);
-    this.placeCamera(hero, dt);
+    this.vehicleView?.update(vehicles, dt);
+    if (this.driving) this.placeDriveCamera(this.driving, dt);
+    else this.placeCamera(hero, dt);
     if (combat && this.combatView) {
       this.combatView.update(combat, dt, performance.now() / 1000, this.view === 'first', this.aiming, Math.min(1, hero.speed / 4.6));
     }
@@ -321,8 +331,39 @@ export class CityRenderer {
     this.sinceFired += dt;
 
     // First person: the body would fill the view; hide it (the gun viewmodel comes with gunplay).
-    const visible = this.view === 'third';
+    // Driving: the hero is inside the car.
+    const visible = this.view === 'third' && !this.driving;
     for (const m of this.heroMeshes) m.visible = visible;
+  }
+
+  /** Chase camera behind the car (or the driver's view in first person), wider at speed. */
+  private placeDriveCamera(car: Vehicle, dt: number): void {
+    const k = 1 - Math.exp(-8 * dt);
+    const cam = this.camera;
+    const speed = Math.abs(car.forwardSpeed);
+    cam.fov += (this.fovBase + Math.min(16, speed * 0.45) - cam.fov) * k;
+    cam.updateProjectionMatrix();
+    const yaw = this.yaw;
+    const pitch = Math.min(0.2, this.pitch);
+    const lookX = -Math.sin(yaw) * Math.cos(pitch);
+    const lookY = Math.sin(pitch);
+    const lookZ = -Math.cos(yaw) * Math.cos(pitch);
+    if (this.view === 'first') {
+      const fx = Math.sin(car.heading);
+      const fz = Math.cos(car.heading);
+      // The driver's seat: left of centre, eye height, a little behind the windscreen.
+      cam.position.set(car.x + fz * 0.35 - fx * 0.1, 1.15, car.z - fx * 0.35 - fz * 0.1);
+      this.target.set(cam.position.x + lookX, cam.position.y + lookY, cam.position.z + lookZ);
+      cam.lookAt(this.target);
+      return;
+    }
+    const pivot = this.tmp.set(car.x, 1.7, car.z);
+    const want = 7 + Math.min(2.5, speed * 0.06);
+    const hit = rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, want, this.colliders);
+    const d = Math.max(1.5, Math.min(want, hit - 0.3));
+    cam.position.set(pivot.x - lookX * d, Math.max(0.8, pivot.y - lookY * d + 0.6), pivot.z - lookZ * d);
+    this.target.set(pivot.x + lookX * 8, pivot.y + lookY * 8, pivot.z + lookZ * 8);
+    cam.lookAt(this.target);
   }
 
   private placeCamera(hero: HeroMotor, dt: number): void {

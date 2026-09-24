@@ -248,6 +248,19 @@ export class Combat {
     }
   }
 
+  /** A car at speed knocks down anyone in its path. Returns how many it hit. */
+  public runOver(x: number, z: number, radius: number, speed: number): number {
+    if (speed < 5) return 0;
+    let hits = 0;
+    for (const e of this.enemies) {
+      if (e.state === 'dead') continue;
+      if (Math.hypot(e.motor.x - x, e.motor.z - z) > radius + 0.35) continue;
+      this.damage(e, speed * 12, false, { kind: 'enemy', distance: 0, x: e.motor.x, y: 1, z: e.motor.z, enemy: e });
+      hits++;
+    }
+    return hits;
+  }
+
   /** Damage to the hero: armour takes most of it first, like Counter-Strike's kevlar. */
   public hurtHero(amount: number, fromX: number, fromZ: number): void {
     if (this.hp <= 0) return;
