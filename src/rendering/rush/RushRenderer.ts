@@ -15,6 +15,18 @@ import { ParticleRenderer } from '../ParticleRenderer';
 import { bend, bent, flat, ink, toon, INK_OUTLINES } from './Toon';
 import { SkyLibrary } from './SkyLibrary';
 import { PostFX } from './PostFX';
+import { Crowd } from './Crowd';
+import { CharacterLibrary, type Character, type CharacterName } from '../CharacterLibrary';
+
+/** Who drives each car: one of the Kenney people, so the driver is the same hero who gets out on foot. */
+const DRIVER_OF: Record<VehicleKind, CharacterName> = {
+  zippy: 'male-a',
+  monster: 'female-b',
+  hotdog: 'male-c',
+  bubble: 'female-d'
+};
+/** Seated, the models' hips sit at their origin; this puts a 1.3 m driver in the seat. */
+const DRIVER_SCALE = 2.2;
 import { Scenery } from './Scenery';
 import { buildVehicle, buildTraffic, TRAFFIC_KINDS, type CarModel, type VehicleKind } from './Vehicles';
 import type { BiomeId } from '../../rush/Zones';
@@ -100,6 +112,12 @@ export class RushRenderer {
 
   private readonly scenery = new Scenery();
   private player: CarModel = buildVehicle('zippy');
+  private vehicleKind: VehicleKind = 'zippy';
+  private readonly people = new CharacterLibrary('/chars/', (m) => bent(m));
+  private readonly crowd = new Crowd(this.people);
+  /** The animated driver, once loaded, and the car it was seated in. */
+  private driverChar: Character | null = null;
+  private driverCar: CarModel | null = null;
   /** Seconds left on the driver's fist-pump after a kill. */
   private cheer = 0;
   /** Seconds left seeing stars after a crash. */
@@ -177,6 +195,7 @@ export class RushRenderer {
     this.scene.add(this.sun, this.sun.target);
 
     this.scene.add(this.scenery.group);
+    this.scene.add(this.crowd.group);
     this.scene.add(this.player.root);
     this.playerBlob = blobShadow(1.3, 2.3);
     this.scene.add(this.playerBlob);
@@ -434,6 +453,7 @@ export class RushRenderer {
     this.hemi.color.copy(pal.hemiSky);
     this.hemi.groundColor.copy(pal.hemiGround);
     const imageLit = this.applySkies();
+    this.crowd.update(sim.z, frameDelta);
     this.hemi.intensity = pal.hemiIntensity * (imageLit ? 0.25 : 1);
     this.sun.intensity = pal.sunIntensity * (imageLit ? 1.25 : 1);
     this.drawPlayer(sim, aimX, frameDelta);
@@ -557,6 +577,21 @@ export class RushRenderer {
     this.dizzy = Math.max(0, this.dizzy - dt);
     const wrecked = sim.phase === 'over';
 
+    // Once the animated driver has loaded it takes the seat; the modelled one stands in until then.
+    if (this.driverCar !== this.player) this.seatDriver();
+    const person = this.driverChar;
+    if (person) {
+      d.stars.visible = this.dizzy > 0 || wrecked;
+      d.stars.rotation.y = t * 6;
+      person.root.rotation.z = -this.roll * 1.3;
+      person.root.rotation.y = Math.PI + this.turretYaw * 0.4;
+      if (this.cheer > 0) person.play('emote-yes', { speed: 1.6 });
+      else if (this.dizzy > 0 || wrecked) person.play('emote-no');
+      else person.play('drive');
+      person.update(dt);
+      return;
+    }
+
     d.head.rotation.z = -this.roll * 1.3 + (this.dizzy > 0 || wrecked ? Math.sin(t * 11) * 0.3 : 0);
     d.head.rotation.y = this.turretYaw * 0.6;
     d.head.position.y = 0.85 + Math.abs(Math.sin(t * 16)) * 0.03 * Math.min(sim.speed / 20, 1);
@@ -577,7 +612,29 @@ export class RushRenderer {
   public setVehicle(kind: VehicleKind): void {
     this.scene.remove(this.player.root);
     this.player = buildVehicle(kind);
+    this.vehicleKind = kind;
+    this.driverChar = null;
+    this.driverCar = null;
     this.scene.add(this.player.root);
+  }
+
+  /** Puts the animated driver in the current car, if their model has loaded. */
+  private seatDriver(): void {
+    const d = this.player.driver;
+    if (!d) return;
+    const person = this.people.spawn(DRIVER_OF[this.vehicleKind]);
+    if (!person) return;
+    const seat = d.root;
+    person.root.position.copy(seat.position).y += 0.05 * seat.scale.y;
+    person.root.scale.setScalar(DRIVER_SCALE * seat.scale.y);
+    seat.parent?.add(person.root);
+    // The dizzy stars now circle the new head.
+    seat.parent?.add(d.stars);
+    d.stars.position.set(seat.position.x, seat.position.y + 1.05 * seat.scale.y, seat.position.z);
+    seat.visible = false;
+    person.play('drive', { fade: 0 });
+    this.driverChar = person;
+    this.driverCar = this.player;
   }
 
   private drawEntities(sim: RushSim): void {

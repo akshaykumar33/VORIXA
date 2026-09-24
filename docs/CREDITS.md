@@ -118,6 +118,16 @@ binaries, and a repository is the wrong place for 11 MB of weights.
 
 ---
 
+## Animated people (Rush and On Foot)
+
+[Mini Characters 1.0](https://kenney.nl/assets/mini-characters) by **Kenney** (www.kenney.nl),
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode). The twelve
+`character-*.glb` files and the shared `Textures/colormap.png` are served from `public/chars`
+unmodified, with the pack's licence file alongside them (`LICENSE-kenney.txt`). They are the
+roadside spectators, the driver in each car, and the hero of On Foot.
+
+---
+
 ## Skies (Rush and On Foot)
 
 HDR sky photographs from [Poly Haven](https://polyhaven.com), all

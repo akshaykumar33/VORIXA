@@ -68,38 +68,6 @@ function withAnim(parts: PropPart[], anim: Anim): PropPart[] {
   return parts.map((p) => ({ ...p, anim: p.anim ? both(anim, p.anim) : anim }));
 }
 
-// ─── The fans: little bean people who cheer you on, dressed for each world ────────────────────
-
-function fan(body: number, hat: PropPart[], weight = 0.5): PropSpec {
-  const h = hop(0.28, 7.5);
-  const arm = capsule(0.09, 0.42, 0, 0.3, 0);
-  const parts: PropPart[] = [
-    part(capsule(0.42, 0.55, 0, 0.7, 0), body, 0.05),
-    part(merge(sphere(0.13, -0.16, 1.02, 0.35), sphere(0.13, 0.16, 1.02, 0.35)), WHITE, 0.02),
-    part(merge(sphere(0.065, -0.16, 1.03, 0.46), sphere(0.065, 0.16, 1.03, 0.46)), INK, 0),
-    part(merge(sphere(0.07, -0.26, 0.86, 0.36), sphere(0.07, 0.26, 0.86, 0.36)), 0xff9fb8, 0),
-    part(arm, body, 0.03, { pivot: [-0.4, 0.9, 0], anim: wave(1) }),
-    part(arm.clone(), body, 0.03, { pivot: [0.4, 0.9, 0], anim: wave(-1) }),
-    ...hat
-  ];
-  return { parts: withAnim(parts, h), weight, facing: 'road' };
-}
-
-const hats = {
-  straw: () => [part(merge(cyl(0.55, 0.55, 0.05, 0, 1.3, 0, 16), cyl(0.3, 0.33, 0.26, 0, 1.44, 0, 12)), 0xf2c94c, 0.03)],
-  cowboy: () => [part(merge(cyl(0.64, 0.64, 0.05, 0, 1.32, 0, 16), cyl(0.27, 0.33, 0.34, 0, 1.52, 0, 12)), 0x8a5a3a, 0.03)],
-  beanie: () => [
-    part(new THREE.SphereGeometry(0.42, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 1.22, 0), 0xff4d5e, 0.03),
-    part(sphere(0.13, 0, 1.68, 0), WHITE, 0.02)
-  ],
-  party: () => [part(cone(0.28, 0.62, 0, 1.66, 0), 0xff5fa8, 0.03), part(sphere(0.1, 0, 1.99, 0), 0xffd23f, 0.02)],
-  shades: () => [part(box(0.62, 0.14, 0.08, 0, 1.03, 0.45), 0x3ff7ff, 0, { glow: true })],
-  sunhat: () => [
-    part(cyl(0.72, 0.72, 0.04, 0, 1.3, 0, 18), 0xfff0c2, 0.03),
-    part(cyl(0.33, 0.35, 0.14, 0, 1.39, 0, 12), 0xff5a36, 0.02)
-  ]
-};
-
 // ─── Shared nature ────────────────────────────────────────────────────────────────────────────
 
 function roundTree(leaf: number, weight = 1): PropSpec {
@@ -656,8 +624,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
       },
       near: [
         roundTree(0x4cc36a), pine(0x2fa36b, 0x38b877), rock(0xb8b3c9, 0.6), flowers(), cow(), sheep(),
-        { parts: [{ geometry: new THREE.IcosahedronGeometry(0.9, 1).scale(1.3, 0.8, 1).translate(0, 0.5, 0), color: 0x66cf52, outline: 0.07 }], weight: 0.8, facing: 'random' },
-        fan(0xff8c3a, hats.straw()), fan(0x3d8bff, hats.straw()), fan(0x9b6bff, hats.straw())
+        { parts: [{ geometry: new THREE.IcosahedronGeometry(0.9, 1).scale(1.3, 0.8, 1).translate(0, 0.5, 0), color: 0x66cf52, outline: 0.07 }], weight: 0.8, facing: 'random' }
       ],
       far: [house(0xfff0d6, 0xff6b5a), house(0xd6f0ff, 0x3d8bff), house(0xffe0f0, 0x9b6bff), windmill(), barn(), roundTree(0x44b862, 0.8), pine(0x2fa36b, 0x38b877, 0.8)]
     },
@@ -669,8 +636,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
         hemiSky: 0xffe4c8, hemiGround: 0xd9a066, hemiIntensity: 1.1, sunIntensity: 1.8
       },
       near: [
-        saguaro(), barrelCactus(), rock(0xd9773a, 1), tumbleweed(), signpost(),
-        fan(0xff5a36, hats.cowboy()), fan(0x2ec4b6, hats.cowboy()), fan(0xffd23f, hats.cowboy())
+        saguaro(), barrelCactus(), rock(0xd9773a, 1), tumbleweed(), signpost()
       ],
       far: [mesa(), adobe(), waterTower(), saguaro(1.2)]
     },
@@ -682,8 +648,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
         hemiSky: 0xeaf4ff, hemiGround: 0xc8d8ee, hemiIntensity: 1.2, sunIntensity: 1.3
       },
       near: [
-        pine(0x2f7d5b, 0x2f7d5b, 1.4, true), snowman(), penguin(), iceCrystal(), rock(0xc9d6f2, 0.5),
-        fan(0x3d8bff, hats.beanie()), fan(0x9b6bff, hats.beanie()), fan(0x2ec4b6, hats.beanie())
+        pine(0x2f7d5b, 0x2f7d5b, 1.4, true), snowman(), penguin(), iceCrystal(), rock(0xc9d6f2, 0.5)
       ],
       far: [igloo(), snowMountain(), cabin(), pine(0x2f7d5b, 0x2f7d5b, 1, true)]
     },
@@ -695,8 +660,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
         hemiSky: 0xfff0fa, hemiGround: 0xb9f2d8, hemiIntensity: 1.2, sunIntensity: 1.5
       },
       near: [
-        lollipop(0xff5fa8), lollipop(0x3fa7ff), gumdrop(0xff4d5e), gumdrop(0x5ad16b), gumdrop(0xffd23f), candyCane(), cupcake(),
-        fan(0xffd23f, hats.party()), fan(0x3fa7ff, hats.party()), fan(0x9b6bff, hats.party())
+        lollipop(0xff5fa8), lollipop(0x3fa7ff), gumdrop(0xff4d5e), gumdrop(0x5ad16b), gumdrop(0xffd23f), candyCane(), cupcake()
       ],
       far: [iceCreamTower(), cakeHouse(), candyMushroom(), lollipop(0xffd23f, 0.6)]
     },
@@ -708,8 +672,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
         hemiSky: 0x9f8bff, hemiGround: 0x3a2a70, hemiIntensity: 1.0, sunIntensity: 0.6
       },
       near: [
-        streetLamp(0x3ff7ff), streetLamp(0xff3df2), hologram(), neonArch(0x3ff7ff), neonArch(0xff3df2),
-        fan(0x2ec4b6, hats.shades()), fan(0xff5fa8, hats.shades()), fan(0xffd23f, hats.shades())
+        streetLamp(0x3ff7ff), streetLamp(0xff3df2), hologram(), neonArch(0x3ff7ff), neonArch(0xff3df2)
       ],
       far: [tower(18, 0xffd23f), tower(26, 0x3ff7ff), tower(12, 0xff3df2), billboard(), ferrisWheel()]
     },
@@ -721,8 +684,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
         hemiSky: 0xf0fbff, hemiGround: 0xe9cf8f, hemiIntensity: 1.15, sunIntensity: 1.8
       },
       near: [
-        palm(), umbrella(0xff5a36), umbrella(0x2ec4b6), umbrella(0xffd23f), surfboard(0x3fa7ff), surfboard(0xff5fa8), crab(), sandcastle(),
-        fan(0xff8c3a, hats.sunhat()), fan(0x9b6bff, hats.sunhat()), fan(0x5ad16b, hats.sunhat())
+        palm(), umbrella(0xff5a36), umbrella(0x2ec4b6), umbrella(0xffd23f), surfboard(0x3fa7ff), surfboard(0xff5fa8), crab(), sandcastle()
       ],
       far: [beachHut(), lighthouse(), palm(1.2)]
     }
