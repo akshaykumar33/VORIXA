@@ -149,6 +149,14 @@ export class Combat {
   public kills = 0;
   public headshots = 0;
   public wave = 0;
+  /** Perk-tuned rules (see Crew.perkEffects). */
+  public armorMax = HERO_MAX_ARMOR;
+  public regenCap = REGEN_CAP;
+  public headshotScale = 1;
+  /** Extra damage for the close-range guns (Breacher). */
+  public closeScale = 1;
+  /** How much longer enemies take to react (Ghost). */
+  public spotScale = 1;
   private sinceHurt = 99;
   private tick = 0;
   private nextId = 1;
@@ -221,7 +229,8 @@ export class Combat {
       const [dx, dy, dz] = direction(yaw + s.yaw, pitch + s.pitch);
       const hit = this.trace(ox, oy, oz, dx, dy, dz, w.range, minDistance);
       hits.push(hit);
-      if (hit.kind === 'enemy' && hit.enemy) this.damage(hit.enemy, w.damage * (hit.headshot ? w.headshot : 1), !!hit.headshot, hit);
+      const close = weapon === 'shotgun' || weapon === 'smg' ? this.closeScale : 1;
+      if (hit.kind === 'enemy' && hit.enemy) this.damage(hit.enemy, w.damage * close * (hit.headshot ? w.headshot * this.headshotScale : 1), !!hit.headshot, hit);
       else if (hit.kind === 'world') this.fx.push({ type: 'impact', x: hit.x, y: hit.y, z: hit.z });
     }
     return hits;
@@ -274,7 +283,7 @@ export class Combat {
 
   public reviveHero(): void {
     this.hp = HERO_MAX_HP;
-    this.armor = HERO_MAX_ARMOR;
+    this.armor = this.armorMax;
     this.sinceHurt = 99;
   }
 
@@ -282,7 +291,7 @@ export class Combat {
     this.fx.length = 0;
     this.tick++;
     this.sinceHurt += dt;
-    if (this.hp > 0 && this.sinceHurt > REGEN_DELAY && this.hp < REGEN_CAP) this.hp = Math.min(REGEN_CAP, this.hp + 8 * dt);
+    if (this.hp > 0 && this.sinceHurt > REGEN_DELAY && this.hp < this.regenCap) this.hp = Math.min(this.regenCap, this.hp + 8 * dt);
 
     for (const d of this.drops) {
       if (!d.alive || Math.hypot(hero.x - d.x, hero.z - d.z) > 1.3) continue;
@@ -327,7 +336,7 @@ export class Combat {
       const facingDiff = Math.abs(Math.atan2(Math.sin(toHero - m.facing), Math.cos(toHero - m.facing)));
       if (sees && (facingDiff < 1.3 || dist < 12)) {
         e.state = 'alert';
-        e.alertTimer = REACTION + hash(e.id, 5) * 0.4;
+        e.alertTimer = (REACTION + hash(e.id, 5) * 0.4) * this.spotScale;
       }
     }
     if (e.state === 'alert') {

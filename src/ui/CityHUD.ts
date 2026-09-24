@@ -1,5 +1,19 @@
 import { installRushTheme } from './RushTheme';
 
+/** One crew member as the Safehouse lists them. */
+export interface CrewEntry {
+  name: string;
+  alias: string;
+  role: string;
+  bio: string;
+  perkName: string;
+  perkText: string;
+  unlocked: boolean;
+  /** Why it is locked, e.g. "Clear 3 waves". */
+  lockText: string;
+  current: boolean;
+}
+
 /**
  * VORIXA City's HUD (ADR-0014), in the shared glass theme: the click-to-play card, a dynamic
  * crosshair with hit markers, ammunition and weapon slots, health and armour, a direction arc
@@ -88,6 +102,22 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 @keyframes city-banner { 0% { opacity: 0; transform: translateX(-50%) scale(0.9); } 10% { opacity: 1; transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
 #rush-hud.city .down h1 { color: var(--t-bad); }
+#rush-hud.city .card.safehouse { left: auto; right: max(20px, 3vw); transform: translateY(-50%); width: min(440px, calc(100vw - 32px)); text-align: left; }
+#rush-hud.city .safehouse h1 { font-size: clamp(38px, 5vw, 56px); }
+#rush-hud.city .safehouse .alias { font-size: 22px; color: var(--t-accent); text-transform: uppercase; letter-spacing: 0.04em; }
+#rush-hud.city .safehouse .role { font-family: var(--t-body); font-style: normal; font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--t-muted); margin-top: 2px; }
+#rush-hud.city .safehouse .bio { font-family: var(--t-body); font-style: normal; font-size: 15px; line-height: 1.5; margin: 12px 0; }
+#rush-hud.city .safehouse .perk { padding: 10px 12px; border-radius: 10px; background: var(--t-faint); border: 1px solid var(--t-hair); }
+#rush-hud.city .safehouse .perk b { display: block; font-size: 18px; color: var(--t-gold); }
+#rush-hud.city .safehouse .perk span { font-family: var(--t-body); font-style: normal; font-size: 14px; }
+#rush-hud.city .safehouse .roster { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 14px; }
+#rush-hud.city .safehouse .roster button { font-family: var(--t-display); font-style: italic; font-size: 14px; padding: 8px 4px; border-radius: 8px; cursor: pointer; text-transform: uppercase;
+  background: var(--t-glass); color: var(--t-text); border: 1px solid var(--t-hair); }
+#rush-hud.city .safehouse .roster button[aria-pressed="true"] { border-color: var(--t-accent); box-shadow: 0 0 0 1px var(--t-accent); }
+#rush-hud.city .safehouse .roster button.locked { opacity: 0.45; }
+#rush-hud.city .safehouse .roster button:focus-visible { outline: 2px solid var(--t-gold); outline-offset: 2px; }
+#rush-hud.city .safehouse .lock { font-family: var(--t-body); font-style: normal; font-size: 13px; color: var(--t-bad); margin-top: 8px; min-height: 1.2em; }
+#rush-hud.city .safehouse .row { display: flex; gap: 10px; flex-wrap: wrap; }
 #rush-hud.city .car { position: absolute; right: 20px; bottom: max(20px, env(safe-area-inset-bottom)); text-align: right; }
 #rush-hud.city .car .kmh { font-size: 64px; line-height: 0.9; font-variant-numeric: tabular-nums; }
 #rush-hud.city .car .kmh small { font-size: 18px; color: var(--t-muted); margin-left: 4px; }
@@ -95,6 +125,7 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 #rush-hud.city .car .meter i { background: linear-gradient(90deg, #ffc23d, #ffe08a); }
 #rush-hud.city .prompt { position: absolute; left: 50%; bottom: max(90px, calc(env(safe-area-inset-bottom) + 90px)); transform: translateX(-50%); font-size: 18px; padding: 8px 14px; border-radius: 10px; }
 #rush-hud.city.driving .weapon, #rush-hud.city.driving .crosshair { display: none; }
+#rush-hud.city.in-safehouse > :not(.card.safehouse) { visibility: hidden; }
 #rush-hud.city .corner { position: absolute; right: 20px; bottom: calc(max(20px, env(safe-area-inset-bottom)) + 110px); }
 #rush-hud.city .chip { font-size: 13px; padding: 5px 10px; border-radius: 999px; }
 @media (max-width: 640px) { #rush-hud.city .keys { grid-template-columns: 1fr; } }
@@ -143,7 +174,22 @@ const MARKUP = `
     </div>
     <div class="bar" role="progressbar" aria-label="Loading the city" aria-valuemin="0" aria-valuemax="100"><i></i></div>
     <button class="btn primary play" type="button" disabled>Loading…</button>
+    <button class="btn crewbtn" type="button">Choose crew <kbd>H</kbd></button>
     <button class="btn back" type="button">Back to Rush</button>
+  </section>
+  <section class="card safehouse" hidden aria-labelledby="safe-name">
+    <p class="kicker">Safehouse · choose your crew</p>
+    <h1 id="safe-name">Vex</h1>
+    <div class="alias">The Spark</div>
+    <div class="role">Leader</div>
+    <p class="bio"></p>
+    <div class="perk"><b></b><span></span></div>
+    <div class="lock" aria-live="polite"></div>
+    <div class="roster" role="group" aria-label="Crew"></div>
+    <div class="row">
+      <button class="btn primary pick" type="button">Play <kbd>Enter</kbd></button>
+      <button class="btn close" type="button">Back <kbd>Esc</kbd></button>
+    </div>
   </section>
   <section class="card down" hidden aria-labelledby="city-down">
     <p class="kicker">You went down</p>
@@ -157,6 +203,10 @@ export class CityHUD {
   public onPlay: () => void = () => {};
   public onBack: () => void = () => {};
   public onRespawn: () => void = () => {};
+  public onOpenSafehouse: () => void = () => {};
+  public onBrowse: (index: number) => void = () => {};
+  public onPick: () => void = () => {};
+  public onCloseSafehouse: () => void = () => {};
   private readonly root: HTMLElement;
   private readonly q: <T extends HTMLElement>(s: string) => T;
   private readonly last = { mag: -1, reserve: -1, hp: -1, armor: -1, left: -1, slot: '' };
@@ -176,6 +226,9 @@ export class CityHUD {
     this.q('.play').addEventListener('click', () => this.onPlay());
     this.q('.back').addEventListener('click', () => this.onBack());
     this.q('.respawn').addEventListener('click', () => this.onRespawn());
+    this.q('.crewbtn').addEventListener('click', () => this.onOpenSafehouse());
+    this.q('.pick').addEventListener('click', () => this.onPick());
+    this.q('.close').addEventListener('click', () => this.onCloseSafehouse());
   }
 
   public progress(share: number): void {
@@ -199,6 +252,43 @@ export class CityHUD {
   public showCard(on: boolean, resumed = false): void {
     this.q('.card.intro').hidden = !on;
     if (on && resumed) this.q('.play').textContent = 'Click to continue';
+  }
+
+  public get safehouseOpen(): boolean {
+    return !this.q('.card.safehouse').hidden;
+  }
+
+  public showSafehouse(on: boolean): void {
+    this.q('.card.safehouse').hidden = !on;
+    this.q('.card.intro').hidden = on ? true : this.q('.card.intro').hidden;
+    this.root.classList.toggle('in-safehouse', on);
+  }
+
+  /** Fills the Safehouse with the roster, highlighting `index`. */
+  public setSafehouse(entries: CrewEntry[], index: number): void {
+    const e = entries[index];
+    this.q('#safe-name').textContent = e.name;
+    this.q('.safehouse .alias').textContent = e.alias;
+    this.q('.safehouse .role').textContent = e.role;
+    this.q('.safehouse .bio').textContent = e.bio;
+    this.q('.safehouse .perk b').textContent = e.perkName;
+    this.q('.safehouse .perk span').textContent = e.perkText;
+    this.q('.safehouse .lock').textContent = e.unlocked ? (e.current ? 'Playing now' : '') : `Locked: ${e.lockText}`;
+    const pick = this.q<HTMLButtonElement>('.pick');
+    pick.disabled = !e.unlocked;
+    pick.firstChild!.textContent = e.unlocked ? `Play as ${e.name.split(' ')[0]} ` : 'Locked ';
+    this.q('.roster').replaceChildren(
+      ...entries.map((c, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = c.name.split(' ')[0];
+        b.setAttribute('aria-pressed', String(i === index));
+        b.setAttribute('aria-label', `${c.name}, ${c.role}${c.unlocked ? '' : ', locked'}`);
+        if (!c.unlocked) b.classList.add('locked');
+        b.addEventListener('click', () => this.onBrowse(i));
+        return b;
+      })
+    );
   }
 
   public showDown(on: boolean, stats = ''): void {

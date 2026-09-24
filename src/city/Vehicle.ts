@@ -63,6 +63,9 @@ export class Vehicle {
   public steer = 0;
   public health = 100;
   public occupied = false;
+  /** Perks: top-speed and damage multipliers for whoever is driving. */
+  public speedScale = 1;
+  public damageScale = 1;
   public readonly fx: VehicleFx[] = [];
 
   public constructor(
@@ -104,7 +107,8 @@ export class Vehicle {
     // Engine, brakes, reverse.
     const throttle = wrecked ? 0 : intent.throttle;
     if (throttle > 0) {
-      along += throttle * s.accel * (1 - Math.max(0, along) / s.maxSpeed) * dt * (along < 0 ? 3 : 1);
+      const top = s.maxSpeed * this.speedScale;
+      along += throttle * s.accel * this.speedScale * (1 - Math.max(0, along) / top) * dt * (along < 0 ? 3 : 1);
     } else if (throttle < 0) {
       if (along > 0.5) along = Math.max(0, along + throttle * BRAKE * dt);
       else along = Math.max(-REVERSE_MAX, along + throttle * s.accel * 0.6 * dt);
@@ -193,7 +197,7 @@ export class Vehicle {
       const impact = -into;
       if (impact > 3) {
         const before = this.health;
-        this.health = Math.max(0, this.health - (impact - 3) * 2.2);
+        this.health = Math.max(0, this.health - (impact - 3) * 2.2 * this.damageScale);
         this.fx.push({ type: 'crash', impact, x: this.x - ux * r, z: this.z - uz * r });
         if (before > 0 && this.health <= 0) this.fx.push({ type: 'wrecked' });
       }

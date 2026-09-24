@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { WEAPONS, type WeaponId } from '../../city/Weapons';
 import type { Combat, Enemy } from '../../city/Combat';
 import { ParticleRenderer } from '../ParticleRenderer';
+import { People, type Person } from './People';
 
 /**
  * Everything about a gunfight that is drawn (ADR-0014, phase 2): the guns (in the hero's hand and
@@ -13,7 +13,6 @@ import { ParticleRenderer } from '../ParticleRenderer';
 
 const TRACER_LIFE = 0.07;
 const FLASH_LIFE = 0.05;
-const PERSON_HEIGHT = 1.8;
 
 interface Tracer {
   mesh: THREE.Mesh;
@@ -22,10 +21,8 @@ interface Tracer {
 
 interface EnemyView {
   enemy: Enemy;
+  person: Person;
   root: THREE.Group;
-  mixer: THREE.AnimationMixer;
-  actions: Map<string, THREE.AnimationAction>;
-  current: string;
   muzzle: THREE.Object3D;
   flash: THREE.Mesh;
   flashLife: number;
@@ -113,10 +110,10 @@ export class CombatView {
 
   public constructor(
     private readonly gunsGltf: GLTF,
-    private readonly people: Record<'swat' | 'soldier', GLTF>,
+    private readonly makeEnemy: (kind: 'swat' | 'soldier') => Person,
     camera: THREE.PerspectiveCamera,
-    private readonly heroHand: THREE.Object3D | null,
-    private readonly heroRoot: THREE.Object3D
+    private heroHand: THREE.Object3D | null,
+    private heroRoot: THREE.Object3D
   ) {
     this.tracerMaterial = new THREE.MeshBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0.9, toneMapped: false, depthWrite: false });
     this.tracerMaterial.color.multiplyScalar(3);
@@ -134,6 +131,15 @@ export class CombatView {
     // The first-person rig rides on the camera.
     camera.add(this.viewRig);
     this.viewRig.add(this.viewFlash);
+  }
+
+  /** A new hero model (the Safehouse): move the gun into the new hand. */
+  public rebindHero(hand: THREE.Object3D | null, root: THREE.Object3D): void {
+    this.heroHand = hand;
+    this.heroRoot = root;
+    const id = this.currentWeapon;
+    this.currentWeapon = null;
+    if (id) this.setWeapon(id);
   }
 
   public setWeapon(id: WeaponId): void {
@@ -230,26 +236,13 @@ export class CombatView {
   private viewFor(e: Enemy): EnemyView {
     let v = this.enemies.get(e.id);
     if (v) return v;
-    const gltf = this.people[e.kind];
-    const model = cloneSkinned(gltf.scene);
-    const box = new THREE.Box3().setFromObject(model);
-    const scale = PERSON_HEIGHT / Math.max(0.01, box.max.y - box.min.y);
-    model.scale.setScalar(scale);
-    model.position.y = -box.min.y * scale;
-    model.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.castShadow = true;
-      mesh.frustumCulled = false;
-    });
-    const root = new THREE.Group();
-    root.add(model);
-    const mixer = new THREE.AnimationMixer(model);
-    const actions = new Map<string, THREE.AnimationAction>();
-    for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
+    const person = this.makeEnemy(e.kind);
+    const model = person.model;
+    const root = person.root;
     // Their rifles.
     // Three.js strips the dot from the rig's "Wrist.R" when it loads.
-    const hand = model.getObjectByName('WristR') ?? model.getObjectByName('Wrist_R') ?? model.getObjectByName('Wrist.R');
+    const hand = person.hand;
+    void model;
     const source = this.gunsGltf.scene.getObjectByName(WEAPONS[e.kind === 'swat' ? 'smg' : 'rifle'].model);
     const gun = source ? prepareGun(source, e.kind === 'swat' ? 0.6 : 0.95) : new THREE.Group();
     const flash = flashMesh();
@@ -263,23 +256,13 @@ export class CombatView {
       gun.rotation.set(Math.PI / 2, 0, Math.PI);
     }
     this.group.add(root);
-    v = { enemy: e, root, mixer, actions, current: '', muzzle: gun.getObjectByName('muzzle') ?? gun, flash, flashLife: 0 };
+    v = { enemy: e, person, root, muzzle: gun.getObjectByName('muzzle') ?? gun, flash, flashLife: 0 };
     this.enemies.set(e.id, v);
     return v;
   }
 
   private play(v: EnemyView, name: string, fade = 0.2, once = false, speed = 1): void {
-    const action = v.actions.get(name);
-    if (!action) return;
-    action.timeScale = speed;
-    if (v.current === name) return;
-    action.reset();
-    action.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
-    action.clampWhenFinished = once;
-    const previous = v.actions.get(v.current);
-    if (previous) previous.crossFadeTo(action, fade, false);
-    action.play();
-    v.current = name;
+    People.play(v.person, name, fade, once, speed);
   }
 
   public update(combat: Combat, dt: number, time: number, firstPerson: boolean, aiming: boolean, moving: number): void {
@@ -301,7 +284,7 @@ export class CombatView {
       v.flashLife -= dt;
       v.flash.visible = v.flashLife > 0;
       if (v.flash.visible) v.flash.rotation.z = Math.random() * Math.PI;
-      v.mixer.update(dt);
+      v.person.mixer.update(dt);
     }
 
     // Tracers fade fast.

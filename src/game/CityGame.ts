@@ -9,7 +9,28 @@ import { Arsenal, LOADOUT, WEAPONS, type WeaponId } from '../city/Weapons';
 import { Combat, HERO_MAX_ARMOR } from '../city/Combat';
 import { Vehicle, VEHICLE_SPECS, separate, type DriveIntent } from '../city/Vehicle';
 import { CityRenderer } from '../rendering/city/CityRenderer';
-import { CityHUD, type SlotInfo } from '../ui/CityHUD';
+import { CityHUD, type SlotInfo, type CrewEntry } from '../ui/CityHUD';
+import { CREW, PERKS, perkEffects, unlocked, type CharacterDef, type PerkEffects } from '../city/Crew';
+
+const PROGRESS_KEY = 'vorixa.city.progress';
+const CREW_KEY = 'vorixa.city.crew';
+
+function loadProgress(): { waves: number; crew: string } {
+  try {
+    const waves = Number(localStorage.getItem(PROGRESS_KEY)) || 0;
+    return { waves, crew: localStorage.getItem(CREW_KEY) ?? 'vex' };
+  } catch {
+    return { waves: 0, crew: 'vex' };
+  }
+}
+
+function save(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private mode: progress lasts the session.
+  }
+}
 
 /**
  * Runs VORIXA City (ADR-0014): the hero on foot in the downtown district (phase 1) with
@@ -58,6 +79,11 @@ export class CityGame {
   private readonly drive: DriveIntent = { throttle: 0, steer: 0, handbrake: false };
   private mouseMovedAt = -99;
   private clock = 0;
+  private wavesCleared: number;
+  private crew: CharacterDef;
+  private perks: PerkEffects = perkEffects(undefined);
+  private browsing = 0;
+  private timeScale = 1;
   private waveIndex = 0;
 
   public constructor(
@@ -77,7 +103,17 @@ export class CityGame {
     // Each wave holds a different intersection, working out from the start.
     this.wavePoints = [[P, 0], [P, P], [2 * P, P], [2 * P, 2 * P], [P, 2 * P], [0, P]];
 
+    const progress = loadProgress();
+    this.wavesCleared = progress.waves;
+    this.crew = unlocked(this.wavesCleared).find((c) => c.id === progress.crew) ?? CREW[0];
+    this.renderer.heroDef = this.crew;
+    this.applyPerks();
+
     this.hud = new CityHUD(container);
+    this.hud.onOpenSafehouse = () => this.openSafehouse();
+    this.hud.onBrowse = (i) => this.browse(i);
+    this.hud.onPick = () => this.pick();
+    this.hud.onCloseSafehouse = () => this.closeSafehouse();
     this.hud.onPlay = () => this.capture();
     this.hud.onRespawn = () => this.respawn();
     this.hud.onBack = () => {
@@ -86,13 +122,24 @@ export class CityGame {
       window.location.href = url.toString();
     };
     canvas.addEventListener('click', () => {
-      if (this.renderer.ready && !this.playing && !this.down) this.capture();
+      if (this.renderer.ready && !this.playing && !this.down && !this.hud.safehouseOpen) this.capture();
     });
     document.addEventListener('pointerlockchange', () => {
       this.playing = document.pointerLockElement === this.canvas;
-      this.hud.showCard(!this.playing && !this.down, this.started);
+      if (!this.hud.safehouseOpen) this.hud.showCard(!this.playing && !this.down, this.started);
     });
     window.addEventListener('keydown', (e) => {
+      if (this.hud.safehouseOpen) {
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') this.browse((this.browsing + 1) % CREW.length);
+        else if (e.code === 'ArrowLeft' || e.code === 'KeyA') this.browse((this.browsing - 1 + CREW.length) % CREW.length);
+        else if (e.code === 'Enter') this.pick();
+        else if (e.code === 'Escape' || e.code === 'KeyH') this.closeSafehouse();
+        return;
+      }
+      if (e.code === 'KeyH' && this.renderer.ready && !this.driving && !this.down) {
+        this.openSafehouse();
+        return;
+      }
       if (e.code === 'KeyF' && this.playing && !this.down) this.toggleCar();
       const slot = Number(e.code.replace('Digit', '')) - 1;
       if (e.code.startsWith('Digit') && slot >= 0 && slot < LOADOUT.length) this.select(LOADOUT[slot]);
@@ -138,6 +185,79 @@ export class CityGame {
     if (a.ammo[id].mag + a.ammo[id].reserve <= 0 && id !== a.current) return;
     a.select(id);
     this.renderer.combatView?.setWeapon(id);
+  }
+
+  // ─── The Safehouse: choose who to play ────────────────────────────────────────────────────
+
+  private crewEntries(): CrewEntry[] {
+    const open = new Set(unlocked(this.wavesCleared).map((c) => c.id));
+    return CREW.map((c) => ({
+      name: c.name,
+      alias: c.alias,
+      role: c.role,
+      bio: c.bio,
+      perkName: c.perk ? PERKS[c.perk].name : '',
+      perkText: c.perk ? PERKS[c.perk].text : '',
+      unlocked: open.has(c.id),
+      lockText: `clear ${c.unlockAt} wave${c.unlockAt === 1 ? '' : 's'}`,
+      current: c.id === this.crew.id
+    }));
+  }
+
+  private openSafehouse(): void {
+    if (!this.renderer.ready) return;
+    this.browsing = CREW.findIndex((c) => c.id === this.crew.id);
+    void document.exitPointerLock?.();
+    this.playing = false;
+    this.renderer.showroomOpen = true;
+    this.hud.showSafehouse(true);
+    this.browse(this.browsing);
+  }
+
+  private browse(index: number): void {
+    this.browsing = index;
+    this.hud.setSafehouse(this.crewEntries(), index);
+    void this.renderer.showroom.show(CREW[index]);
+  }
+
+  private pick(): void {
+    const def = CREW[this.browsing];
+    if (!unlocked(this.wavesCleared).some((c) => c.id === def.id)) return;
+    if (def.id !== this.crew.id) {
+      this.crew = def;
+      save(CREW_KEY, def.id);
+      void this.renderer.setHero(def);
+      this.applyPerks();
+      this.hud.feed(`Playing as ${def.name} · ${def.perk ? PERKS[def.perk].name : ''}`);
+    }
+    this.closeSafehouse();
+    this.capture();
+  }
+
+  private closeSafehouse(): void {
+    this.renderer.showroomOpen = false;
+    this.hud.showSafehouse(false);
+    this.hud.showCard(!this.playing, this.started);
+  }
+
+  /** The current crew member's perk, applied to the guns, the fight and the cars. */
+  private applyPerks(): void {
+    const e = perkEffects(this.crew.perk);
+    this.perks = e;
+    this.arsenal.reloadScale = e.reloadTime;
+    const c = this.combat;
+    c.armorMax = e.armorMax;
+    c.armor = Math.min(c.armor, e.armorMax);
+    if (e.armorMax > 50) c.armor = e.armorMax;
+    c.regenCap = e.regenCap;
+    c.headshotScale = e.headshot;
+    c.closeScale = e.closeDamage;
+    c.spotScale = e.spotDelay;
+    for (const v of this.vehicles) {
+      v.speedScale = e.carSpeed;
+      v.damageScale = e.carDamage;
+    }
+    if (e.bonusAmmo) for (const id of LOADOUT) this.arsenal.addAmmo(id, WEAPONS[id].magazine);
   }
 
   /** Nearest car within reach of the hero, or null. */
@@ -262,7 +382,11 @@ export class CityGame {
     intent.faceCamera = r.aiming || r.view === 'first' || r.sinceFired < 0.6;
     const trigger = active && !car && (i.isPressed(InputAction.FIRE) || i.isJustPressed(InputAction.FIRE));
 
-    this.accumulator += dt;
+    const slow = r.aiming && this.perks.bulletTimeWhenAiming ? 0.45 : 1;
+    this.timeScale += (slow - this.timeScale) * (1 - Math.exp(-10 * dt));
+    this.audio.setSlowmo((1 - this.timeScale) / 0.55);
+    if (car && this.perks.carRepair && car.health > 0) car.health = Math.min(100, car.health + 2 * dt);
+    this.accumulator += dt * this.timeScale;
     while (this.accumulator >= TICK) {
       this.stepCars();
       this.hero.step(intent, TICK);
@@ -293,7 +417,7 @@ export class CityGame {
     const ammo = a.ammo[a.current];
     const slots: SlotInfo[] = LOADOUT.map((id, n) => ({ key: String(n + 1), name: WEAPONS[id].name, owned: a.ammo[id].mag + a.ammo[id].reserve > 0 }));
     this.hud.setWeapon(w.name, ammo.mag, ammo.reserve, a.reloading > 0, slots, LOADOUT.indexOf(a.current));
-    this.hud.setVitals(this.combat.hp, (this.combat.armor / HERO_MAX_ARMOR) * 50);
+    this.hud.setVitals(this.combat.hp, (this.combat.armor / Math.max(HERO_MAX_ARMOR, this.combat.armorMax)) * 50);
     this.hud.setEnemies(this.combat.alive);
     this.hud.setView(r.view === 'first');
     const moving = Math.min(1, this.hero.speed / 4.6);
@@ -419,11 +543,19 @@ export class CityGame {
           this.hud.feed(`+${fx.rounds} ${WEAPONS[fx.weapon].name} rounds`);
           this.play('pickup', this.hero.x, 0);
           break;
-        case 'waveClear':
-          this.hud.banner('Intersection clear', `Wave ${fx.wave} down · next crew in ${NEXT_WAVE_DELAY} s`);
+        case 'waveClear': {
+          const before = unlocked(this.wavesCleared).length;
+          this.wavesCleared = Math.max(this.wavesCleared, fx.wave);
+          save(PROGRESS_KEY, String(this.wavesCleared));
+          const joined = unlocked(this.wavesCleared).slice(before);
+          if (joined.length) {
+            const j = joined[0];
+            this.hud.banner(`${j.name} joins the crew`, `"${j.alias}" · ${j.perk ? PERKS[j.perk].text : ''} · press H at the Safehouse`);
+          } else this.hud.banner('Intersection clear', `Wave ${fx.wave} down · next crew in ${NEXT_WAVE_DELAY} s`);
           this.play('itemGet', this.hero.x, 0);
           this.nextWaveIn = NEXT_WAVE_DELAY;
           break;
+        }
       }
     }
   }

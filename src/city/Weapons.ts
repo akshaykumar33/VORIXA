@@ -121,6 +121,9 @@ export class Arsenal {
   public readonly ammo: Record<WeaponId, { mag: number; reserve: number }>;
   public reloading = 0;
   public cooldown = 0;
+  /** Perk: reload time multiplier (Quickdraw). */
+  public reloadScale = 1;
+  private reloadTotal = 1;
   public readonly events: WeaponEvent[] = [];
   private sprayIndex = 0;
   private sprayRest = 0;
@@ -142,7 +145,7 @@ export class Arsenal {
 
   /** How far through a reload, 0..1; 0 when not reloading. */
   public get reloadProgress(): number {
-    return this.reloading > 0 ? 1 - this.reloading / this.def.reloadTime : 0;
+    return this.reloading > 0 ? 1 - this.reloading / this.reloadTotal : 0;
   }
 
   public select(id: WeaponId): void {
@@ -158,7 +161,8 @@ export class Arsenal {
   public reload(): void {
     const a = this.ammo[this.current];
     if (this.reloading > 0 || a.mag >= this.def.magazine || a.reserve <= 0) return;
-    this.reloading = this.def.reloadTime;
+    this.reloadTotal = this.def.reloadTime * this.reloadScale;
+    this.reloading = this.reloadTotal;
     this.events.push('reloadStart');
   }
 

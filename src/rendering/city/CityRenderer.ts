@@ -9,6 +9,9 @@ import { PostFX } from '../rush/PostFX';
 import { rayBoxes, type Combat } from '../../city/Combat';
 import { CombatView } from './CombatView';
 import { VehicleView } from './VehicleView';
+import { People, type Person } from './People';
+import { Showroom } from './Showroom';
+import { CHOIR, CREW, type CharacterDef } from '../../city/Crew';
 import type { Vehicle } from '../../city/Vehicle';
 
 /**
@@ -36,9 +39,6 @@ type Clip =
   | 'Idle' | 'Walk' | 'Run' | 'Run_Back' | 'Run_Left' | 'Run_Right' | 'Run_Shoot'
   | 'Idle_Gun' | 'Idle_Gun_Pointing' | 'Idle_Gun_Shoot' | 'Gun_Shoot' | 'Roll' | 'Wave' | 'Death';
 
-/** The hero's outfit (see public/city/people). */
-const HERO_MODEL = '/city/people/m-casual_hoodie.glb';
-const HERO_HEIGHT = 1.8;
 /** The run clip frozen here is a full stride: it reads as a leap, and the rig's IK feet stay put. */
 const LEAP_PHASE = 0.3;
 
@@ -73,7 +73,13 @@ export class CityRenderer {
   private hero: THREE.Object3D | null = null;
   private heroMeshes: THREE.Object3D[] = [];
   private mixer: THREE.AnimationMixer | null = null;
-  private readonly actions = new Map<string, THREE.AnimationAction>();
+  private actions = new Map<string, THREE.AnimationAction>();
+  public readonly people = new People();
+  /** Who the hero is: a crew member, dressed by `People`. */
+  public heroDef: CharacterDef = CREW[0];
+  /** The Safehouse turntable; drawn instead of the city while it is open. */
+  public readonly showroom = new Showroom(this.people);
+  public showroomOpen = false;
   private current: THREE.AnimationAction | null = null;
   private currentName = '';
   private landing = 0;
@@ -133,6 +139,7 @@ export class CityRenderer {
     this.post?.setSize(width, height);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    this.showroom.resize(width / height);
   }
 
   /** Loads the assets and builds the district. Resolves when the city can be drawn. */
@@ -146,16 +153,23 @@ export class CityRenderer {
       });
     const [city, hero, guns, swat, soldier, cars] = await Promise.all([
       track(this.loader.loadAsync('/city/district/city.gltf')),
-      track(this.loader.loadAsync(HERO_MODEL)),
+      track(this.people.make(this.heroDef)),
       track(this.loader.loadAsync('/city/guns.glb')),
-      track(this.loader.loadAsync('/city/people/m-swat.glb')),
-      track(this.loader.loadAsync('/city/people/f-soldier.glb')),
+      track(this.people.load(CHOIR[0].model)),
+      track(this.people.load(CHOIR[1].model)),
       track(this.loader.loadAsync('/city/cars.glb'))
     ]);
     this.buildDistrict(city, district);
     this.buildHero(hero);
     this.scene.add(this.camera);
-    this.combatView = new CombatView(guns, { swat, soldier }, this.camera, this.heroHand, this.hero!);
+    // The Choir: enforcers in black with red visors, soldiers in oxblood.
+    this.combatView = new CombatView(
+      guns,
+      (kind) => this.people.makeFrom(kind === 'swat' ? swat : soldier, kind === 'swat' ? CHOIR[0] : CHOIR[1], 0.25),
+      this.camera,
+      this.heroHand,
+      this.hero!
+    );
     this.scene.add(this.combatView.group);
     this.vehicleView = new VehicleView(cars);
     this.scene.add(this.vehicleView.group);
@@ -227,35 +241,34 @@ export class CityRenderer {
     }
   }
 
-  private buildHero(hero: GLTF): void {
-    const model = hero.scene;
-    // Normalise to a 1.8 m person, feet on the ground, whatever the export scale.
-    const box = new THREE.Box3().setFromObject(model);
-    const scale = HERO_HEIGHT / Math.max(0.01, box.max.y - box.min.y);
-    model.scale.setScalar(scale);
-    model.position.y = -box.min.y * scale;
-    model.traverse((o) => {
-      const mesh = o as THREE.SkinnedMesh;
-      if (!mesh.isMesh) return;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.frustumCulled = false;
-      this.heroMeshes.push(mesh);
-      const m = mesh.material as THREE.MeshStandardMaterial;
-      // Flat-coloured cloth and skin: a little sheen, never plastic.
-      if (m.isMeshStandardMaterial) {
-        m.roughness = Math.max(m.roughness, 0.6);
-        m.metalness = 0;
-      }
-    });
-    const root = new THREE.Group();
-    root.add(model);
-    this.heroHand = model.getObjectByName('WristR') ?? model.getObjectByName('Wrist_R') ?? model.getObjectByName('Wrist.R') ?? null;
-    this.hero = root;
-    this.scene.add(root);
-    this.mixer = new THREE.AnimationMixer(model);
-    for (const clip of hero.animations) this.actions.set(clip.name, this.mixer.clipAction(clip));
+  private buildHero(person: Person): void {
+    this.hero = person.root;
+    this.heroMeshes = person.meshes;
+    this.heroHand = person.hand;
+    this.mixer = person.mixer;
+    this.actions = person.actions;
+    this.current = null;
+    this.currentName = '';
+    this.scene.add(person.root);
     this.play('Idle', 0);
+  }
+
+  /** Swaps who the hero is (the Safehouse), keeping position, facing and the gun in hand. */
+  public async setHero(def: CharacterDef): Promise<void> {
+    if (!this.ready) {
+      this.heroDef = def;
+      return;
+    }
+    const person = await this.people.make(def);
+    const old = this.hero;
+    if (old) {
+      person.root.position.copy(old.position);
+      person.root.rotation.copy(old.rotation);
+      old.removeFromParent();
+    }
+    this.heroDef = def;
+    this.buildHero(person);
+    this.combatView?.rebindHero(person.hand, person.root);
   }
 
   private play(name: Clip, fade = 0.18, once = false, speed = 1): void {
@@ -278,6 +291,10 @@ export class CityRenderer {
   }
 
   public render(hero: HeroMotor, dt: number, combat?: Combat, vehicles: readonly Vehicle[] = []): void {
+    if (this.showroomOpen) {
+      this.showroom.render(this.renderer, dt, this.scene.environment);
+      return;
+    }
     if (!this.ready || !this.hero) {
       this.renderer.render(this.scene, this.camera);
       return;
