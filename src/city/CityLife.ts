@@ -49,6 +49,7 @@ function hash(n: number, salt: number): number {
 export class CityLife {
   public readonly citizens: Citizen[] = [];
   public readonly fx: LifeFx[] = [];
+  private seen = 0;
   /** Stars, 0..5, fractional while it builds; the HUD shows the whole stars. */
   public heat = 0;
   private calm = 0;
@@ -159,7 +160,8 @@ export class CityLife {
    * @param seenByPolice Police can see the hero: heat does not cool while they can.
    */
   public step(dt: number, seenByPolice: boolean): void {
-    this.fx.length = 0;
+    // Keep what happened since the last step (a blast between steps), drop what was read.
+    this.fx.splice(0, this.seen);
     this.calm += dt;
     if (!seenByPolice && this.heat > 0 && this.calm > HEAT_COOLDOWN) {
       this.heat = Math.max(0, Math.ceil(this.heat) - 1);
@@ -189,5 +191,6 @@ export class CityLife {
       }
       this.setAlong(c, a);
     }
+    this.seen = this.fx.length;
   }
 }

@@ -97,10 +97,13 @@ export class VehicleView {
     return view;
   }
 
+  /** The ground under the cars (hills in the wilds). */
+  public ground: (x: number, z: number) => number = () => 0;
+
   public update(vehicles: readonly Vehicle[], dt: number): void {
     for (const v of vehicles) {
       const view = this.viewFor(v);
-      view.root.position.set(v.x, 0, v.z);
+      view.root.position.set(v.x, this.ground(v.x, v.z), v.z);
       view.root.rotation.y = v.heading;
       const along = v.forwardSpeed;
       for (const w of view.spinners) w.rotation.x += (along * dt) / Math.max(0.15, view.wheelRadius);

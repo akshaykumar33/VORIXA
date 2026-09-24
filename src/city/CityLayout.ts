@@ -49,6 +49,8 @@ export interface District {
   pitch: number;
   roadsX: number;
   roadsZ: number;
+  /** Height of the ground at (x, z): flat (0) across the city; hills once the wilds are open. */
+  ground?: (x: number, z: number) => number;
 }
 
 export const INTERSECTION = 24.66;

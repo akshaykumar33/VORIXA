@@ -201,6 +201,23 @@ describe('Chaos in the fight', () => {
     expect(barrel.alive).toBe(false);
   });
 
+  it('reports blast kills (and the wave they clear) to the game on the next step', () => {
+    // The game reads Combat.fx right after Combat.step; blasts land between steps.
+    const combat = new Combat(d.colliders, d.bounds);
+    const h = hero();
+    combat.spawnWave(h.x + 30, h.z, 2);
+    for (const e of combat.enemies) e.motor.place(h.x + 30, h.z, 0);
+    combat.step(DT, h, () => {});
+    combat.blast(h.x + 30, h.z, 6.5, 400);
+    combat.step(DT, h, () => {});
+    const types = combat.fx.map((f) => f.type);
+    expect(types.filter((t) => t === 'enemyKilled')).toHaveLength(2);
+    expect(types).toContain('waveClear');
+    // And read only once.
+    combat.step(DT, h, () => {});
+    expect(combat.fx.some((f) => f.type === 'waveClear')).toBe(false);
+  });
+
   it('does not count outpost guards as a wave', () => {
     const combat = new Combat(d.colliders, d.bounds);
     combat.spawn('swat', 0, 0, 0, 2);

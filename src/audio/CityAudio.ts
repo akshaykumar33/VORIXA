@@ -461,6 +461,43 @@ export class CityAudio {
     this.burst(band, end + 0.25, 0.08, 'highpass', 3000, 0.7, 0.45);
   }
 
+  /** A wolf's howl: a rising, wavering note that falls away. */
+  public howl(x: number, z: number): void {
+    const v = this.voice(x, z, 0.55, 0.9);
+    if (!v) return;
+    const ctx = v.ctx;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    const at = v.at;
+    o.frequency.setValueAtTime(330, at);
+    o.frequency.linearRampToValueAtTime(620, at + 0.6);
+    o.frequency.linearRampToValueAtTime(590, at + 1.6);
+    o.frequency.exponentialRampToValueAtTime(380, at + 2.3);
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = 5.5;
+    const depth = ctx.createGain();
+    depth.gain.value = 9;
+    wobble.connect(depth).connect(o.frequency);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(0.22, at + 0.4);
+    g.gain.setValueAtTime(0.22, at + 1.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 2.4);
+    o.connect(g).connect(v.input);
+    o.start(at);
+    wobble.start(at);
+    o.stop(at + 2.5);
+    wobble.stop(at + 2.5);
+  }
+
+  /** A snarl and a bite. */
+  public bite(x: number, z: number): void {
+    const v = this.voice(x, z, 0.8, 0.1);
+    if (!v) return;
+    this.burst(v.input, v.at, 0.35, 'bandpass', 320, 3, 0.6, 0.02);
+    this.burst(v.input, v.at + 0.28, 0.08, 'highpass', 1800, 0.8, 0.5);
+  }
+
   /** Gas escaping a holed propane tank, until it goes. */
   public hiss(x: number, z: number, seconds: number): void {
     const v = this.voice(x, z, 0.5, 0.1);

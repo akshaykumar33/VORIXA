@@ -154,3 +154,28 @@ Asked for Far Cry's feel, the city gained its two signature systems:
   wind that rises with speed.
 * **Honest limits.** The glider pose is the library's jump loop (there is no hanging pose in the
   free clips), the climb reuses a mantle clip, and Cantor's voice is not a voice.
+
+## Update (2026-09-25): an audit, then the wild country
+
+**Audit** (asked: is everything intact, anything weird or unneeded?). Fixed: every mode was bundled
+into one download, so city players fetched Rush, On Foot and the parkour course (now each mode is
+its own chunk); guards who only heard a shot knew where the hero was (now they walk to the noise,
+search, and fight only on sight); enemies stuck on planters and cars (now they hop low things and
+step around tall ones); blast kills were never reported to the game (Combat and CityLife cleared
+their events before the game read them, so an explosion that cleared a wave never started the next
+one); `rayBoxes` allocated per box per ray (now allocation-free). The chaos, outpost, rooftop,
+wilds and animal views now run in Node tests. Left for the owner to decide: Rush, On Foot and the
+parkour course are three older modes (about 22,000 lines, plus MediaPipe hand and face tracking)
+that the city does not use; the 13 old low-poly outfits (11 MB) are no longer referenced.
+
+**The wild country** (`src/city/Wilds.ts`, `src/city/Wildlife.ts`). The north skyline comes down and
+the district opens onto 300 m of rolling hills: meadows, a forest that turns to pine on the high
+ground, a lake to wade (waist deep, slower), rocks, and a trail winding up from the second road. The
+ground has height now (people, enemies and animals walk it; bullets stop at hillsides; cameras and
+cars stay above it). Nine wolves in three packs hunt the nearest living thing, the hero, a deer or
+a Choir fighter (lure a pack onto an outpost); deer and foxes bolt from people, shots, blasts and
+wolves; a wounded stag charges. Dead animals can be skinned for cash, and the wild restocks out of
+sight. Drawn with Quaternius' Stylized Nature MegaKit (instanced per 64 m tile, culled by distance,
+swaying in the wind) and Ultimate Animated Animal Pack. **Honest limit:** the animals are
+flat-coloured low-poly models with a fur grain shaded in; they are stylised next to the realistic
+people. Realistic animated animals would need paid assets.

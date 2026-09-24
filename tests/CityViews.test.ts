@@ -18,7 +18,12 @@ beforeAll(() => {
   const ctx = new Proxy(
     {},
     {
-      get: (_t, key) => (key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}),
+      get: (_t, key) =>
+        key === 'createRadialGradient' || key === 'createLinearGradient'
+          ? () => ({ addColorStop() {} })
+          : key === 'createImageData'
+            ? (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) })
+            : () => {},
       set: () => true
     }
   );
@@ -91,6 +96,69 @@ describe('City views (no GPU)', { timeout: 20000 }, () => {
       states.add(outposts.stateOf(defs[0].id));
     }
     expect([...states]).toEqual(expect.arrayContaining(['alerted', 'alarm', 'liberated']));
+  });
+
+  it('WildsView: the hills, the lake, and instanced trees and undergrowth culled by tile', async () => {
+    const { WildsView } = await import('../src/rendering/city/WildsView');
+    const { openWilds } = await import('../src/city/Wilds');
+    const district = buildDistrict(4);
+    const wilds = openWilds(district);
+    // Stand-in pieces with the kit's names (Node cannot decode the real textures).
+    const scene = new THREE.Group();
+    const pieces = new Set([...wilds.trees, ...wilds.rocks, ...wilds.plants].map((p) => p.piece));
+    for (const name of pieces) {
+      const root = new THREE.Group();
+      root.name = name;
+      const leaf = new THREE.MeshStandardMaterial({ name: 'Leaves_NormalTree', alphaTest: 0.5 });
+      root.add(new THREE.Mesh(new THREE.ConeGeometry(1, 4, 6), leaf));
+      scene.add(root);
+    }
+    const view = new WildsView(wilds, { scene } as never);
+    const instanced = view.group.children.filter((o) => (o as THREE.InstancedMesh).isInstancedMesh) as THREE.InstancedMesh[];
+    const total = instanced.reduce((n, m) => n + m.count, 0);
+    expect(total).toBe(wilds.trees.length + wilds.rocks.length + wilds.plants.length);
+    const terrain = view.group.children[0] as THREE.Mesh;
+    expect(terrain.geometry.getAttribute('position').count).toBeGreaterThan(20000);
+    // From the city, the far forest is not drawn; from inside it, the near tiles are.
+    view.update(1 / 60, new THREE.Vector3(40, 2, 40));
+    const far = instanced.filter((m) => m.visible).length;
+    view.update(1 / 60, new THREE.Vector3(wilds.trail[15].x, 5, wilds.trail[15].z));
+    const near = instanced.filter((m) => m.visible).length;
+    expect(near).toBeGreaterThan(far);
+  });
+
+  it('AnimalView: every animal placed, scaled and turned to face its way', async () => {
+    const { AnimalView } = await import('../src/rendering/city/AnimalView');
+    const { openWilds } = await import('../src/city/Wilds');
+    const { Wildlife } = await import('../src/city/Wildlife');
+    const district = buildDistrict(4);
+    const wilds = openWilds(district);
+    const life = new Wildlife(wilds, district.colliders, district.bounds);
+    const model = (headZ: number) => {
+      const scene = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 5), new THREE.MeshStandardMaterial({ name: 'Main' }));
+      body.position.y = 1.5;
+      const head = new THREE.Object3D();
+      head.name = 'Head';
+      head.position.z = headZ;
+      const tail = new THREE.Object3D();
+      tail.name = 'Tail1';
+      tail.position.z = -headZ;
+      scene.add(body, head, tail);
+      return { scene, animations: [] } as never;
+    };
+    // The wolf's head points -z in its file; the others +z.
+    const view = new AnimalView({ wolf: model(-2), deer: model(2), stag: model(2), fox: model(2) });
+    const cam = new THREE.Vector3(wilds.trail[15].x, 5, wilds.trail[15].z);
+    for (let t = 0; t < 1; t += DT) {
+      life.step(DT, new HeroMotor(district.colliders, district.bounds, wilds.ground), new Combat(district.colliders, district.bounds), true);
+      view.update(life, DT, cam);
+    }
+    const roots = view.group.children;
+    expect(roots.length).toBe(life.animals.length);
+    const wolfModel = roots[0].children[0];
+    expect(wolfModel.rotation.y).toBeCloseTo(Math.PI, 5);
+    expect(wolfModel.scale.x).toBeCloseTo(1.0 / 3, 3);
   });
 
   it('RooftopView: ladders on the buildings, and the glider opening, banking and folding', async () => {

@@ -74,15 +74,20 @@ export class HeroMotor {
   private climbTo = { x: 0, y: 0, z: 0 };
   private climbTime = 1;
 
+  /** Moving through water: slower, and no sprinting. */
+  public wading = false;
+
   public constructor(
     private readonly colliders: readonly Box[],
-    private readonly bounds: Box
+    private readonly bounds: Box,
+    /** The ground's height: flat in the city, hills in the wilds. */
+    private readonly ground: (x: number, z: number) => number = () => 0
   ) {}
 
   public place(x: number, z: number, facing: number): void {
     this.x = x;
     this.z = z;
-    this.y = 0;
+    this.y = this.ground(x, z);
     this.vx = this.vy = this.vz = 0;
     this.facing = facing;
     this.grounded = true;
@@ -130,7 +135,7 @@ export class HeroMotor {
       dx /= len;
       dz /= len;
     }
-    const top = intent.sprint && !intent.faceCamera ? SPRINT_SPEED : intent.walk ? WALK_SPEED : JOG_SPEED;
+    const top = this.wading ? WALK_SPEED * 1.2 : intent.sprint && !intent.faceCamera ? SPRINT_SPEED : intent.walk ? WALK_SPEED : JOG_SPEED;
     const tx = dx * top;
     const tz = dz * top;
     const accel = (this.grounded ? ACCEL_GROUND : ACCEL_AIR) * dt;
@@ -178,6 +183,10 @@ export class HeroMotor {
       this.vy = 0;
       this.grounded = true;
       this.airTime = 0;
+    } else if (this.grounded && this.vy <= 0 && this.y - floor < 0.6) {
+      // Walking downhill: stay on the slope rather than hopping down it.
+      this.y = floor;
+      this.vy = 0;
     } else {
       if (this.grounded && this.y - floor > 0.05) this.grounded = false;
       if (!this.grounded) this.airTime += dt;
@@ -246,7 +255,7 @@ export class HeroMotor {
   }
 
   private floorAt(x: number, z: number): number {
-    let floor = 0;
+    let floor = this.ground(x, z);
     for (const b of this.colliders) {
       if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ && this.y >= b.height - 0.3) floor = Math.max(floor, b.height);
     }

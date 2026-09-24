@@ -17,6 +17,10 @@ import { ChaosView } from './ChaosView';
 import { OutpostView } from './OutpostView';
 import { RooftopView } from './RooftopView';
 import type { Ladder } from '../../city/Rooftops';
+import { WildsView } from './WildsView';
+import { AnimalView } from './AnimalView';
+import type { Wilds } from '../../city/Wilds';
+import type { AnimalKind, Wildlife } from '../../city/Wildlife';
 import type { Chaos } from '../../city/Chaos';
 import type { OutpostDef, Outposts } from '../../city/Outposts';
 import type { CityLife } from '../../city/CityLife';
@@ -79,6 +83,12 @@ export class CityRenderer {
   public outpostView: OutpostView | null = null;
   /** Ladders up the tall buildings, and the hero's glider. */
   public rooftopView: RooftopView | null = null;
+  /** The wild country north of the city, and its animals (set by the game before `load`). */
+  public wilds: Wilds | null = null;
+  public wildlife: Wildlife | null = null;
+  private wildsView: WildsView | null = null;
+  private animalView: AnimalView | null = null;
+  private ground: (x: number, z: number) => number = () => 0;
   private lastFacing = 0;
   /** The simulations the two views above draw, set by the game. */
   public chaos: Chaos | null = null;
@@ -179,7 +189,7 @@ export class CityRenderer {
     let done = 0;
     const track = <T,>(p: Promise<T>) =>
       p.then((v) => {
-        onProgress(++done / 8);
+        onProgress(++done / 10);
         return v;
       });
     const [city, hero, guns, swat, soldier, cars, police, cantor] = await Promise.all([
@@ -192,6 +202,19 @@ export class CityRenderer {
       track(this.people.load(POLICE.model)),
       track(this.people.load(CANTOR.model))
     ]);
+    // The wild country: its plants and its animals.
+    if (this.wilds) {
+      this.ground = this.wilds.ground;
+      const kinds: AnimalKind[] = ['wolf', 'deer', 'stag', 'fox'];
+      const [nature, animals] = await Promise.all([
+        track(this.loader.loadAsync('/city/wilds/nature.gltf')),
+        track(Promise.all(kinds.map((k) => this.loader.loadAsync(`/city/wilds/${k}.glb`))))
+      ]);
+      this.wildsView = new WildsView(this.wilds, nature);
+      this.scene.add(this.wildsView.group);
+      this.animalView = new AnimalView(Object.fromEntries(kinds.map((k, i) => [k, animals[i]])) as Record<AnimalKind, GLTF>);
+      this.scene.add(this.animalView.group);
+    }
     this.buildDistrict(city, district);
     this.buildHero(hero);
     this.scene.add(this.camera);
@@ -211,6 +234,7 @@ export class CityRenderer {
     );
     this.scene.add(this.combatView.group);
     this.vehicleView = new VehicleView(cars);
+    this.vehicleView.ground = this.ground;
     this.scene.add(this.vehicleView.group);
     this.lifeView = new CityLifeView(this.people);
     this.scene.add(this.lifeView.group);
@@ -396,6 +420,8 @@ export class CityRenderer {
     if (life) this.lifeView?.update(life, dt);
     if (this.chaos) this.chaosView.update(this.chaos, dt);
     if (this.outposts) this.outpostView?.update(this.outposts, dt, this.camera.position);
+    this.wildsView?.update(dt, this.camera.position);
+    if (this.wildlife) this.animalView?.update(this.wildlife, dt, this.camera.position);
     const turn = dt > 0 ? wrap(hero.facing - this.lastFacing) / dt : 0;
     this.lastFacing = hero.facing;
     this.rooftopView?.update(dt, turn, hero.x, hero.z);
@@ -407,7 +433,8 @@ export class CityRenderer {
     }
 
     this.sun.position.set(hero.x - 40, 70, hero.z + 25);
-    this.sun.target.position.set(hero.x, 0, hero.z);
+    this.sun.position.y += hero.y;
+    this.sun.target.position.set(hero.x, hero.y, hero.z);
     if (this.post) this.post.render(dt);
     else this.renderer.render(this.scene, this.camera);
   }
@@ -481,16 +508,17 @@ export class CityRenderer {
       const fx = Math.sin(car.heading);
       const fz = Math.cos(car.heading);
       // The driver's seat: left of centre, eye height, a little behind the windscreen.
-      cam.position.set(car.x + fz * 0.35 - fx * 0.1, 1.15, car.z - fx * 0.35 - fz * 0.1);
+      cam.position.set(car.x + fz * 0.35 - fx * 0.1, this.ground(car.x, car.z) + 1.15, car.z - fx * 0.35 - fz * 0.1);
       this.target.set(cam.position.x + lookX, cam.position.y + lookY, cam.position.z + lookZ);
       cam.lookAt(this.target);
       return;
     }
-    const pivot = this.tmp.set(car.x, 1.7, car.z);
+    const pivot = this.tmp.set(car.x, this.ground(car.x, car.z) + 1.7, car.z);
     const want = 7 + Math.min(2.5, speed * 0.06);
     const hit = rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, want, this.colliders);
     const d = Math.max(1.5, Math.min(want, hit - 0.3));
-    cam.position.set(pivot.x - lookX * d, Math.max(0.8, pivot.y - lookY * d + 0.6), pivot.z - lookZ * d);
+    cam.position.set(pivot.x - lookX * d, pivot.y - lookY * d + 0.6, pivot.z - lookZ * d);
+    cam.position.y = Math.max(cam.position.y, this.ground(cam.position.x, cam.position.z) + 0.8);
     this.target.set(pivot.x + lookX * 8, pivot.y + lookY * 8, pivot.z + lookZ * 8);
     cam.lookAt(this.target);
   }
@@ -536,7 +564,9 @@ export class CityRenderer {
     const want = this.cameraDistance;
     const hit = rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, want, this.carBoxes), this.colliders);
     const d = Math.max(0.6, Math.min(want, hit - 0.25));
-    this.camPos.set(pivot.x - lookX * d, Math.max(0.4, pivot.y - lookY * d), pivot.z - lookZ * d);
+    this.camPos.set(pivot.x - lookX * d, pivot.y - lookY * d, pivot.z - lookZ * d);
+    // Never under the ground: the street, or a hillside behind the hero.
+    this.camPos.y = Math.max(this.camPos.y, this.ground(this.camPos.x, this.camPos.z) + 0.4);
     cam.position.copy(this.camPos);
     this.target.set(pivot.x + lookX * 10, pivot.y + lookY * 10, pivot.z + lookZ * 10);
     cam.lookAt(this.target);

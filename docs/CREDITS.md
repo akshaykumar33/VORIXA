@@ -136,6 +136,8 @@ meshopt-compressed. Content is otherwise unmodified.
 | Universal Animation Library 1 and 2 (Standard) | `people/mh-anims.glb` | Every clip the realistic cast plays, retargeted onto their skeleton (below) |
 | Universal Base Characters | not shipped | Fetched and evaluated; the free bodies have no modern clothing |
 | Realistic Car Pack (Nov 2018) | `cars.glb` | Seven drivable cars incl. police and taxi (OBJ converted with obj2gltf) |
+| Stylized Nature MegaKit (Standard, the free edition) | `wilds/nature.gltf` | The wild country's trees, pines, dead and twisted trees, rocks, bushes, grass, flowers and ferns, with their textures |
+| Ultimate Animated Animal Pack (from quaternius.com, Google Drive; licence file checked) | `wilds/{wolf,deer,stag,fox}.glb` | The wild animals and their clips |
 | Ultimate Gun Pack | `guns.glb` | Pistol, SMG, assault rifle, shotgun, sniper rifle (OBJ converted with obj2gltf, Cesium, Apache-2.0, build only) |
 
 Build-only tools (not shipped): glTF-Transform (MIT, Don McCurdy) and meshoptimizer (MIT,

@@ -25,6 +25,8 @@ export type RadioCue =
   | 'bossArrive'
   | 'bossDown'
   | 'wave'
+  | 'wilds'
+  | 'wolves'
   | 'idle';
 
 /** Lines per moment. `{outpost}` and `{crew}` are filled in. */
@@ -88,6 +90,14 @@ export const LINES: Record<RadioCue, readonly string[]> = {
   wave: [
     'Another verse. They’ll keep coming. I have so many voices.',
     'You hold one corner, I take two. That’s the arithmetic of a choir.'
+  ],
+  wilds: [
+    'Out past the city, it’s just you and the wolves. I pay them too.',
+    'The woods don’t care who you are, {crew}. Neither do I.'
+  ],
+  wolves: [
+    'Even the dogs are turning on my people. Charming.',
+    'You set wolves on my choir. That’s almost poetry.'
   ],
   idle: [
     'Every door in this district opens with my key. Remember that when you sleep.',

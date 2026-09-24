@@ -18,7 +18,7 @@ export interface StoryPanel {
 export interface Blip {
   x: number;
   z: number;
-  kind: 'enemy' | 'police' | 'boss' | 'objective' | 'coin' | 'car' | 'outpost' | 'ours';
+  kind: 'enemy' | 'police' | 'boss' | 'objective' | 'coin' | 'car' | 'outpost' | 'ours' | 'wolf' | 'animal';
 }
 
 const CSS = /* css */ `
@@ -223,12 +223,12 @@ export class CityJobUI {
       g.stroke();
     }
     const colours: Record<Blip['kind'], string> = {
-      enemy: '#ff4d5e', police: '#4f8cff', boss: '#ff2b8a', objective: '#ffc23d', coin: '#ffe36a', car: '#9aa3b5', outpost: '#ff3b4a', ours: '#8a6cf0'
+      enemy: '#ff4d5e', police: '#4f8cff', boss: '#ff2b8a', objective: '#ffc23d', coin: '#ffe36a', car: '#9aa3b5', outpost: '#ff3b4a', ours: '#8a6cf0', wolf: '#ff9a3c', animal: '#c9b38a'
     };
     const edge = (half - 14) / scale;
     for (const b of blips) {
       g.fillStyle = colours[b.kind];
-      const r = b.kind === 'objective' || b.kind === 'boss' || b.kind === 'outpost' ? 9 : b.kind === 'car' ? 4 : 6;
+      const r = b.kind === 'objective' || b.kind === 'boss' || b.kind === 'outpost' ? 9 : b.kind === 'car' || b.kind === 'animal' ? 4 : 6;
       let x = b.x;
       let z = b.z;
       const dx = x - heroX;

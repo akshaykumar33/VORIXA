@@ -16,6 +16,8 @@ import { Radio, type RadioCue } from '../city/Radio';
 import { buildLadders, ladderAt, type Ladder } from '../city/Rooftops';
 import { GLIDE_MIN_HEIGHT, type HeroFx } from '../city/HeroMotor';
 import { CityRadio } from '../ui/CityRadio';
+import { openWilds, waterDepth, type Wilds } from '../city/Wilds';
+import { Wildlife, type Animal } from '../city/Wildlife';
 import type { Box } from '../city/CityLayout';
 import type { Citizen } from '../city/CityLife';
 
@@ -167,17 +169,27 @@ export class CityGame {
   private quietKills = 0;
   private readonly ladders: Ladder[];
   private climbedOnce = false;
+  /** The wild country north of the city, and what lives there. */
+  private readonly wilds: Wilds;
+  private readonly wildlife: Wildlife;
+  private lastHowl = -99;
+  private saidWilds = false;
 
   public constructor(
     private readonly renderer: CityRenderer,
     private readonly canvas: HTMLCanvasElement,
     container: HTMLElement
   ) {
+    // North of the last road the city opens onto the wild country (before anything is built on the
+    // district: it takes down the northern skyline and gives the ground its hills).
+    this.wilds = openWilds(this.district);
+    const ground = this.wilds.ground;
     // The Choir's outposts close their roads: their barricades are part of the city's solids.
     this.outposts = new Outposts(buildOutposts(this.district.pitch), loadLiberated());
     this.district.colliders.push(...this.outposts.solids);
-    this.hero = new HeroMotor(this.district.colliders, this.district.bounds);
-    this.combat = new Combat(this.district.colliders, this.district.bounds);
+    this.hero = new HeroMotor(this.district.colliders, this.district.bounds, ground);
+    this.combat = new Combat(this.district.colliders, this.district.bounds, ground, true);
+    this.wildlife = new Wildlife(this.wilds, this.district.colliders, this.district.bounds);
     this.life = new CityLife(this.district, 28);
     // Nobody parks inside an outpost.
     const parking = this.district.parking.filter((p) => this.outposts.defs.every((o) => Math.hypot(p.x - o.x, p.z - o.z) > 13));
@@ -192,6 +204,8 @@ export class CityGame {
     }
     this.renderer.chaos = this.chaos;
     this.renderer.outposts = this.outposts;
+    this.renderer.wilds = this.wilds;
+    this.renderer.wildlife = this.wildlife;
     this.ladders = buildLadders(this.district);
     const s = this.district.spawn;
     this.hero.place(s.x, s.z, s.yaw + Math.PI);
@@ -516,6 +530,10 @@ export class CityGame {
       blips.push({ x: e.motor.x, z: e.motor.z, kind: e.kind === 'police' ? 'police' : e.kind === 'boss' ? 'boss' : 'enemy' });
     }
     for (const c of this.coins) if (!c.taken) blips.push({ x: c.x, z: c.z, kind: 'coin' });
+    for (const an of this.wildlife.animals) {
+      if (an.state === 'dead' || Math.hypot(an.motor.x - this.hero.x, an.motor.z - this.hero.z) > 70) continue;
+      blips.push({ x: an.motor.x, z: an.motor.z, kind: an.kind === 'wolf' ? 'wolf' : 'animal' });
+    }
     for (const o of this.outposts.defs) blips.push({ x: o.x, z: o.z, kind: this.outposts.stateOf(o.id) === 'liberated' ? 'ours' : 'outpost' });
     const t = this.runner?.target;
     if (t) blips.push({ x: t.x, z: t.z, kind: 'objective' });
@@ -755,6 +773,7 @@ export class CityGame {
       intent.jumpPressed = false;
       this.stepGuns(trigger);
       this.stepCombat();
+      this.stepWilds();
       this.stepChaos();
       this.stepOutposts();
       this.stepLife();
@@ -934,7 +953,7 @@ export class CityGame {
     // Third person traces from the camera but ignores anything between it and the hero.
     const minDistance = r.view === 'third' ? Math.hypot(cam.x - this.hero.x, cam.z - this.hero.z) + 0.4 : 0;
     // What else a bullet can meet before any fighter or wall: fuel, an alarm, a bystander.
-    type Blocker = { kind: 'fuel'; e: Explosive } | { kind: 'alarm'; id: string } | { kind: 'citizen'; c: Citizen };
+    type Blocker = { kind: 'fuel'; e: Explosive } | { kind: 'alarm'; id: string } | { kind: 'citizen'; c: Citizen } | { kind: 'animal'; a: Animal; head: boolean };
     const blockers: (Blocker | null)[] = [];
     const block = (dx: number, dy: number, dz: number): number => {
       let best = Infinity;
@@ -954,6 +973,11 @@ export class CityGame {
         best = who.distance;
         what = { kind: 'citizen', c: who.citizen };
       }
+      const beast = this.wildlife.trace(cam.x, cam.y, cam.z, dx, dy, dz, 400);
+      if (beast.animal && beast.t >= minDistance && beast.t < best) {
+        best = beast.t;
+        what = { kind: 'animal', a: beast.animal, head: beast.head };
+      }
       blockers.push(what);
       return best;
     };
@@ -972,6 +996,10 @@ export class CityGame {
       } else if (what.kind === 'alarm') {
         this.outposts.breakAlarm(what.id);
         r.combatView?.impact(h.x, h.y, h.z, false);
+      } else if (what.kind === 'animal') {
+        this.wildlife.hurt(what.a, WEAPONS[a.current].damage * (what.head ? 2 : 1), this.hero.x, this.hero.z, true);
+        r.combatView?.impact(h.x, h.y, h.z, true);
+        this.hud.hitMarker(what.a.state === 'dead');
       } else {
         this.life.hurt(what.c, false);
         r.combatView?.impact(h.x, h.y, h.z, true);
@@ -979,6 +1007,7 @@ export class CityGame {
     });
     this.life.gunshot(this.hero.x, this.hero.z);
     this.combat.noise(this.hero.x, this.hero.z, WEAPONS[a.current].loudness);
+    this.wildlife.noise(this.hero.x, this.hero.z, WEAPONS[a.current].loudness * 1.4);
     r.punchPitch += result.kickPitch;
     r.punchYaw += result.kickYaw;
     r.sinceFired = 0;
@@ -1078,6 +1107,7 @@ export class CityGame {
       else if (fx.type === 'blast') this.explode(fx.blast);
     }
     this.combat.scorch((x, z) => chaos.burning(x, z), FIRE_DPS, TICK);
+    this.wildlife.scorch((x, z) => chaos.burning(x, z), FIRE_DPS, TICK);
     for (const v of this.vehicles) if (chaos.burning(v.x, v.z)) this.damageCar(v, 16 * TICK);
     for (const [v, left] of this.carFuses) {
       if (left - TICK > 0) {
@@ -1103,6 +1133,7 @@ export class CityGame {
     this.combat.blast(b.x, b.z, b.radius, b.power);
     this.life.blast(b.x, b.z, b.radius);
     this.outposts.blast(b.x, b.z, b.radius);
+    this.wildlife.blast(b.x, b.z, b.radius, b.power);
     for (const v of this.vehicles) {
       const d = Math.hypot(v.x - b.x, v.z - b.z);
       if (d >= b.radius) continue;
@@ -1122,6 +1153,36 @@ export class CityGame {
     this.blasts.push(this.clock);
     while (this.blasts.length && this.clock - this.blasts[0] > 2.5) this.blasts.shift();
     if (this.blasts.length >= 3) this.cantor('chain');
+  }
+
+  /** The wild country: its animals, the lake, and Cantor noticing the hero has left the city. */
+  private stepWilds(): void {
+    const w = this.wildlife;
+    const h = this.hero;
+    h.wading = h.mode === 'foot' && waterDepth(this.wilds, h.x, h.z) > 0.35;
+    w.step(TICK, h, this.combat, this.combat.hp > 0 && !this.down);
+    for (const fx of w.fx) {
+      if (fx.type === 'bite') {
+        this.audio.bite(fx.x, fx.z);
+      } else if (fx.type === 'howl' && this.clock - this.lastHowl > 12) {
+        this.lastHowl = this.clock;
+        this.audio.howl(fx.animal.motor.x, fx.animal.motor.z);
+      } else if (fx.type === 'killed' && Math.hypot(fx.animal.motor.x - h.x, fx.animal.motor.z - h.z) < 80) {
+        this.hud.feed(`${fx.animal.kind[0].toUpperCase()}${fx.animal.kind.slice(1)} down · walk over it for the pelt`);
+      } else if (fx.type === 'pelt') {
+        this.cash += fx.cash;
+        save(CASH_KEY, String(this.cash));
+        this.jobUI.setCash(this.cash);
+        this.hud.feed(`${fx.animal.kind[0].toUpperCase()}${fx.animal.kind.slice(1)} pelt · +$${fx.cash}`);
+        this.audio.cue('pickup');
+      }
+    }
+    const inWild = h.z > this.wilds.z0 + 2;
+    this.hud.setPlace(inWild ? 'The Wilds' : 'Downtown');
+    if (!this.saidWilds && h.z > this.wilds.z0 + 25) {
+      this.saidWilds = true;
+      this.cantor('wilds');
+    }
   }
 
   /** The outposts, stepped with the fight. */
@@ -1226,6 +1287,11 @@ export class CityGame {
           this.audio.cue('hit');
           break;
         case 'enemyKilled':
+          if (fx.how === 'animal') {
+            this.hud.feed('Mauled by wolves');
+            this.cantor('wolves');
+            break;
+          }
           if (fx.how === 'takedown' && ++this.quietKills >= 2) {
             this.quietKills = 0;
             this.cantor('quiet');

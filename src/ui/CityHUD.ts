@@ -421,6 +421,14 @@ export class CityHUD {
   }
 
   private lastAction = '';
+  private lastPlace = '';
+
+  /** Where the hero is: Downtown, or the Wilds. */
+  public setPlace(name: string): void {
+    if (name === this.lastPlace) return;
+    this.lastPlace = name;
+    this.q('.place b').textContent = name;
+  }
 
   /** The context prompt: a takedown in reach, a ladder to climb, the glider to open (null: none). */
   public setAction(label: string | null, key = 'E'): void {

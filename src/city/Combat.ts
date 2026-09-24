@@ -12,39 +12,75 @@ import { WEAPONS, type WeaponId, type Shot } from './Weapons';
 
 /** Distance along a ray to the nearest box (slab test), or `max` if none is closer. */
 export function rayBoxes(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number, boxes: readonly Box[]): number {
+  // Slab test per box, written out without allocating: this runs for every bullet, every sight
+  // line and every camera frame, against every building, trunk and rock.
   let best = max;
+  const ix = Math.abs(dx) < 1e-9 ? 0 : 1 / dx;
+  const iy = Math.abs(dy) < 1e-9 ? 0 : 1 / dy;
+  const iz = Math.abs(dz) < 1e-9 ? 0 : 1 / dz;
   for (const b of boxes) {
     let t0 = 0;
     let t1 = best;
-    let hit = true;
-    const slabs: [number, number, number, number][] = [
-      [ox, dx, b.minX, b.maxX],
-      [oy, dy, 0, b.height],
-      [oz, dz, b.minZ, b.maxZ]
-    ];
-    for (const [o, d, lo, hi] of slabs) {
-      if (Math.abs(d) < 1e-9) {
-        if (o < lo || o > hi) {
-          hit = false;
-          break;
-        }
-        continue;
-      }
-      let ta = (lo - o) / d;
-      let tb = (hi - o) / d;
+    if (ix === 0) {
+      if (ox < b.minX || ox > b.maxX) continue;
+    } else {
+      let ta = (b.minX - ox) * ix;
+      let tb = (b.maxX - ox) * ix;
       if (ta > tb) [ta, tb] = [tb, ta];
-      t0 = Math.max(t0, ta);
-      t1 = Math.min(t1, tb);
-      if (t0 > t1) {
-        hit = false;
-        break;
-      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) continue;
     }
-    if (hit) best = Math.min(best, t0);
+    if (iz === 0) {
+      if (oz < b.minZ || oz > b.maxZ) continue;
+    } else {
+      let ta = (b.minZ - oz) * iz;
+      let tb = (b.maxZ - oz) * iz;
+      if (ta > tb) [ta, tb] = [tb, ta];
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) continue;
+    }
+    if (iy === 0) {
+      if (oy < 0 || oy > b.height) continue;
+    } else {
+      let ta = -oy * iy;
+      let tb = (b.height - oy) * iy;
+      if (ta > tb) [ta, tb] = [tb, ta];
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) continue;
+    }
+    best = t0;
   }
   // The street.
   if (dy < -1e-6) best = Math.min(best, -oy / dy);
   return best;
+}
+
+/**
+ * Where a ray first meets the ground (the hills in the wilds), by stepping along it; `max` when
+ * it does not within that distance. Coarse (half a metre at worst), which is plenty for a bullet.
+ */
+export function rayGround(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number, ground: (x: number, z: number) => number): number {
+  const step = 1.5;
+  let prev = 0;
+  for (let t = step; t < max + step; t += step) {
+    const u = Math.min(t, max);
+    if (oy + dy * u <= ground(ox + dx * u, oz + dz * u)) {
+      // Refine between the last clear point and this one.
+      let lo = prev;
+      let hi = u;
+      for (let i = 0; i < 4; i++) {
+        const mid = (lo + hi) / 2;
+        if (oy + dy * mid <= ground(ox + dx * mid, oz + dz * mid)) hi = mid;
+        else lo = mid;
+      }
+      return hi;
+    }
+    prev = u;
+  }
+  return max;
 }
 
 /** Distance along a (unit) ray to a sphere, or Infinity. */
@@ -135,7 +171,7 @@ export interface Hit {
 export type CombatFx =
   | { type: 'enemyShot'; enemy: Enemy; hit: boolean; tx: number; ty: number; tz: number }
   | { type: 'enemyHurt'; enemy: Enemy; headshot: boolean; x: number; y: number; z: number }
-  | { type: 'enemyKilled'; enemy: Enemy; headshot: boolean; how?: 'blast' | 'fire' | 'takedown' }
+  | { type: 'enemyKilled'; enemy: Enemy; headshot: boolean; how?: 'blast' | 'fire' | 'takedown' | 'animal' }
   | { type: 'heroHurt'; amount: number; fromX: number; fromZ: number }
   | { type: 'heroDown' }
   | { type: 'impact'; x: number; y: number; z: number }
@@ -171,6 +207,7 @@ function hash(n: number, salt: number): number {
 export class Combat {
   public readonly enemies: Enemy[] = [];
   public readonly fx: CombatFx[] = [];
+  private seen = 0;
   public hp = HERO_MAX_HP;
   public armor = HERO_MAX_ARMOR;
   public kills = 0;
@@ -194,11 +231,14 @@ export class Combat {
 
   public constructor(
     private readonly colliders: readonly Box[],
-    private readonly bounds: Box
+    private readonly bounds: Box,
+    private readonly ground: (x: number, z: number) => number = () => 0,
+    /** Whether the ground has hills (the wilds), so bullets must be checked against it. */
+    private readonly hilly = false
   ) {}
 
   public spawn(kind: EnemyKind, x: number, z: number, facing: number, post = 0): Enemy {
-    const motor = new HeroMotor(this.colliders, this.bounds);
+    const motor = new HeroMotor(this.colliders, this.bounds, this.ground);
     motor.place(x, z, facing);
     const e: Enemy = {
       id: this.nextId++, kind, motor, hp: kind === 'boss' ? BOSS_HP : kind === 'swat' ? 120 : 100,
@@ -263,6 +303,7 @@ export class Combat {
    */
   public trace(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, range: number, minDistance = 0): Hit {
     let best = rayBoxes(ox, oy, oz, dx, dy, dz, rayBoxes(ox, oy, oz, dx, dy, dz, range, this.cover), this.colliders);
+    if (this.hilly) best = rayGround(ox, oy, oz, dx, dy, dz, best, this.ground);
     let hit: Hit = best < range ? { kind: 'world', distance: best, x: ox + dx * best, y: oy + dy * best, z: oz + dz * best } : { kind: 'none', distance: range, x: ox + dx * range, y: oy + dy * range, z: oz + dz * range };
     for (const e of this.enemies) {
       if (e.state === 'dead') continue;
@@ -364,6 +405,12 @@ export class Combat {
     return best;
   }
 
+  /** An animal's bite: it hurts, but it does not tell them where the hero is. */
+  public hurtEnemy(e: Enemy, amount: number): void {
+    if (e.state === 'dead') return;
+    this.damage(e, amount, false, { kind: 'enemy', distance: 0, x: e.motor.x, y: 1, z: e.motor.z, enemy: e }, 'animal');
+  }
+
   /** Who a takedown would take right now (for the prompt), or null. */
   public takedownTarget(hero: HeroMotor): Enemy | null {
     let best: Enemy | null = null;
@@ -387,12 +434,12 @@ export class Combat {
   private heroY = 0;
   private heroZ = 0;
 
-  private damage(e: Enemy, amount: number, headshot: boolean, at: Hit, how?: 'blast' | 'fire' | 'takedown', quiet = false): void {
+  private damage(e: Enemy, amount: number, headshot: boolean, at: Hit, how?: 'blast' | 'fire' | 'takedown' | 'animal', quiet = false): void {
     // Cantor's plate turns most body shots; the head is bare.
     e.hp -= e.kind === 'boss' && !headshot ? amount * BOSS_PLATE : amount;
     if (!quiet) e.hitTime = 0;
     // Being shot gives the hero away, from any direction.
-    if ((e.state === 'idle' || e.heard) && how !== 'takedown') {
+    if ((e.state === 'idle' || e.heard) && how !== 'takedown' && how !== 'animal') {
       e.state = 'alert';
       e.heard = false;
       e.alertTimer = REACTION * 0.6;
@@ -444,7 +491,9 @@ export class Combat {
   }
 
   public step(dt: number, hero: HeroMotor, pickup: (weapon: WeaponId, rounds: number) => void): void {
-    this.fx.length = 0;
+    // Keep what happened since the last step (a blast, a bite, a shot between steps) for the game
+    // to read with this step's own; drop only what it has already read.
+    this.fx.splice(0, this.seen);
     this.tick++;
     this.heroX = hero.x;
     this.heroY = hero.y;
@@ -460,6 +509,7 @@ export class Combat {
     }
 
     for (const e of this.enemies) this.think(e, dt, hero);
+    this.seen = this.fx.length;
   }
 
   private canSee(e: Enemy, hero: HeroMotor): boolean {

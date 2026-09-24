@@ -2,6 +2,8 @@
 //
 //   public/city/district/    every Downtown City MegaKit piece (.gltf, .bin, .webp), one named root node per piece
 //   public/city/people/*.glb clothed people (Ultimate Modular Characters and Women), with their clips
+//   public/city/people/mh-*   the realistic cast (MakeHuman, from scripts/assets/blender/make-cast.py)
+//   public/city/wilds/        the wild country: nature kit pieces (.gltf, split per mesh) and four animals
 //
 // Textures become WebP at game resolution, meshes are meshopt-compressed, and duplicate
 // textures and materials across pieces are merged, so the game downloads a fraction of the packs.
@@ -12,7 +14,7 @@ import sharp from 'sharp';
 import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 import { NodeIO, Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { mergeDocuments, dedup, prune, textureCompress, meshopt, unpartition, resample, weld } from '@gltf-transform/functions';
+import { mergeDocuments, dedup, prune, textureCompress, meshopt, unpartition, partition, resample, weld } from '@gltf-transform/functions';
 
 const SRC = 'assets-src/quaternius';
 const OUT = 'public/city';
@@ -26,13 +28,14 @@ const io = new NodeIO()
 
 const size = (f) => `${(fs.statSync(f).size / 1e6).toFixed(1)} MB`;
 
-async function finish(doc, file, resize) {
+/** @param split One buffer per mesh (for a .gltf whose geometry would pass the 2 MB file cap as one). */
+async function finish(doc, file, resize, split = false) {
   await doc.transform(
     dedup(),
     prune(),
     weld(),
     textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [resize, resize], quality: 82 }),
-    unpartition(),
+    split ? partition({ meshes: true }) : unpartition(),
     meshopt({ encoder: MeshoptEncoder, level: 'medium' })
   );
   await io.write(file, doc);
@@ -103,6 +106,41 @@ if (process.argv.includes('--force') || !fs.existsSync(path.join(OUT, 'district'
       for (let px = 512; fs.statSync(out).size > 1.9e6 && px >= 256; px /= 2) {
         await finish(await io.read(path.join(dir, file)), out, px);
       }
+    }
+  }
+}
+
+// ─── The wilds (Stylized Nature MegaKit, Ultimate Animated Animal Pack) ─────────────────────────
+// The trees, rocks and undergrowth the wild country uses, one named root node per piece (as the
+// district is), and the four wild animals with their clips.
+{
+  const dir = path.join(SRC, 'nature/glTF');
+  const out = path.join(OUT, 'wilds', 'nature.gltf');
+  const used = /^(Pine|CommonTree|TwistedTree|DeadTree)_\d|^Rock_Medium|^Grass_|^Flower_[34]_Group|^Fern_1|^Bush_Common|^Plant_(1|7)$|^Clover_1|^Mushroom_Common|^Pebble_Round_2/;
+  if (fs.existsSync(dir) && (process.argv.includes('--force') || !fs.existsSync(out))) {
+    const doc = new Document();
+    const scene = doc.createScene('nature');
+    for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.gltf') && used.test(path.basename(f, '.gltf')))) {
+      const piece = await io.read(path.join(dir, f));
+      const map = mergeDocuments(doc, piece);
+      const holder = doc.createNode(path.basename(f, '.gltf'));
+      for (const s of piece.getRoot().listScenes()) for (const child of s.listChildren()) holder.addChild(map.get(child));
+      scene.addChild(holder);
+    }
+    for (const s of doc.getRoot().listScenes()) if (s !== scene) s.dispose();
+    doc.getRoot().setDefaultScene(scene);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    await finish(doc, out, 1024, true);
+  }
+  const animals = path.join(SRC, 'wildlife');
+  if (fs.existsSync(animals)) {
+    fs.mkdirSync(path.join(OUT, 'wilds'), { recursive: true });
+    for (const kind of ['Wolf', 'Deer', 'Stag', 'Fox']) {
+      const target = path.join(OUT, 'wilds', `${kind.toLowerCase()}.glb`);
+      if (fs.existsSync(target) && !process.argv.includes('--force')) continue;
+      const doc = await io.read(path.join(animals, `${kind}.gltf`));
+      await doc.transform(resample());
+      await finish(doc, target, 512);
     }
   }
 }
