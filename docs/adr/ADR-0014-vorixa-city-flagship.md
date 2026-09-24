@@ -105,3 +105,29 @@ clothes, all CC0 and checked asset by asset (docs/CREDITS.md).
   stances in the free library, so rifles use the pistol stances. The older low-poly outfits
   (`public/city/people/m-*`, `f-*`, 11 MB) are no longer referenced; `People` still loads them if
   a character names one, and removing them is a separate decision.
+
+## Update (2026-09-25): outposts and chaos (the Far Cry layer)
+
+Asked for Far Cry's feel, the city gained its two signature systems:
+
+* **Outposts** (`src/city/Outposts.ts`). Five Choir checkpoints close roads across the district:
+  concrete barriers, sandbag nests, six guards (one on patrol), an alarm on a pole, and stacks of
+  fuel. Once a guard is fighting, the outpost's alarm rings six seconds later unless it is shot
+  out or nobody is left to reach it; a ringing alarm brings four reinforcements. Liberating one
+  pays $1,500, plus $1,500 if never seen and $500 if the alarm never rang, turns its banners to
+  the crew's colours, counts toward recruiting the crew, and is saved.
+* **Stealth.** Guards hear gunfire by the gun (the pistol is quiet at 14 m, the sniper rifle is
+  heard at 64 m) and blasts at 60 m; a guard not yet fighting, or with their back turned, can be
+  taken down silently with E.
+* **Chaos** (`src/city/Chaos.ts`). Barrels blow when shot hard or burn and blow when shot lightly;
+  propane hisses, then blows bigger. Blasts hurt everyone in reach in proportion to distance,
+  throw cars aside, kill bystanders (raising HEAT), knock out alarms, and set off other fuel a beat
+  apart, so a stack goes up as a rolling chain. Every blast leaves fire that burns people and
+  cars and lights fuel it touches. Cars shot, burned or crashed to wrecks burn for three seconds,
+  then explode. All of it is pure and tested (`tests/Chaos.test.ts`, `tests/Outposts.test.ts`).
+* **Drawn** by `OutpostView` and `ChaosView`: procedural concrete, sandbags, banners and alarm;
+  shader flames and fireballs, sparks, smoke, scorch marks, a pooled set of lights (never added
+  or removed mid-fight, which would recompile every material), and camera shake.
+* **Honest limits.** The props are procedural (no CC0 barrier or sandbag models were in the kits),
+  fire does not spread across the street on its own (it has nothing to burn on asphalt), and there
+  is no wildlife or open country yet: the district is still all city.

@@ -127,6 +127,12 @@ export class CityLife {
     this.gunshot(c.x, c.z);
   }
 
+  /** A blast: those close enough are killed, everyone in earshot runs. */
+  public blast(x: number, z: number, radius: number): void {
+    for (const c of this.citizens) if (c.alive && Math.hypot(c.x - x, c.z - z) < radius * 0.6) this.hurt(c, false);
+    this.gunshot(x, z);
+  }
+
   /** Raises the wanted level by `stars` (fractions build up), and resets the cool-down. */
   public raiseHeat(stars: number): void {
     this.heat = Math.min(MAX_HEAT, this.heat + stars);

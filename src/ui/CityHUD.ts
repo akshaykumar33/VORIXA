@@ -64,6 +64,14 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 #rush-hud.city .place small { font-family: var(--t-body); font-style: normal; font-size: 13px; color: var(--t-muted); letter-spacing: 0.14em; text-transform: uppercase; }
 #rush-hud.city .wave { margin-top: 6px; font-size: 18px; }
 #rush-hud.city .wave b { font-size: 18px; display: inline; color: var(--t-gold); }
+#rush-hud.city .posts { margin-top: 4px; font-size: 15px; color: var(--t-text); }
+#rush-hud.city .posts b { font-size: 15px; display: inline; color: var(--t-gold); }
+#rush-hud.city .alarm { display: inline-block; margin-top: 8px; font-size: 14px; padding: 5px 12px; border-radius: 999px; letter-spacing: 0.08em; text-transform: uppercase;
+  background: rgba(255,194,61,0.18); color: #ffd36b; border: 1px solid rgba(255,194,61,0.55); }
+#rush-hud.city .alarm.ringing { background: rgba(255,43,60,0.25); color: #ff6b78; border-color: rgba(255,77,94,0.8); animation: city-alarm 0.5s steps(2) infinite; }
+@keyframes city-alarm { 50% { background: rgba(255,43,60,0.55); color: #fff; } }
+@media (prefers-reduced-motion: reduce) { #rush-hud.city .alarm.ringing { animation: none; } }
+#rush-hud.city .takedown { position: absolute; left: 50%; bottom: max(140px, calc(env(safe-area-inset-bottom) + 140px)); transform: translateX(-50%); font-size: 18px; padding: 8px 14px; border-radius: 10px; }
 
 #rush-hud.city .vitals { position: absolute; left: 20px; bottom: max(20px, env(safe-area-inset-bottom)); width: min(260px, 40vw); display: grid; gap: 6px; }
 #rush-hud.city .meter { height: 8px; border-radius: 4px; background: var(--t-faint); overflow: hidden; box-shadow: 0 0 0 1px var(--t-hair); }
@@ -139,7 +147,7 @@ body.rush #hud, body.rush #overlay-canvas { display: none !important; }
 
 const MARKUP = `
   <div class="vignette"></div>
-  <div class="place toon"><small>VORIXA City</small><b>Downtown</b><div class="wave">Enemies <b class="left">0</b></div><div class="heat" role="img" aria-label="Heat: 0 stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div></div>
+  <div class="place toon"><small>VORIXA City</small><b>Downtown</b><div class="wave">Enemies <b class="left">0</b></div><div class="posts">Outposts <b class="freed">0</b> / <span class="posts-of">5</span></div><div class="heat" role="img" aria-label="Heat: 0 stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div><div class="alarm" role="status" aria-live="assertive" hidden></div></div>
   <div class="crosshair" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
   <div class="hitmark" aria-hidden="true"></div>
   <div class="dmg" aria-hidden="true"></div>
@@ -161,10 +169,11 @@ const MARKUP = `
     <div class="meter" role="meter" aria-label="Car condition"><i></i></div>
   </div>
   <div class="prompt chip" hidden>Get in <kbd>F</kbd></div>
+  <div class="takedown chip" hidden>Takedown <kbd>E</kbd></div>
   <section class="card intro" aria-labelledby="city-title">
     <p class="kicker">VORIXA City · HEAT · Chapter 1</p>
     <h1 id="city-title">VORIXA <span>City</span></h1>
-    <p class="lede">The Choir owns this city. Your crew is taking it back, one job at a time: steal their cars, hit their stash, lose the heat, take their stars, and face Cantor. Press H for the Safehouse and pick who you play.</p>
+    <p class="lede">The Choir owns this city. Your crew is taking it back, one job at a time: steal their cars, hit their stash, lose the heat, take their stars, and face Cantor. Take back their five outposts: quietly, or with everything that burns. Press H for the Safehouse and pick who you play.</p>
     <div class="keys">
       <div>Move <span>W A S D</span></div>
       <div>Look <span>Mouse</span></div>
@@ -175,6 +184,7 @@ const MARKUP = `
       <div>Sprint · Jump <span>Shift · Space</span></div>
       <div>First / third person <span>V</span></div>
       <div>Get in / out of a car <span>F</span></div>
+      <div>Silent takedown, from behind <span>E</span></div>
       <div>Drive · handbrake <span>W A S D · Space</span></div>
     </div>
     <div class="bar" role="progressbar" aria-label="Loading the city" aria-valuemin="0" aria-valuemax="100"><i></i></div>
@@ -390,6 +400,31 @@ export class CityHUD {
   }
 
   private lastStars = -1;
+  private lastAlarm = '';
+
+  /** Liberated outposts out of all of them. */
+  public setOutposts(freed: number, of: number): void {
+    this.q('.freed').textContent = String(freed);
+    this.q('.posts-of').textContent = String(of);
+  }
+
+  /** An outpost's alarm: counting down (amber), ringing (red), or nothing (hidden). */
+  public setAlarm(text: string | null, ringing = false): void {
+    const key = `${text}|${ringing}`;
+    if (key === this.lastAlarm) return;
+    this.lastAlarm = key;
+    const el = this.q('.alarm');
+    el.hidden = text === null;
+    el.textContent = text ?? '';
+    el.classList.toggle('ringing', ringing);
+  }
+
+  /** The takedown prompt, shown when a guard is in reach. */
+  public setTakedown(on: boolean): void {
+    const el = this.q('.takedown');
+    if (el.hidden === !on) return;
+    el.hidden = !on;
+  }
 
   /** HEAT, the wanted level: filled stars, flashing when it rises. */
   public setHeat(stars: number): void {

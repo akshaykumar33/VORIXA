@@ -43,7 +43,8 @@ const CAST_CLIPS: Record<string, string> = {
   Sit: 'Sitting_Idle_Loop',
   Phone: 'Idle_TalkingPhone_Loop',
   Talk: 'Idle_Talking_Loop',
-  FoldArms: 'Idle_FoldArms_Loop'
+  FoldArms: 'Idle_FoldArms_Loop',
+  Takedown: 'Punch_Cross'
 };
 
 const LEGS = /^(pelvis|thigh|calf|foot|ball)/;

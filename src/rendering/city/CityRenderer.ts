@@ -13,6 +13,10 @@ import { People, type Grip, type Person } from './People';
 import { Showroom } from './Showroom';
 import { CityLifeView } from './CityLifeView';
 import { JobView } from './JobView';
+import { ChaosView } from './ChaosView';
+import { OutpostView } from './OutpostView';
+import type { Chaos } from '../../city/Chaos';
+import type { OutpostDef, Outposts } from '../../city/Outposts';
 import type { CityLife } from '../../city/CityLife';
 import { CANTOR, CHOIR, CREW, POLICE, type CharacterDef } from '../../city/Crew';
 import { coverBox, type Vehicle } from '../../city/Vehicle';
@@ -40,7 +44,7 @@ const EYE_HEIGHT = 1.68;
 /** Clips of the Ultimate Modular Characters rig that the hero uses. */
 type Clip =
   | 'Idle' | 'Walk' | 'Run' | 'Run_Back' | 'Run_Left' | 'Run_Right' | 'Run_Shoot'
-  | 'Idle_Gun' | 'Idle_Gun_Pointing' | 'Idle_Gun_Shoot' | 'Gun_Shoot' | 'Roll' | 'Wave' | 'Death';
+  | 'Idle_Gun' | 'Idle_Gun_Pointing' | 'Idle_Gun_Shoot' | 'Gun_Shoot' | 'Roll' | 'Wave' | 'Death' | 'Takedown';
 
 /** The run clip frozen here is a full stride: it reads as a leap, and the rig's IK feet stay put. */
 const LEAP_PHASE = 0.3;
@@ -68,6 +72,14 @@ export class CityRenderer {
   public vehicleView: VehicleView | null = null;
   public lifeView: CityLifeView | null = null;
   public readonly jobView = new JobView();
+  /** Barrels, blasts and fires. */
+  public readonly chaosView: ChaosView;
+  public outpostView: OutpostView | null = null;
+  /** The simulations the two views above draw, set by the game. */
+  public chaos: Chaos | null = null;
+  public outposts: Outposts | null = null;
+  /** Seconds left of the hero's takedown move, during which it plays over everything. */
+  private takingDown = 0;
   /** The car the hero is driving, or null on foot. */
   public driving: Vehicle | null = null;
   private heroHand: THREE.Object3D | null = null;
@@ -109,7 +121,8 @@ export class CityRenderer {
   public constructor() {
     this.scene.fog = new THREE.Fog(0xbfd0e0, 120, 420);
     this.scene.background = new THREE.Color(0xa9c6e6);
-    this.scene.add(this.hemi, this.sun, this.sun.target, this.jobView.group);
+    this.chaosView = new ChaosView(this.camera);
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.jobView.group, this.chaosView.group);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
@@ -329,6 +342,20 @@ export class CityRenderer {
     this.currentName = name;
   }
 
+  /** Builds the outposts' barricades, banners and alarms (their fuel is drawn by the chaos view). */
+  public setOutposts(defs: readonly OutpostDef[], accent: string): void {
+    this.outpostView?.group.removeFromParent();
+    this.outpostView = new OutpostView(defs, accent);
+    this.scene.add(this.outpostView.group);
+  }
+
+  /** The hero's silent takedown: a short, sharp strike. */
+  public takedown(): void {
+    this.takingDown = 0.7;
+    this.currentName = '';
+    this.play('Takedown', 0.05, true, 1.4);
+  }
+
   /** Called with the hero's per-step effects, for animation cues. */
   public heroEvent(fx: 'jump' | 'land'): void {
     if (fx === 'land') this.landing = 0.15;
@@ -351,6 +378,8 @@ export class CityRenderer {
       this.carBoxes.push(coverBox(v, { minX: 0, maxX: 0, minZ: 0, maxZ: 0, height: 0 }));
     }
     if (life) this.lifeView?.update(life, dt);
+    if (this.chaos) this.chaosView.update(this.chaos, dt);
+    if (this.outposts) this.outpostView?.update(this.outposts, dt, this.camera.position);
     this.jobView.update(performance.now() / 1000);
     if (this.driving) this.placeDriveCamera(this.driving, dt);
     else this.placeCamera(hero, dt);
@@ -371,7 +400,9 @@ export class CityRenderer {
     const speed = hero.speed;
     this.landing = Math.max(0, this.landing - dt);
 
-    if (!hero.grounded) {
+    if (this.takingDown > 0) {
+      this.takingDown -= dt;
+    } else if (!hero.grounded) {
       // A leap: the run cycle held at full stride.
       if (this.currentName !== 'Run' || (this.current && this.current.timeScale !== 0)) {
         this.play('Run', 0.1, false, 0);
@@ -450,8 +481,11 @@ export class CityRenderer {
     cam.fov += (targetFov - cam.fov) * k;
     cam.updateProjectionMatrix();
 
-    const yaw = this.yaw + this.punchYaw;
-    const pitch = this.pitch + this.punchPitch;
+    // A blast nearby shakes the view, and the shake dies away fast.
+    const shake = this.chaosView.shake;
+    this.chaosView.shake *= Math.exp(-7 * dt);
+    const yaw = this.yaw + this.punchYaw + (Math.random() - 0.5) * shake;
+    const pitch = this.pitch + this.punchPitch + (Math.random() - 0.5) * shake;
     const lookX = -Math.sin(yaw) * Math.cos(pitch);
     const lookY = Math.sin(pitch);
     const lookZ = -Math.cos(yaw) * Math.cos(pitch);

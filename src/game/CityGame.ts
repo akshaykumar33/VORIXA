@@ -8,12 +8,25 @@ import { Arsenal, LOADOUT, WEAPONS, type WeaponId } from '../city/Weapons';
 import { Combat, HERO_MAX_ARMOR } from '../city/Combat';
 import { Vehicle, VEHICLE_SPECS, separate, coverBox, type DriveIntent } from '../city/Vehicle';
 import { CityLife } from '../city/CityLife';
-import { direction } from '../city/Combat';
 import { CHAPTER_ONE, JobRunner, COIN_REACH, type Job, type Panel } from '../city/Jobs';
 import { CityJobUI, type Blip, type StoryPanel } from '../ui/CityJobUI';
+import { Chaos, CAR_BLAST, EXPLOSIVES, FIRE_DPS, type Blast, type Explosive } from '../city/Chaos';
+import { Outposts, buildOutposts } from '../city/Outposts';
+import type { Box } from '../city/CityLayout';
+import type { Citizen } from '../city/CityLife';
 
 const CHAPTER_KEY = 'vorixa.city.chapter';
 const CASH_KEY = 'vorixa.city.cash';
+const OUTPOSTS_KEY = 'vorixa.city.outposts';
+
+function loadLiberated(): Set<string> {
+  try {
+    const list: unknown = JSON.parse(localStorage.getItem(OUTPOSTS_KEY) ?? '[]');
+    return new Set(Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
 
 function loadNumber(key: string): number {
   try {
@@ -131,18 +144,39 @@ export class CityGame {
   private browsing = 0;
   private timeScale = 1;
   private waveIndex = 0;
+  /** Barrels, propane, burning cars and the fires they leave (the Far Cry layer). */
+  private readonly chaos = new Chaos();
+  private readonly outposts: Outposts;
+  /** Each standing explosive's solid box in the colliders, taken out when it goes. */
+  private readonly explosiveBoxes = new Map<number, Box>();
+  /** Wrecked cars burning down to their blast: seconds left. */
+  private readonly carFuses = new Map<Vehicle, number>();
+  private readonly blown = new Set<Vehicle>();
 
   public constructor(
     private readonly renderer: CityRenderer,
     private readonly canvas: HTMLCanvasElement,
     container: HTMLElement
   ) {
+    // The Choir's outposts close their roads: their barricades are part of the city's solids.
+    this.outposts = new Outposts(buildOutposts(this.district.pitch), loadLiberated());
+    this.district.colliders.push(...this.outposts.solids);
     this.hero = new HeroMotor(this.district.colliders, this.district.bounds);
     this.combat = new Combat(this.district.colliders, this.district.bounds);
     this.life = new CityLife(this.district, 28);
-    this.vehicles = this.district.parking.map((p, n) =>
+    // Nobody parks inside an outpost.
+    const parking = this.district.parking.filter((p) => this.outposts.defs.every((o) => Math.hypot(p.x - o.x, p.z - o.z) > 13));
+    this.vehicles = parking.map((p, n) =>
       new Vehicle(n + 1, VEHICLE_SPECS[p.model], this.district.colliders, this.district.bounds).place(p.x, p.z, p.heading)
     );
+    this.outposts.populate(this.combat, this.chaos);
+    for (const e of this.chaos.explosives) {
+      const box = Chaos.box(e);
+      this.explosiveBoxes.set(e.id, box);
+      this.district.colliders.push(box);
+    }
+    this.renderer.chaos = this.chaos;
+    this.renderer.outposts = this.outposts;
     const s = this.district.spawn;
     this.hero.place(s.x, s.z, s.yaw + Math.PI);
     this.renderer.yaw = s.yaw;
@@ -152,7 +186,7 @@ export class CityGame {
 
     const progress = loadProgress();
     this.wavesCleared = progress.waves;
-    this.crew = unlocked(this.wavesCleared).find((c) => c.id === progress.crew) ?? CREW[0];
+    this.crew = unlocked(this.progress).find((c) => c.id === progress.crew) ?? CREW[0];
     this.renderer.heroDef = this.crew;
     this.applyPerks();
 
@@ -200,6 +234,7 @@ export class CityGame {
         return;
       }
       if (e.code === 'KeyF' && this.playing && !this.down) this.toggleCar();
+      if (e.code === 'KeyE' && this.playing && !this.down && !this.driving) this.takedown();
       const slot = Number(e.code.replace('Digit', '')) - 1;
       if (e.code.startsWith('Digit') && slot >= 0 && slot < LOADOUT.length) this.select(LOADOUT[slot]);
     });
@@ -217,6 +252,8 @@ export class CityGame {
       .then(() => {
         this.hud.loaded();
         this.renderer.combatView?.setWeapon(this.arsenal.current);
+        this.renderer.setOutposts(this.outposts.defs, `#${(CREW[0].accent ?? 0x8a6cf0).toString(16).padStart(6, '0')}`);
+        this.renderer.chaosView.setExplosives(this.chaos);
         this.applyLook();
         // The chapter first; once it is done, the turf war never stops.
         if (!this.currentJob) {
@@ -459,6 +496,7 @@ export class CityGame {
       blips.push({ x: e.motor.x, z: e.motor.z, kind: e.kind === 'police' ? 'police' : e.kind === 'boss' ? 'boss' : 'enemy' });
     }
     for (const c of this.coins) if (!c.taken) blips.push({ x: c.x, z: c.z, kind: 'coin' });
+    for (const o of this.outposts.defs) blips.push({ x: o.x, z: o.z, kind: this.outposts.stateOf(o.id) === 'liberated' ? 'ours' : 'outpost' });
     const t = this.runner?.target;
     if (t) blips.push({ x: t.x, z: t.z, kind: 'objective' });
     this.jobUI.drawRadar(this.hero.x, this.hero.z, this.renderer.yaw, { pitch: this.district.pitch, count: this.district.roadsX }, blips);
@@ -467,7 +505,7 @@ export class CityGame {
   // ─── The Safehouse: choose who to play ────────────────────────────────────────────────────
 
   private crewEntries(): CrewEntry[] {
-    const open = new Set(unlocked(this.wavesCleared).map((c) => c.id));
+    const open = new Set(unlocked(this.progress).map((c) => c.id));
     return CREW.map((c) => ({
       name: c.name,
       alias: c.alias,
@@ -499,7 +537,7 @@ export class CityGame {
 
   private pick(): void {
     const def = CREW[this.browsing];
-    if (!unlocked(this.wavesCleared).some((c) => c.id === def.id)) return;
+    if (!unlocked(this.progress).some((c) => c.id === def.id)) return;
     if (def.id !== this.crew.id) {
       this.crew = def;
       save(CREW_KEY, def.id);
@@ -691,6 +729,8 @@ export class CityGame {
       intent.jumpPressed = false;
       this.stepGuns(trigger);
       this.stepCombat();
+      this.stepChaos();
+      this.stepOutposts();
       this.stepLife();
       this.accumulator -= TICK;
     }
@@ -720,6 +760,7 @@ export class CityGame {
     this.stepSound(dt, car, drive.throttle);
     this.hud.setVehicle(car ? { speed: Math.abs(car.forwardSpeed), health: car.health } : null, !car && active && !!this.carNearHero());
     this.hud.setHeat(this.life.stars);
+    this.showOutposts(active && !car);
     // The objective panel shows even while paused; the job only advances in play.
     this.stepJob(active ? dt : 0);
     this.drawRadar();
@@ -767,10 +808,7 @@ export class CityGame {
             this.renderer.punchPitch += Math.min(0.08, fx.impact * 0.004);
             this.audio.crash(fx.x, fx.z, fx.impact);
           }
-        } else if (fx.type === 'wrecked') {
-          this.hud.feed('Car wrecked');
-          this.audio.explosion(v.x, v.z);
-        }
+        } else if (fx.type === 'wrecked') this.setCarAlight(v);
       }
     }
     for (let a = 0; a < this.vehicles.length; a++) {
@@ -856,18 +894,52 @@ export class CityGame {
     const cam = r.camera.position;
     // Third person traces from the camera but ignores anything between it and the hero.
     const minDistance = r.view === 'third' ? Math.hypot(cam.x - this.hero.x, cam.z - this.hero.z) + 0.4 : 0;
-    const hits = this.combat.fire(a.current, result.shots, cam.x, cam.y, cam.z, r.yaw, r.pitch, minDistance);
-    // Bystanders: a shot that reaches a citizen before anything else hits them.
-    result.shots.forEach((shot, n) => {
-      const [dx, dy, dz] = direction(r.yaw + shot.yaw, r.pitch + shot.pitch);
+    // What else a bullet can meet before any fighter or wall: fuel, an alarm, a bystander.
+    type Blocker = { kind: 'fuel'; e: Explosive } | { kind: 'alarm'; id: string } | { kind: 'citizen'; c: Citizen };
+    const blockers: (Blocker | null)[] = [];
+    const block = (dx: number, dy: number, dz: number): number => {
+      let best = Infinity;
+      let what: Blocker | null = null;
+      const fuel = this.chaos.trace(cam.x, cam.y, cam.z, dx, dy, dz, 400);
+      if (fuel.explosive && fuel.t >= minDistance && fuel.t < best) {
+        best = fuel.t;
+        what = { kind: 'fuel', e: fuel.explosive };
+      }
+      const alarm = this.outposts.traceAlarm(cam.x, cam.y, cam.z, dx, dy, dz, 400);
+      if (alarm.id && alarm.t >= minDistance && alarm.t < best) {
+        best = alarm.t;
+        what = { kind: 'alarm', id: alarm.id };
+      }
       const who = this.life.trace(cam.x, cam.y, cam.z, dx, dy, dz);
-      if (who.citizen && who.distance >= minDistance && who.distance < hits[n].distance) {
-        this.life.hurt(who.citizen, false);
-        hits[n] = { kind: 'world', distance: who.distance, x: cam.x + dx * who.distance, y: cam.y + dy * who.distance, z: cam.z + dz * who.distance };
-        r.combatView?.impact(hits[n].x, hits[n].y, hits[n].z, true);
+      if (who.citizen && who.distance >= minDistance && who.distance < best) {
+        best = who.distance;
+        what = { kind: 'citizen', c: who.citizen };
+      }
+      blockers.push(what);
+      return best;
+    };
+    const hits = this.combat.fire(a.current, result.shots, cam.x, cam.y, cam.z, r.yaw, r.pitch, minDistance, block);
+    hits.forEach((h, n) => {
+      const what = blockers[n];
+      if (h.kind === 'world') {
+        this.shootCar(h.x, h.y, h.z, WEAPONS[a.current].damage);
+        return;
+      }
+      if (h.kind !== 'none' || !what) return;
+      hits[n] = { ...h, kind: 'world' };
+      if (what.kind === 'fuel') {
+        this.chaos.damage(what.e, WEAPONS[a.current].damage);
+        r.combatView?.impact(h.x, h.y, h.z, false);
+      } else if (what.kind === 'alarm') {
+        this.outposts.breakAlarm(what.id);
+        r.combatView?.impact(h.x, h.y, h.z, false);
+      } else {
+        this.life.hurt(what.c, false);
+        r.combatView?.impact(h.x, h.y, h.z, true);
       }
     });
     this.life.gunshot(this.hero.x, this.hero.z);
+    this.combat.noise(this.hero.x, this.hero.z, WEAPONS[a.current].loudness);
     r.punchPitch += result.kickPitch;
     r.punchYaw += result.kickYaw;
     r.sinceFired = 0;
@@ -881,6 +953,159 @@ export class CityGame {
         view.heroFired(result.kickPitch, this.from, this.to, r.view === 'first');
       }
     }
+  }
+
+  /** Progress toward recruiting the crew: waves cleared and outposts taken back. */
+  private get progress(): number {
+    return this.wavesCleared + (this.outposts?.liberatedCount ?? 0);
+  }
+
+  /** A silent takedown of the guard in reach, if there is one. */
+  private takedown(): void {
+    const e = this.combat.takedown(this.hero);
+    if (!e) return;
+    this.hero.facing = Math.atan2(e.motor.x - this.hero.x, e.motor.z - this.hero.z);
+    this.renderer.takedown();
+    this.audio.impact(e.motor.x, e.motor.z, true);
+  }
+
+  /** A bullet that hit the world may have hit a car: cars shot enough catch fire, then blow. */
+  private shootCar(x: number, y: number, z: number, damage: number): void {
+    if (y > 1.8) return;
+    for (const v of this.vehicles) {
+      if (v === this.driving) continue;
+      const b = coverBox(v, { minX: 0, maxX: 0, minZ: 0, maxZ: 0, height: 0 });
+      if (x < b.minX - 0.15 || x > b.maxX + 0.15 || z < b.minZ - 0.15 || z > b.maxZ + 0.15) continue;
+      this.damageCar(v, damage * 0.3);
+      return;
+    }
+  }
+
+  private damageCar(v: Vehicle, amount: number): void {
+    if (this.blown.has(v) || v.health <= 0) return;
+    v.health = Math.max(0, v.health - amount * v.damageScale);
+    if (v.health <= 0) this.setCarAlight(v);
+  }
+
+  /** A wrecked car burns for a few seconds, then goes up. */
+  private setCarAlight(v: Vehicle): void {
+    if (this.blown.has(v) || this.carFuses.has(v)) return;
+    this.carFuses.set(v, 3);
+    this.chaos.ignite(v.x, v.z, 1.4, 3.2);
+    this.hud.feed(v === this.driving ? 'The car is on fire · get out! F' : 'Car on fire');
+  }
+
+  /** The chaos, stepped with the fight: blasts land on everyone and everything in reach. */
+  private stepChaos(): void {
+    const chaos = this.chaos;
+    chaos.step(TICK);
+    for (const fx of chaos.fx) {
+      if (fx.type === 'lit' && fx.explosive.kind === 'propane') this.audio.hiss(fx.explosive.x, fx.explosive.z, EXPLOSIVES.propane.fuse);
+      else if (fx.type === 'blast') this.explode(fx.blast);
+    }
+    this.combat.scorch((x, z) => chaos.burning(x, z), FIRE_DPS, TICK);
+    for (const v of this.vehicles) if (chaos.burning(v.x, v.z)) this.damageCar(v, 16 * TICK);
+    for (const [v, left] of this.carFuses) {
+      if (left - TICK > 0) {
+        this.carFuses.set(v, left - TICK);
+        continue;
+      }
+      this.carFuses.delete(v);
+      this.blown.add(v);
+      v.health = 0;
+      chaos.blast(v.x, v.z, CAR_BLAST.radius, CAR_BLAST.power, 'car', CAR_BLAST.fire);
+    }
+    // Fuel that has gone up is no longer solid.
+    for (const e of chaos.explosives) {
+      const box = this.explosiveBoxes.get(e.id);
+      if (!box || e.alive) continue;
+      this.explosiveBoxes.delete(e.id);
+      const i = this.district.colliders.indexOf(box);
+      if (i >= 0) this.district.colliders.splice(i, 1);
+    }
+  }
+
+  private explode(b: Blast): void {
+    this.combat.blast(b.x, b.z, b.radius, b.power);
+    this.life.blast(b.x, b.z, b.radius);
+    this.outposts.blast(b.x, b.z, b.radius);
+    for (const v of this.vehicles) {
+      const d = Math.hypot(v.x - b.x, v.z - b.z);
+      if (d >= b.radius) continue;
+      const k = 1 - d / b.radius;
+      this.damageCar(v, b.power * k * 0.9);
+      // Thrown aside.
+      const push = 10 * k;
+      v.vx += ((v.x - b.x) / Math.max(0.1, d)) * push;
+      v.vz += ((v.z - b.z) / Math.max(0.1, d)) * push;
+    }
+    this.renderer.chaosView.blast(b);
+    this.audio.explosion(b.x, b.z);
+  }
+
+  /** The outposts, stepped with the fight. */
+  private stepOutposts(): void {
+    const o = this.outposts;
+    o.step(TICK, this.combat);
+    for (const ev of o.events) {
+      const name = ev.outpost.name;
+      switch (ev.type) {
+        case 'spotted':
+          this.hud.banner('Spotted', `${name} · they are going for the alarm · shoot it out`);
+          this.audio.cue('heat');
+          break;
+        case 'alarm':
+          this.hud.banner('Alarm', `${name} is calling for backup`);
+          this.audio.alarm(ev.outpost.alarm.x, ev.outpost.alarm.z);
+          break;
+        case 'alarmDown':
+          this.hud.feed('Alarm destroyed');
+          this.audio.impact(ev.outpost.alarm.x, ev.outpost.alarm.z, false);
+          break;
+        case 'reinforcements':
+          this.hud.feed(`${ev.count} Choir reinforcements incoming`);
+          break;
+        case 'liberated': {
+          const before = unlocked(this.progress - 1).length;
+          this.cash += ev.cash;
+          save(CASH_KEY, String(this.cash));
+          this.jobUI.setCash(this.cash);
+          save(OUTPOSTS_KEY, JSON.stringify(o.liberatedIds));
+          const bonuses = [ev.undetected ? 'Undetected' : '', ev.quiet ? 'No alarm' : ''].filter(Boolean).join(' · ');
+          this.hud.banner('Outpost liberated', `${name} · +$${ev.cash.toLocaleString('en-US')}${bonuses ? ' · ' + bonuses : ''}`);
+          this.audio.cue('complete');
+          const joined = unlocked(this.progress).slice(before);
+          if (joined.length) this.hud.feed(`${joined[0].name} joins the crew · press H at the Safehouse`);
+          break;
+        }
+      }
+    }
+  }
+
+  /** The outposts on the HUD: the count, a countdown or a ringing alarm nearby, and the takedown prompt. */
+  private showOutposts(onFoot: boolean): void {
+    const o = this.outposts;
+    this.hud.setOutposts(o.liberatedCount, o.defs.length);
+    let text: string | null = null;
+    let ringing = false;
+    let best = Infinity;
+    for (const d of o.defs) {
+      const dist = Math.hypot(d.x - this.hero.x, d.z - this.hero.z);
+      if (dist > 90 || dist > best) continue;
+      const left = o.alarmCountdown(d.id);
+      const state = o.stateOf(d.id);
+      if (left !== null) {
+        best = dist;
+        text = `Alarm in ${Math.ceil(left)}`;
+        ringing = false;
+      } else if (state === 'alarm') {
+        best = dist;
+        text = 'Alarm · backup coming';
+        ringing = true;
+      }
+    }
+    this.hud.setAlarm(text, ringing);
+    this.hud.setTakedown(onFoot && this.combat.takedownTarget(this.hero) !== null);
   }
 
   private stepCombat(): void {
@@ -908,7 +1133,10 @@ export class CityGame {
           break;
         case 'enemyKilled':
           this.hud.hitMarker(true);
-          this.hud.feed(fx.headshot ? 'Headshot' : 'Enemy down', fx.headshot);
+          this.hud.feed(
+            fx.how === 'takedown' ? 'Takedown' : fx.how === 'blast' ? 'Blown away' : fx.how === 'fire' ? 'Burned' : fx.headshot ? 'Headshot' : 'Enemy down',
+            fx.headshot || fx.how === 'takedown'
+          );
           this.audio.cue('kill');
           break;
         case 'impact':
@@ -948,10 +1176,10 @@ export class CityGame {
           this.audio.cue('pickup');
           break;
         case 'waveClear': {
-          const before = unlocked(this.wavesCleared).length;
+          const before = unlocked(this.progress).length;
           this.wavesCleared = Math.max(this.wavesCleared, fx.wave);
           save(PROGRESS_KEY, String(this.wavesCleared));
-          const joined = unlocked(this.wavesCleared).slice(before);
+          const joined = unlocked(this.progress).slice(before);
           if (joined.length) {
             const j = joined[0];
             this.hud.banner(`${j.name} joins the crew`, `"${j.alias}" · ${j.perk ? PERKS[j.perk].text : ''} · press H at the Safehouse`);

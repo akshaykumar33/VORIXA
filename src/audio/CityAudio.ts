@@ -399,6 +399,23 @@ export class CityAudio {
     this.burst(v.input, v.at, 1.1, 'lowpass', 700, 0.6, 1);
   }
 
+  /** Gas escaping a holed propane tank, until it goes. */
+  public hiss(x: number, z: number, seconds: number): void {
+    const v = this.voice(x, z, 0.5, 0.1);
+    if (!v) return;
+    this.burst(v.input, v.at, seconds, 'highpass', 5200, 0.7, 0.35, 0.05);
+  }
+
+  /** An outpost's alarm: a klaxon, rising and falling, a few times over. */
+  public alarm(x: number, z: number): void {
+    const v = this.voice(x, z, 0.8, 0.5);
+    if (!v) return;
+    for (let i = 0; i < 4; i++) {
+      this.tone(v.input, v.at + i * 0.9, 'sawtooth', 420, 780, 0.45, 0.22);
+      this.tone(v.input, v.at + i * 0.9 + 0.45, 'sawtooth', 780, 420, 0.45, 0.22);
+    }
+  }
+
   // ─── The city ─────────────────────────────────────────────────────────────────────────────
 
   /** The siren, from where the nearest police officer is (null: no police). */

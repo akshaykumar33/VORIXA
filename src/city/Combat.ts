@@ -104,6 +104,8 @@ export interface Enemy {
   homeX: number;
   homeZ: number;
   lastSeen: number;
+  /** The outpost this fighter guards (1-based); 0 for a wave or a job's crew. */
+  post: number;
 }
 
 export interface Hit {
@@ -119,7 +121,7 @@ export interface Hit {
 export type CombatFx =
   | { type: 'enemyShot'; enemy: Enemy; hit: boolean; tx: number; ty: number; tz: number }
   | { type: 'enemyHurt'; enemy: Enemy; headshot: boolean; x: number; y: number; z: number }
-  | { type: 'enemyKilled'; enemy: Enemy; headshot: boolean }
+  | { type: 'enemyKilled'; enemy: Enemy; headshot: boolean; how?: 'blast' | 'fire' | 'takedown' }
   | { type: 'heroHurt'; amount: number; fromX: number; fromZ: number }
   | { type: 'heroDown' }
   | { type: 'impact'; x: number; y: number; z: number }
@@ -140,6 +142,8 @@ export const HERO_MAX_ARMOR = 50;
 /** Health comes back on its own to here (GTA's half bar), after a moment out of fire. */
 const REGEN_CAP = 50;
 const REGEN_DELAY = 5;
+/** Reach of a silent takedown, from behind or before they are fighting. */
+export const TAKEDOWN_REACH = 1.9;
 
 function hash(n: number, salt: number): number {
   let h = (n * 374761393 + salt * 668265263) | 0;
@@ -177,13 +181,13 @@ export class Combat {
     private readonly bounds: Box
   ) {}
 
-  public spawn(kind: EnemyKind, x: number, z: number, facing: number): Enemy {
+  public spawn(kind: EnemyKind, x: number, z: number, facing: number, post = 0): Enemy {
     const motor = new HeroMotor(this.colliders, this.bounds);
     motor.place(x, z, facing);
     const e: Enemy = {
       id: this.nextId++, kind, motor, hp: kind === 'boss' ? BOSS_HP : kind === 'swat' ? 120 : 100,
       state: kind === 'police' || kind === 'boss' ? 'alert' : 'idle', alertTimer: kind === 'police' ? 1.2 : kind === 'boss' ? 1.5 : 0, cooldown: 0,
-      burst: 0, strafe: 1, strafeTimer: 0, hitTime: 99, deadTime: 0, homeX: x, homeZ: z, lastSeen: 99
+      burst: 0, strafe: 1, strafeTimer: 0, hitTime: 99, deadTime: 0, homeX: x, homeZ: z, lastSeen: 99, post
     };
     this.enemies.push(e);
     return e;
@@ -199,9 +203,14 @@ export class Combat {
     }
   }
 
-  /** Choir still standing (the police are not part of a wave). */
+  /** Choir still standing in the current wave or job (not the police, not outpost guards). */
   public get alive(): number {
-    return this.enemies.filter((e) => e.state !== 'dead' && e.kind !== 'police').length;
+    return this.enemies.filter((e) => e.state !== 'dead' && e.kind !== 'police' && e.post === 0).length;
+  }
+
+  /** Guards of one outpost still standing. */
+  public guardsAlive(post: number): number {
+    return this.enemies.filter((e) => e.state !== 'dead' && e.post === post).length;
   }
 
   public get bossAlive(): boolean {
@@ -221,9 +230,9 @@ export class Combat {
     return this.enemies.some((e) => e.kind === 'police' && e.state === 'fight' && e.lastSeen < 1);
   }
 
-  /** Clears every Choir fighter off the street (a job restarting). */
+  /** Clears the wave's or job's Choir fighters off the street (a job restarting); outposts stay held. */
   public clearChoir(): void {
-    for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].kind !== 'police') this.enemies.splice(i, 1);
+    for (let i = this.enemies.length - 1; i >= 0; i--) if (this.enemies[i].kind !== 'police' && this.enemies[i].post === 0) this.enemies.splice(i, 1);
   }
 
   /** The heat is off: the police go home. */
@@ -260,13 +269,21 @@ export class Combat {
     return hit;
   }
 
-  /** Resolves the hero's shots (from `Arsenal.step`) aimed along yaw/pitch from the camera. */
-  public fire(weapon: WeaponId, shots: readonly Shot[], ox: number, oy: number, oz: number, yaw: number, pitch: number, minDistance: number): Hit[] {
+  /**
+   * Resolves the hero's shots (from `Arsenal.step`) aimed along yaw/pitch from the camera.
+   * @param block For each shot's direction, how far until something the fight does not own stops
+   *   it (a barrel, an alarm, a bystander). A shot stopped that way comes back as kind 'none' at
+   *   that distance, for the caller to resolve.
+   */
+  public fire(
+    weapon: WeaponId, shots: readonly Shot[], ox: number, oy: number, oz: number, yaw: number, pitch: number, minDistance: number,
+    block?: (dx: number, dy: number, dz: number) => number
+  ): Hit[] {
     const w = WEAPONS[weapon];
     const hits: Hit[] = [];
     for (const s of shots) {
       const [dx, dy, dz] = direction(yaw + s.yaw, pitch + s.pitch);
-      const hit = this.trace(ox, oy, oz, dx, dy, dz, w.range, minDistance);
+      const hit = this.trace(ox, oy, oz, dx, dy, dz, block ? Math.min(w.range, block(dx, dy, dz)) : w.range, minDistance);
       hits.push(hit);
       const close = weapon === 'shotgun' || weapon === 'smg' ? this.closeScale : 1;
       if (hit.kind === 'enemy' && hit.enemy) this.damage(hit.enemy, w.damage * close * (hit.headshot ? w.headshot * this.headshotScale : 1), !!hit.headshot, hit);
@@ -275,27 +292,99 @@ export class Combat {
     return hits;
   }
 
-  private damage(e: Enemy, amount: number, headshot: boolean, at: Hit): void {
+  /**
+   * A blast: everyone in reach is hurt in proportion to how near they are (Cantor's plate turns
+   * most of it), the hero too, and everyone in earshot turns to look.
+   */
+  public blast(x: number, z: number, radius: number, power: number): void {
+    for (const e of this.enemies) {
+      if (e.state === 'dead') continue;
+      const d = Math.hypot(e.motor.x - x, e.motor.z - z);
+      if (d >= radius) continue;
+      this.damage(e, power * (1 - d / radius), false, { kind: 'enemy', distance: d, x: e.motor.x, y: 1, z: e.motor.z, enemy: e }, 'blast');
+    }
+    const d = Math.hypot(this.heroX - x, this.heroZ - z);
+    if (d < radius) this.hurtHero(power * 0.6 * (1 - d / radius), x, z);
+    this.noise(x, z, 60);
+  }
+
+  /**
+   * Something loud at (x, z): idle fighters within `radius` turn toward it and come looking
+   * (the pistol is quiet, the sniper rifle is heard across the district).
+   */
+  public noise(x: number, z: number, radius: number): void {
+    for (const e of this.enemies) {
+      if (e.state !== 'idle') continue;
+      if (Math.hypot(e.motor.x - x, e.motor.z - z) > radius) continue;
+      e.state = 'alert';
+      e.alertTimer = (REACTION * 1.6 + hash(e.id, 9) * 0.6) * this.spotScale;
+      e.motor.facing = Math.atan2(x - e.motor.x, z - e.motor.z);
+    }
+  }
+
+  /** Fires burn whoever stands in them, the hero included, at `dps` a second. */
+  public scorch(burning: (x: number, z: number) => boolean, dps: number, dt: number): void {
+    for (const e of this.enemies) {
+      if (e.state === 'dead' || !burning(e.motor.x, e.motor.z)) continue;
+      this.damage(e, dps * dt, false, { kind: 'enemy', distance: 0, x: e.motor.x, y: 1, z: e.motor.z, enemy: e }, 'fire', true);
+    }
+    if (this.hp > 0 && burning(this.heroX, this.heroZ)) this.hurtHero(dps * dt, this.heroX, this.heroZ, true);
+  }
+
+  /**
+   * A silent takedown: the nearest fighter within reach who is not yet fighting, or whose back is
+   * turned. Returns them, or null when nobody is in reach.
+   */
+  public takedown(hero: HeroMotor): Enemy | null {
+    const best = this.takedownTarget(hero);
+    if (!best) return null;
+    this.damage(best, best.hp + 1, false, { kind: 'enemy', distance: 0, x: best.motor.x, y: 1, z: best.motor.z, enemy: best }, 'takedown');
+    return best;
+  }
+
+  /** Who a takedown would take right now (for the prompt), or null. */
+  public takedownTarget(hero: HeroMotor): Enemy | null {
+    let best: Enemy | null = null;
+    let bestD = TAKEDOWN_REACH;
+    for (const e of this.enemies) {
+      if (e.state === 'dead' || e.kind === 'boss') continue;
+      const dx = hero.x - e.motor.x;
+      const dz = hero.z - e.motor.z;
+      const d = Math.hypot(dx, dz);
+      if (d > bestD) continue;
+      const toHero = Math.atan2(dx, dz);
+      const behind = Math.abs(Math.atan2(Math.sin(toHero - e.motor.facing), Math.cos(toHero - e.motor.facing))) > 1.9;
+      if (e.state === 'fight' && !behind) continue;
+      best = e;
+      bestD = d;
+    }
+    return best;
+  }
+
+  private heroX = 0;
+  private heroZ = 0;
+
+  private damage(e: Enemy, amount: number, headshot: boolean, at: Hit, how?: 'blast' | 'fire' | 'takedown', quiet = false): void {
     // Cantor's plate turns most body shots; the head is bare.
     e.hp -= e.kind === 'boss' && !headshot ? amount * BOSS_PLATE : amount;
-    e.hitTime = 0;
+    if (!quiet) e.hitTime = 0;
     // Being shot gives the hero away, from any direction.
-    if (e.state === 'idle') {
+    if (e.state === 'idle' && how !== 'takedown') {
       e.state = 'alert';
       e.alertTimer = REACTION * 0.6;
     }
-    this.fx.push({ type: 'enemyHurt', enemy: e, headshot, x: at.x, y: at.y, z: at.z });
+    if (!quiet) this.fx.push({ type: 'enemyHurt', enemy: e, headshot, x: at.x, y: at.y, z: at.z });
     if (e.hp <= 0) {
       e.state = 'dead';
       e.deadTime = 0;
       this.kills++;
       if (headshot) this.headshots++;
-      this.fx.push({ type: 'enemyKilled', enemy: e, headshot });
+      this.fx.push({ type: 'enemyKilled', enemy: e, headshot, how });
       const weapon: WeaponId = e.kind === 'swat' ? 'smg' : e.kind === 'police' ? 'pistol' : 'rifle';
       if (e.kind === 'boss') this.fx.push({ type: 'bossDown' });
       this.drops.push({ x: e.motor.x, z: e.motor.z, weapon, rounds: WEAPONS[weapon].magazine, alive: true });
       if (e.kind === 'police') this.fx.push({ type: 'policeDown' });
-      else if (this.alive === 0) this.fx.push({ type: 'waveClear', wave: this.wave });
+      else if (e.post === 0 && this.alive === 0) this.fx.push({ type: 'waveClear', wave: this.wave });
     }
   }
 
@@ -313,13 +402,14 @@ export class Combat {
   }
 
   /** Damage to the hero: armour takes most of it first, like Counter-Strike's kevlar. */
-  public hurtHero(amount: number, fromX: number, fromZ: number): void {
+  public hurtHero(amount: number, fromX: number, fromZ: number, quiet = false): void {
     if (this.hp <= 0) return;
     const absorbed = Math.min(this.armor, amount * 0.6);
     this.armor -= absorbed;
     this.hp = Math.max(0, this.hp - (amount - absorbed));
     this.sinceHurt = 0;
-    this.fx.push({ type: 'heroHurt', amount, fromX, fromZ });
+    // A burn is a steady drain, not a hit from somewhere: no damage marker every tick.
+    if (!quiet) this.fx.push({ type: 'heroHurt', amount, fromX, fromZ });
     if (this.hp <= 0) this.fx.push({ type: 'heroDown' });
   }
 
@@ -332,6 +422,8 @@ export class Combat {
   public step(dt: number, hero: HeroMotor, pickup: (weapon: WeaponId, rounds: number) => void): void {
     this.fx.length = 0;
     this.tick++;
+    this.heroX = hero.x;
+    this.heroZ = hero.z;
     this.sinceHurt += dt;
     if (this.hp > 0 && this.sinceHurt > REGEN_DELAY && this.hp < this.regenCap) this.hp = Math.min(this.regenCap, this.hp + 8 * dt);
 

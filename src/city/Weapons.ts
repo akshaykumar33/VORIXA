@@ -39,33 +39,35 @@ export interface WeaponDef {
   aimFov: number;
   range: number;
   headshot: number;
+  /** Metres at which an idle guard hears it (the pistol is suppressed; the sniper rifle is not). */
+  loudness: number;
 }
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   pistol: {
     id: 'pistol', name: 'Pistol', model: 'Pistol_1', length: 0.22, damage: 34, interval: 0.16, automatic: false,
     magazine: 12, reserve: 48, reloadTime: 1.3, pellets: 1, spread: 0.012, aimSpread: 0.4, moveSpread: 0.03,
-    kick: 0.022, aimFov: 50, range: 90, headshot: 2.5
+    kick: 0.022, aimFov: 50, range: 90, headshot: 2.5, loudness: 14
   },
   smg: {
     id: 'smg', name: 'SMG', model: 'SubmachineGun_1', length: 0.6, damage: 22, interval: 0.075, automatic: true,
     magazine: 30, reserve: 120, reloadTime: 1.8, pellets: 1, spread: 0.02, aimSpread: 0.55, moveSpread: 0.02,
-    kick: 0.011, aimFov: 50, range: 70, headshot: 2
+    kick: 0.011, aimFov: 50, range: 70, headshot: 2, loudness: 34
   },
   rifle: {
     id: 'rifle', name: 'Assault rifle', model: 'AssaultRifle_1', length: 0.95, damage: 36, interval: 0.1, automatic: true,
     magazine: 30, reserve: 90, reloadTime: 2.3, pellets: 1, spread: 0.008, aimSpread: 0.35, moveSpread: 0.05,
-    kick: 0.016, aimFov: 42, range: 160, headshot: 3
+    kick: 0.016, aimFov: 42, range: 160, headshot: 3, loudness: 46
   },
   shotgun: {
     id: 'shotgun', name: 'Shotgun', model: 'Shotgun_1', length: 1.0, damage: 13, interval: 0.85, automatic: false,
     magazine: 6, reserve: 24, reloadTime: 2.6, pellets: 9, spread: 0.075, aimSpread: 0.75, moveSpread: 0.01,
-    kick: 0.06, aimFov: 52, range: 35, headshot: 1.5
+    kick: 0.06, aimFov: 52, range: 35, headshot: 1.5, loudness: 40
   },
   sniper: {
     id: 'sniper', name: 'Sniper rifle', model: 'SniperRifle_1', length: 1.2, damage: 115, interval: 1.4, automatic: false,
     magazine: 5, reserve: 20, reloadTime: 3, pellets: 1, spread: 0.08, aimSpread: 0.01, moveSpread: 0.1,
-    kick: 0.07, aimFov: 18, range: 300, headshot: 2
+    kick: 0.07, aimFov: 18, range: 300, headshot: 2, loudness: 64
   }
 };
 

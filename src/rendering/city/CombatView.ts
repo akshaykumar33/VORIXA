@@ -339,6 +339,14 @@ export class CombatView {
     for (const e of combat.enemies) {
       const v = this.viewFor(e);
       const m = e.motor;
+      // Fighters out of sight down the district (the outposts' guards, mostly) are neither drawn
+      // nor animated: 30-odd skinned people would otherwise cost every frame.
+      const far = Math.hypot(m.x - this.heroRoot.position.x, m.z - this.heroRoot.position.z) > 110;
+      if (far) {
+        v.root.visible = false;
+        continue;
+      }
+      v.root.visible = true;
       v.root.position.set(m.x, m.y, m.z);
       v.root.rotation.y = m.facing;
       if (e.state === 'dead') {

@@ -18,7 +18,7 @@ export interface StoryPanel {
 export interface Blip {
   x: number;
   z: number;
-  kind: 'enemy' | 'police' | 'boss' | 'objective' | 'coin' | 'car';
+  kind: 'enemy' | 'police' | 'boss' | 'objective' | 'coin' | 'car' | 'outpost' | 'ours';
 }
 
 const CSS = /* css */ `
@@ -223,12 +223,12 @@ export class CityJobUI {
       g.stroke();
     }
     const colours: Record<Blip['kind'], string> = {
-      enemy: '#ff4d5e', police: '#4f8cff', boss: '#ff2b8a', objective: '#ffc23d', coin: '#ffe36a', car: '#9aa3b5'
+      enemy: '#ff4d5e', police: '#4f8cff', boss: '#ff2b8a', objective: '#ffc23d', coin: '#ffe36a', car: '#9aa3b5', outpost: '#ff3b4a', ours: '#8a6cf0'
     };
     const edge = (half - 14) / scale;
     for (const b of blips) {
       g.fillStyle = colours[b.kind];
-      const r = b.kind === 'objective' || b.kind === 'boss' ? 9 : b.kind === 'car' ? 4 : 6;
+      const r = b.kind === 'objective' || b.kind === 'boss' || b.kind === 'outpost' ? 9 : b.kind === 'car' ? 4 : 6;
       let x = b.x;
       let z = b.z;
       const dx = x - heroX;
@@ -236,12 +236,19 @@ export class CityJobUI {
       const d = Math.hypot(dx, dz);
       // Objectives and bosses beyond the radar's reach sit on its rim, pointing the way (GTA).
       if (d > edge) {
-        if (b.kind !== 'objective' && b.kind !== 'boss') continue;
+        if (b.kind !== 'objective' && b.kind !== 'boss' && b.kind !== 'outpost') continue;
         x = heroX + (dx / d) * edge;
         z = heroZ + (dz / d) * edge;
       }
       g.beginPath();
-      g.arc(x * scale, z * scale, r, 0, Math.PI * 2);
+      if (b.kind === 'outpost' || b.kind === 'ours') {
+        // Outposts are diamonds, Far Cry's mark for a place to take.
+        g.moveTo(x * scale, z * scale - r);
+        g.lineTo(x * scale + r, z * scale);
+        g.lineTo(x * scale, z * scale + r);
+        g.lineTo(x * scale - r, z * scale);
+        g.closePath();
+      } else g.arc(x * scale, z * scale, r, 0, Math.PI * 2);
       g.fill();
       if (b.kind === 'objective') {
         g.strokeStyle = 'rgba(255,194,61,0.6)';
