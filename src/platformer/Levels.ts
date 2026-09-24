@@ -45,4 +45,15 @@ const WINDMILL_WALK: Section[] = [
   }
 ];
 
-export const LEVELS: readonly LevelData[] = [buildLevel('Windmill Walk', WINDMILL_WALK)];
+const SOURCES: readonly [string, readonly Section[]][] = [['Windmill Walk', WINDMILL_WALK]];
+
+export const LEVELS: readonly LevelData[] = SOURCES.map(([name, sections]) => buildLevel(name, sections));
+
+/**
+ * A fresh copy of a level to play. The simulation writes to its level (bumped blocks become used
+ * blocks), so every attempt needs its own; `LEVELS` is for reading and validation only.
+ */
+export function loadLevel(index: number): LevelData {
+  const [name, sections] = SOURCES[Math.max(0, Math.min(SOURCES.length - 1, index))];
+  return buildLevel(name, sections);
+}

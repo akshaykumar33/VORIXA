@@ -18,14 +18,18 @@ const DEFAULT_ENDLESS_SEED = seedFromString('vorixa-endless-01');
 import { createPointerLockController } from './input/PointerLockController';
 import { RushRenderer } from './rendering/rush/RushRenderer';
 import { RushGame } from './game/RushGame';
+import { PlatformRenderer } from './rendering/platformer/PlatformRenderer';
+import { OnFootGame } from './game/OnFootGame';
 
 /**
- * Rush (ADR-0011) is the default game. The original parkour time-attack is kept, reachable with
+ * Rush (ADR-0011) is the default game; On Foot (ADR-0012) is `?mode=onfoot`. The original parkour time-attack is kept, reachable with
  * `?mode=parkour`, until a later decision retires it.
  */
 function bootstrap(): void {
   const params = new URLSearchParams(window.location.search);
-  if (params.get('mode') === 'parkour') bootstrapParkour();
+  const mode = params.get('mode');
+  if (mode === 'parkour') bootstrapParkour();
+  else if (mode === 'onfoot') bootstrapOnFoot();
   else bootstrapRush(params);
 }
 
@@ -55,6 +59,25 @@ function bootstrapRush(params: URLSearchParams): void {
 
   if (import.meta.env.DEV) {
     (window as unknown as Record<string, unknown>).__rush = { game, renderer };
+  }
+}
+
+/** On Foot (ADR-0012): the driver's side-scrolling adventure, entered from the Rush title. */
+function bootstrapOnFoot(): void {
+  const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
+  const viewport = document.getElementById('viewport');
+  if (!canvas || !viewport) throw new Error('Could not locate #render-canvas and #viewport.');
+  const renderer = new PlatformRenderer();
+  renderer.initialize(canvas);
+  const applySize = () => {
+    renderer.resize(Math.max(1, canvas.clientWidth || window.innerWidth), Math.max(1, canvas.clientHeight || window.innerHeight));
+  };
+  new ResizeObserver(applySize).observe(canvas);
+  applySize();
+  const game = new OnFootGame(renderer, viewport);
+  game.start();
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__onfoot = { game, renderer };
   }
 }
 

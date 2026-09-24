@@ -15,6 +15,8 @@ export enum InputAction {
   CONFIRM = 'CONFIRM',
   /** Opens the garage shop from the title (Rush). */
   SHOP = 'SHOP',
+  /** Leaves the car for On Foot, from the title (Rush). */
+  ON_FOOT = 'ON_FOOT',
   CROUCH = 'CROUCH',
   RESTART = 'RESTART',
   GESTURE_TOGGLE = 'GESTURE_TOGGLE',

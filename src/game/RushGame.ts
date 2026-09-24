@@ -190,6 +190,7 @@ export class RushGame {
       if (choice === 'garage') this.openShop();
       else if (choice === 'tour') this.openMap();
       else if (choice === 'school') this.openSchoolPicker();
+      else if (choice === 'onfoot') goOnFoot();
       else if (this.sim.phase === 'ready') this.sim.start();
     };
     this.tour.onPlay = (id) => this.playStage(id);
@@ -543,6 +544,10 @@ export class RushGame {
     }
     if (this.shop.open) {
       if (i.isJustPressed(InputAction.PAUSE)) this.closeShop();
+      return true;
+    }
+    if (this.sim.phase === 'ready' && !this.pickerOpen && !this.tour.mapOpen && i.isJustPressed(InputAction.ON_FOOT)) {
+      goOnFoot();
       return true;
     }
     if (this.sim.phase === 'ready' && !this.pickerOpen && !this.tour.mapOpen && i.isJustPressed(InputAction.SHOP)) {
@@ -939,6 +944,13 @@ export class RushGame {
 function meter(level: number): string {
   const n = Math.max(0, Math.min(5, Math.round((level / 0.4) * 5)));
   return '▮'.repeat(n) + '▯'.repeat(5 - n);
+}
+
+/** Climbs out of the car: On Foot runs as its own page (ADR-0012), keeping the current query. */
+function goOnFoot(): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set('mode', 'onfoot');
+  window.location.href = url.toString();
 }
 
 function deviceStatus(enabled: boolean, status: string, present: boolean): DeviceStatus {

@@ -161,7 +161,7 @@ export class TourUI {
   private readonly card: HTMLElement;
   private lastHudKey = '';
 
-  public onMenu: (choice: 'tour' | 'endless' | 'school' | 'garage') => void = () => {};
+  public onMenu: (choice: 'tour' | 'endless' | 'school' | 'garage' | 'onfoot') => void = () => {};
   public onPlay: (stageId: string) => void = () => {};
   public onSelect: (world: number, stage: number) => void = () => {};
   public onMapBack: () => void = () => {};
@@ -184,12 +184,14 @@ export class TourUI {
       <button class="btn primary m-tour" type="button">World Tour<kbd>Enter</kbd></button>
       <button class="btn m-endless" type="button">Endless Rush<kbd>Space</kbd></button>
       <button class="btn m-school" type="button">Driving School<kbd>T</kbd></button>
-      <button class="btn m-garage" type="button">Garage &amp; Upgrades<kbd>U</kbd></button>`;
+      <button class="btn m-garage" type="button">Garage &amp; Upgrades<kbd>U</kbd></button>
+      <button class="btn m-onfoot" type="button">On Foot<kbd>O</kbd></button>`;
     hudRoot.querySelector('.card.title .head')?.appendChild(this.menu);
     this.wire(this.menu.querySelector('.m-tour'), () => this.onMenu('tour'));
     this.wire(this.menu.querySelector('.m-endless'), () => this.onMenu('endless'));
     this.wire(this.menu.querySelector('.m-school'), () => this.onMenu('school'));
     this.wire(this.menu.querySelector('.m-garage'), () => this.onMenu('garage'));
+    this.wire(this.menu.querySelector('.m-onfoot'), () => this.onMenu('onfoot'));
 
     this.stagebar = document.createElement('div');
     this.stagebar.className = 'stagebar';
