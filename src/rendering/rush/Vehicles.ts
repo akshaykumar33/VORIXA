@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { part, flat, toon, outline, bake } from './Toon';
+import { part, flat, toon, outline, bake, finish } from './Toon';
 
 /**
  * Every car in Rush, and the little people who drive them.
@@ -130,16 +130,47 @@ export function buildDriver(skin: number, helmet: number, scarfColor: number): D
 
 // ─── Parts shared between vehicles ────────────────────────────────────────────────────────────
 
+/** The paint colour of each player vehicle's bodywork, for the finishing pass. */
+const BODY_PAINT: Record<VehicleKind, number[]> = {
+  zippy: [0xff5a36],
+  monster: [0x5ad16b],
+  hotdog: [0xfff0d6, 0xff4d5e],
+  bubble: [0x9b6bff]
+};
+
+/**
+ * Gives every part of a car a real surface: bodywork gets clear-coated paint, windows dark
+ * reflective glass, tyres rubber, and remaining trim a glossy plastic. Runs before baking, which
+ * merges meshes by material, so each finish still becomes a single draw.
+ */
+function applyFinishes(root: THREE.Object3D, paints: number[]): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const material = mesh.material as THREE.Material;
+    if (!(material instanceof THREE.MeshStandardMaterial) || material.map || material.transparent) return;
+    if (material.emissive.getHex() !== 0) return;
+    const hex = material.color.getHex();
+    if (paints.includes(hex)) mesh.material = finish(hex, 'paint');
+    else if (hex === GLASS) mesh.material = finish(hex, 'glass');
+    else if (hex === TYRE) mesh.material = finish(hex, 'rubber');
+    else if (hex === INK) mesh.material = finish(0x23252e, 'matte');
+    else if (!(material instanceof THREE.MeshPhysicalMaterial)) mesh.material = finish(hex, 'gloss');
+  });
+}
+
 function wheels(root: THREE.Object3D, radius: number, width: number, hub: number, positions: [number, number][], y = radius): THREE.Mesh[] {
   const out: THREE.Mesh[] = [];
   const tyre = new THREE.CylinderGeometry(radius, radius, width, 18).rotateZ(Math.PI / 2);
   const hubGeometry = new THREE.CylinderGeometry(radius * 0.45, radius * 0.45, width + 0.02, 10).rotateZ(Math.PI / 2);
   const notch = new THREE.BoxGeometry(width + 0.03, radius * 0.18, radius * 0.65);
   for (const [x, z] of positions) {
-    const wheel = part(tyre, TYRE, { outline: 0.05 });
-    wheel.add(new THREE.Mesh(hubGeometry, toon(hub)));
+    const wheel = part(tyre, TYRE, { outline: 0.05, finish: 'rubber' });
+    // Chrome hubs: the brightest reflection on the car, and what makes the wheels read as turning.
+    void hub;
+    wheel.add(new THREE.Mesh(hubGeometry, finish(0xe8ecf2, 'chrome')));
     // A notch on the hub makes the spin visible; a plain disc looks stationary.
-    wheel.add(new THREE.Mesh(notch, toon(CREAM)));
+    wheel.add(new THREE.Mesh(notch, finish(0x5a5f6e, 'metal')));
     wheel.position.set(x, y, z);
     root.add(wheel);
     out.push(wheel);
@@ -202,6 +233,10 @@ function rollBar(body: THREE.Object3D, y: number, z: number, color: number): THR
 
 export function buildVehicle(kind: VehicleKind): CarModel {
   const car = kind === 'zippy' ? zippy() : kind === 'monster' ? monster() : kind === 'hotdog' ? hotdog() : bubble();
+  applyFinishes(car.body, BODY_PAINT[kind]);
+  car.root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+  });
   const d = car.driver;
   if (d) {
     bake(d.head, [d.stars]);
@@ -446,6 +481,10 @@ export function buildTraffic(kind: TrafficKind, id: number): CarModel {
   // Traffic is seen from behind at a distance, where spinning hubs are invisible: the wheels are
   // baked in with everything else, and the whole car costs a handful of draws.
   wheels(root, 0.46, 0.4, 0xdfe3ee, [[-0.98, -1.2], [0.98, -1.2], [-0.98, 1.2], [0.98, 1.2]]);
+  applyFinishes(root, [paint]);
+  root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+  });
   bake(body);
   bake(root, [body]);
   return { root, body, driver: null, turret: null, wheels: [], wheelRadius: 0.46, flames: [] };

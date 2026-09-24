@@ -12,7 +12,9 @@ import {
   type FxRecord
 } from '../../rush/RushSim';
 import { ParticleRenderer } from '../ParticleRenderer';
-import { bend, bent, flat, ink, toon } from './Toon';
+import { bend, bent, flat, ink, toon, INK_OUTLINES } from './Toon';
+import { SkyLibrary } from './SkyLibrary';
+import { PostFX } from './PostFX';
 import { Scenery } from './Scenery';
 import { buildVehicle, buildTraffic, TRAFFIC_KINDS, type CarModel, type VehicleKind } from './Vehicles';
 import type { BiomeId } from '../../rush/Zones';
@@ -65,8 +67,8 @@ import {
  * The car is always at z = 0; an entity `d` metres ahead is drawn at z = -d. See `Scenery`.
  */
 
-const FOG_NEAR = 90;
-const FOG_FAR = 245;
+const FOG_NEAR = 110;
+const FOG_FAR = 300;
 
 /** Crosshair range, matching the sim's aim ray. */
 const AIM_DISTANCE = 45;
@@ -123,6 +125,8 @@ export class RushRenderer {
   private readonly sun = new THREE.DirectionalLight(0xfff4dc, 1.7);
   private readonly hemi = new THREE.HemisphereLight(0xe6f4ff, 0x9bd48a, 1.15);
   private readonly fog = new THREE.Fog(0xffe2b8, FOG_NEAR, FOG_FAR);
+  private skies: SkyLibrary | null = null;
+  private post: PostFX | null = null;
 
   // Presentation state.
   private squash = 0;
@@ -157,6 +161,19 @@ export class RushRenderer {
     this.scene.fog = this.fog;
     this.scene.add(this.hemi);
     this.sun.position.set(-8, 18, 6);
+    // Real shadows, but only where they are seen: a box around the car and the road just ahead.
+    // Past it the curved-world bend would pull geometry away from its (unbent) shadow anyway.
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    const shadowCam = this.sun.shadow.camera;
+    shadowCam.left = -16;
+    shadowCam.right = 16;
+    shadowCam.top = 34;
+    shadowCam.bottom = -12;
+    shadowCam.near = 1;
+    shadowCam.far = 70;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
 
     this.scene.add(this.scenery.group);
@@ -172,6 +189,7 @@ export class RushRenderer {
     this.coins = new THREE.InstancedMesh(coinGeo, toon(0xffd23f, { emissive: 0x6b4a00 }), 96);
     const hullGeo = coinGeo.clone().scale(1.14, 1.14, 1.6);
     this.coinHulls = new THREE.InstancedMesh(hullGeo, ink(), 96);
+    this.coinHulls.visible = INK_OUTLINES;
     for (const m of [this.coins, this.coinHulls]) {
       m.frustumCulled = false;
       m.count = 0;
@@ -232,14 +250,19 @@ export class RushRenderer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // No tone mapping: cartoon colours are chosen exactly and should arrive exactly.
+    // Tone mapping happens once, in the post chain (ACES), so the renderer writes linear HDR.
     this.renderer.toneMapping = THREE.NoToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.skies = new SkyLibrary(this.renderer);
+    this.post = new PostFX(this.renderer, this.scene, this.camera);
   }
 
   public resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
     this.renderer.setSize(width, height, false);
+    this.post?.setSize(width, height);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
@@ -410,8 +433,9 @@ export class RushRenderer {
     this.fog.color.copy(pal.fog);
     this.hemi.color.copy(pal.hemiSky);
     this.hemi.groundColor.copy(pal.hemiGround);
-    this.hemi.intensity = pal.hemiIntensity;
-    this.sun.intensity = pal.sunIntensity;
+    const imageLit = this.applySkies();
+    this.hemi.intensity = pal.hemiIntensity * (imageLit ? 0.25 : 1);
+    this.sun.intensity = pal.sunIntensity * (imageLit ? 1.25 : 1);
     this.drawPlayer(sim, aimX, frameDelta);
     this.drawEntities(sim);
     this.drawBullets(sim);
@@ -421,7 +445,24 @@ export class RushRenderer {
     }
     this.placeCamera(sim, frameDelta);
 
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render(frameDelta);
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Feeds the scenery the photographed skies of the two worlds either side of the next boundary,
+   * and lights the scene with whichever one the sky has mostly turned to. Loads are lazy: the
+   * first frame of a world asks for its sky and the gradient stands in until it arrives.
+   */
+  private applySkies(): boolean {
+    if (!this.skies) return false;
+    const here = this.skies.get(this.scenery.hereBiome);
+    const next = this.skies.get(this.scenery.nextBiome);
+    this.scenery.setSkies(here?.backdrop ?? null, next?.backdrop ?? null);
+    const lit = this.scenery.skyBlend > 0.5 ? next ?? here : here ?? next;
+    const env = lit?.environment ?? null;
+    if (this.scene.environment !== env) this.scene.environment = env;
+    return env !== null;
   }
 
   private drawPlayer(sim: RushSim, aimX: number, dt: number): void {
@@ -496,11 +537,12 @@ export class RushRenderer {
     this.playerBlob.position.set(sim.x, 0.03, 0);
     const lift = Math.max(0, 1 - sim.y / 6);
     this.playerBlob.scale.setScalar(0.5 + lift * 0.5);
-    (this.playerBlob.material as THREE.MeshBasicMaterial).opacity = 0.28 * lift;
+    // Only a faint contact shadow now: the sun casts the real one.
+    (this.playerBlob.material as THREE.MeshBasicMaterial).opacity = 0.12 * lift;
 
     // Keep the shadow-casting light over the car so its shadow never walks off the map.
-    this.sun.position.set(sim.x - 8, 18, 6);
-    this.sun.target.position.set(sim.x, 0, 0);
+    this.sun.position.set(sim.x - 10, 26, 2);
+    this.sun.target.position.set(sim.x, 0, -8);
   }
 
   /**

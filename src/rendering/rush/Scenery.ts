@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { toon, flat, ink, bent } from './Toon';
+import { toon, flat, ink, bent, INK_OUTLINES } from './Toon';
 import { roadMask, kerbMask, grassMask } from './Textures';
-import { inflate, merge, type PartPose, type PropSpec } from './PropKit';
+import { inflate, type PartPose, type PropSpec } from './PropKit';
 import { buildBiomes, type BiomeLook, type Palette } from './Biomes';
 import { LANE_WIDTH } from '../../rush/RushSim';
 import { ZoneSchedule, ZONE_LENGTH, type BiomeId } from '../../rush/Zones';
@@ -61,8 +61,8 @@ function groundUniforms(): GroundUniforms {
   return { prev0: c(), prev1: c(), here0: c(), here1: c(), next0: c(), next1: c(), behind: { value: 1e4 }, ahead: { value: -1e4 } };
 }
 
-function groundMaterial(mask: THREE.Texture, u: GroundUniforms): THREE.MeshToonMaterial {
-  const material = new THREE.MeshToonMaterial({ map: mask });
+function groundMaterial(mask: THREE.Texture, u: GroundUniforms, roughness: number): THREE.MeshStandardMaterial {
+  const material = new THREE.MeshStandardMaterial({ map: mask, roughness, metalness: 0 });
   material.defines = { GROUND_BLEND: '' };
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
@@ -112,9 +112,11 @@ class PropKind {
       const mesh = new THREE.InstancedMesh(p.geometry, p.glow ? flat(p.color) : toon(p.color), capacity);
       mesh.frustumCulled = false;
       mesh.visible = false;
+      mesh.castShadow = !p.glow;
+      mesh.receiveShadow = true;
       this.meshes.push({ mesh, part: index });
       parent.add(mesh);
-      if (p.outline > 0) {
+      if (INK_OUTLINES && p.outline > 0) {
         const hull = new THREE.InstancedMesh(inflate(p.geometry, p.outline), ink(), capacity);
         hull.frustumCulled = false;
         hull.visible = false;
@@ -228,12 +230,29 @@ const SKY_VERTEX = /* glsl */ `
 `;
 
 const SKY_FRAGMENT = /* glsl */ `
+  #include <common>
   uniform vec3 uTop;
   uniform vec3 uHorizon;
+  uniform sampler2D uSkyA;
+  uniform sampler2D uSkyB;
+  uniform float uHasA;
+  uniform float uHasB;
+  uniform float uMix;
   varying vec3 vDir;
+
+  vec3 gradient(vec3 dir) {
+    float h = clamp(dir.y * 2.2, 0.0, 1.0);
+    return mix(uHorizon, uTop, pow(h, 0.7));
+  }
+
   void main() {
-    float h = clamp(vDir.y * 2.2, 0.0, 1.0);
-    vec3 color = mix(uHorizon, uTop, pow(h, 0.7));
+    vec3 dir = normalize(vDir);
+    vec2 uv = equirectUv(dir);
+    vec3 fallback = gradient(dir);
+    vec3 a = uHasA > 0.5 ? texture2D(uSkyA, uv).rgb : fallback;
+    vec3 b = uHasB > 0.5 ? texture2D(uSkyB, uv).rgb : fallback;
+    // The photographs are already tone-mapped; lift them so the filmic pass does not dull them.
+    vec3 color = mix(a, b, uMix) * 1.2;
     gl_FragColor = vec4(color, 1.0);
     #include <colorspace_fragment>
   }
@@ -259,13 +278,10 @@ export class Scenery {
   private readonly grass = groundUniforms();
 
   private readonly sky: THREE.ShaderMaterial;
-  private readonly stars: THREE.Points;
-  private readonly sunDisc: THREE.Mesh;
-  private readonly sunHalo: THREE.Mesh;
-  private readonly hillMaterials: THREE.MeshBasicMaterial[] = [];
-  private readonly cloudMaterial = new THREE.MeshToonMaterial({ color: 0xffffff, fog: false });
-  private readonly cloudInk = new THREE.MeshBasicMaterial({ color: 0xc9d6f2, side: THREE.BackSide, fog: false });
-  private readonly clouds = new THREE.Group();
+  /** The worlds either side of the next boundary, and how far the sky has turned (0..1). */
+  public hereBiome: BiomeId = 'meadow';
+  public nextBiome: BiomeId = 'meadow';
+  public skyBlend = 0;
 
   private readonly placement = new THREE.Matrix4();
   private readonly position = new THREE.Vector3();
@@ -279,8 +295,9 @@ export class Scenery {
     this.roadMap.repeat.set(1, ROAD_LENGTH / ROAD_TILE);
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(ROAD_WIDTH, ROAD_LENGTH, 1, ROAD_SEGMENTS).rotateX(-Math.PI / 2),
-      groundMaterial(this.roadMap, this.road)
+      groundMaterial(this.roadMap, this.road, 0.82)
     );
+    road.receiveShadow = true;
     road.position.set(0, 0, (ROAD_BEHIND - ROAD_AHEAD) / 2);
     this.group.add(road);
 
@@ -288,8 +305,9 @@ export class Scenery {
     for (const side of [-1, 1]) {
       const kerb = new THREE.Mesh(
         new THREE.BoxGeometry(0.8, 0.22, ROAD_LENGTH, 1, 1, ROAD_SEGMENTS),
-        groundMaterial(this.kerbMap, this.kerb)
+        groundMaterial(this.kerbMap, this.kerb, 0.6)
       );
+      kerb.receiveShadow = true;
       kerb.position.set(side * (ROAD_WIDTH / 2 + 0.4), 0.06, road.position.z);
       this.group.add(kerb);
     }
@@ -297,8 +315,9 @@ export class Scenery {
     this.grassMap.repeat.set(30, ROAD_LENGTH / 8);
     const grass = new THREE.Mesh(
       new THREE.PlaneGeometry(420, ROAD_LENGTH, 1, ROAD_SEGMENTS).rotateX(-Math.PI / 2),
-      groundMaterial(this.grassMap, this.grass)
+      groundMaterial(this.grassMap, this.grass, 0.95)
     );
+    grass.receiveShadow = true;
     grass.position.set(0, -0.04, road.position.z);
     this.group.add(grass);
 
@@ -310,72 +329,36 @@ export class Scenery {
       this.props.set(id, { near, nearWeights: cumulative(near), far, farWeights: cumulative(far) });
     }
 
+    // The sky is the world's photograph (see SkyLibrary), crossfading at a boundary. Until the
+    // photographs arrive it falls back to the palette's gradient, so the sky is never blank.
     this.sky = new THREE.ShaderMaterial({
-      uniforms: { uTop: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() } },
+      uniforms: {
+        uTop: { value: new THREE.Color() },
+        uHorizon: { value: new THREE.Color() },
+        uSkyA: { value: null },
+        uSkyB: { value: null },
+        uHasA: { value: 0 },
+        uHasB: { value: 0 },
+        uMix: { value: 0 }
+      },
       vertexShader: SKY_VERTEX,
       fragmentShader: SKY_FRAGMENT,
       side: THREE.BackSide,
       depthWrite: false,
       fog: false
     });
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(600, 32, 16), this.sky);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(600, 48, 24), this.sky);
     dome.renderOrder = -10;
     this.group.add(dome);
+  }
 
-    const starPositions = new Float32Array(600 * 3);
-    for (let i = 0; i < 600; i++) {
-      const theta = rand(i, 1) * Math.PI * 2;
-      const y = 0.08 + rand(i, 2) * 0.92;
-      const r = Math.sqrt(1 - y * y);
-      starPositions.set([Math.cos(theta) * r * 560, y * 560, Math.sin(theta) * r * 560], i * 3);
-    }
-    const starGeometry = new THREE.BufferGeometry();
-    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-    this.stars = new THREE.Points(
-      starGeometry,
-      new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, transparent: true, fog: false, depthWrite: false })
-    );
-    this.group.add(this.stars);
-
-    this.sunDisc = new THREE.Mesh(new THREE.CircleGeometry(26, 40), new THREE.MeshBasicMaterial({ fog: false }));
-    this.sunDisc.position.set(-70, 60, -420);
-    this.sunHalo = new THREE.Mesh(
-      new THREE.RingGeometry(28, 36, 40),
-      new THREE.MeshBasicMaterial({ color: 0xffe08a, fog: false, transparent: true, opacity: 0.45 })
-    );
-    this.sunDisc.add(this.sunHalo);
-    this.group.add(this.sunDisc);
-
-    for (let i = 0; i < 9; i++) {
-      const radius = 60 + rand(i, 7) * 70;
-      const material = new THREE.MeshBasicMaterial({ fog: false });
-      this.hillMaterials.push(material);
-      const hill = new THREE.Mesh(new THREE.SphereGeometry(radius, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), material);
-      hill.scale.y = 0.35 + rand(i, 8) * 0.25;
-      hill.position.set(-360 + i * 90, -8, -400 - rand(i, 9) * 60);
-      this.group.add(hill);
-    }
-
-    // Every puff of every cloud is one mesh, and every rim another: the sky is two draws, not a
-    // hundred. The clouds only ever move together, so nothing is lost by merging them.
-    const puffs: THREE.BufferGeometry[] = [];
-    const rims: THREE.BufferGeometry[] = [];
-    for (let i = 0; i < 14; i++) {
-      const cx = -260 + rand(i, 5) * 520;
-      const cy = 45 + rand(i, 6) * 45;
-      const cz = -250 - rand(i, 11) * 150;
-      const count = 3 + Math.floor(rand(i, 1) * 3);
-      for (let p = 0; p < count; p++) {
-        const r = 4 + rand(i * 10 + p, 2) * 4;
-        const x = cx + (p - count / 2) * 5.5;
-        const y = cy + rand(i * 10 + p, 3) * 3;
-        const z = cz + rand(i * 10 + p, 4) * 3;
-        puffs.push(new THREE.SphereGeometry(r, 14, 10).translate(x, y, z));
-        rims.push(new THREE.SphereGeometry(r * 1.05, 14, 10).translate(x, y, z));
-      }
-    }
-    this.clouds.add(new THREE.Mesh(merge(...puffs), this.cloudMaterial), new THREE.Mesh(merge(...rims), this.cloudInk));
-    this.group.add(this.clouds);
+  /** Hands the scenery the backdrops for the two worlds in play; null until they have loaded. */
+  public setSkies(here: THREE.Texture | null, next: THREE.Texture | null): void {
+    const u = this.sky.uniforms;
+    u.uSkyA.value = here;
+    u.uSkyB.value = next;
+    u.uHasA.value = here ? 1 : 0;
+    u.uHasB.value = next ? 1 : 0;
   }
 
   /** A new run: a new order of worlds. */
@@ -428,14 +411,10 @@ export class Scenery {
     pal.blend(here, next, t);
     (this.sky.uniforms.uTop.value as THREE.Color).copy(pal.skyTop);
     (this.sky.uniforms.uHorizon.value as THREE.Color).copy(pal.skyHorizon);
-    (this.stars.material as THREE.PointsMaterial).opacity = pal.stars;
-    this.stars.visible = pal.stars > 0.01;
-    (this.sunDisc.material as THREE.MeshBasicMaterial).color.copy(pal.sun);
-    (this.sunHalo.material as THREE.MeshBasicMaterial).opacity = 0.45 * (1 - pal.stars);
-    this.hillMaterials.forEach((m, i) => m.color.copy(pal.hills).multiplyScalar(0.92 + (i % 3) * 0.06));
-    this.cloudMaterial.color.copy(pal.cloud);
-    this.cloudInk.color.copy(pal.cloudRim);
-    this.clouds.position.x = Math.sin(time * 0.02) * 20 - ((distance * 0.01) % 40);
+    this.sky.uniforms.uMix.value = t;
+    this.hereBiome = this.biomeOfZone(zone);
+    this.nextBiome = this.biomeOfZone(zone + 1);
+    this.skyBlend = t;
 
     this.placeProps(distance, time);
   }

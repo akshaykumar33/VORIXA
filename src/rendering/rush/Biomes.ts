@@ -649,8 +649,8 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
   return {
     meadow: {
       palette: {
-        skyTop: 0x3fa7ff, skyHorizon: 0xffe2b8, fog: 0xffe2b8, sun: 0xfff1b8, stars: 0,
-        ground: [0x7fd95b, 0x6cc84c], road: [0x4a4f75, 0xfff7e0], kerb: [0xff4d5e, 0xfff7e0],
+        skyTop: 0x3fa7ff, skyHorizon: 0xcfdcea, fog: 0xc6d6e6, sun: 0xfff1b8, stars: 0,
+        ground: [0x6a9e45, 0x5b8f3b], road: [0x3b3e45, 0xece6d6], kerb: [0xc8373f, 0xece6d6],
         hills: 0x9fd8a0, cloud: 0xffffff, cloudRim: 0xc9d6f2,
         hemiSky: 0xe6f4ff, hemiGround: 0x9bd48a, hemiIntensity: 1.15, sunIntensity: 1.7
       },
@@ -664,7 +664,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
     desert: {
       palette: {
         skyTop: 0xff8a5c, skyHorizon: 0xffd79a, fog: 0xffcf92, sun: 0xfff4c0, stars: 0,
-        ground: [0xf2c27b, 0xe8b066], road: [0x6b5a6e, 0xfff0d0], kerb: [0xff7a2f, 0xfff0d0],
+        ground: [0xd9a86a, 0xcc9a5c], road: [0x4a4441, 0xf0e2c4], kerb: [0xd8652a, 0xf0e2c4],
         hills: 0xe79a5a, cloud: 0xfff0e0, cloudRim: 0xf0b58a,
         hemiSky: 0xffe4c8, hemiGround: 0xd9a066, hemiIntensity: 1.1, sunIntensity: 1.8
       },
@@ -676,8 +676,8 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
     },
     snow: {
       palette: {
-        skyTop: 0x6fb2ff, skyHorizon: 0xe6f3ff, fog: 0xe6f3ff, sun: 0xfffbe8, stars: 0,
-        ground: [0xf4f8ff, 0xe1ecfa], road: [0x5a6488, 0xffffff], kerb: [0x3d8bff, 0xffffff],
+        skyTop: 0x6fb2ff, skyHorizon: 0xd8e2ec, fog: 0xd3dde8, sun: 0xfffbe8, stars: 0,
+        ground: [0xe8eef6, 0xd5e0ee], road: [0x40444f, 0xf2f4f7], kerb: [0x2f6fd0, 0xf2f4f7],
         hills: 0xdbe9fb, cloud: 0xffffff, cloudRim: 0xb8cff0,
         hemiSky: 0xeaf4ff, hemiGround: 0xc8d8ee, hemiIntensity: 1.2, sunIntensity: 1.3
       },
@@ -690,7 +690,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
     candy: {
       palette: {
         skyTop: 0xff8fd0, skyHorizon: 0xffe3f3, fog: 0xffe0f2, sun: 0xfff6c8, stars: 0,
-        ground: [0x9ff0c9, 0x87e6b8], road: [0x8f6bd8, 0xfff0fb], kerb: [0xff5fa8, 0xffffff],
+        ground: [0x8fd8b4, 0x7bcaa3], road: [0x5a4a78, 0xf6e8f2], kerb: [0xe0508f, 0xf6e8f2],
         hills: 0xffc2e2, cloud: 0xffffff, cloudRim: 0xffb3d9,
         hemiSky: 0xfff0fa, hemiGround: 0xb9f2d8, hemiIntensity: 1.2, sunIntensity: 1.5
       },
@@ -703,7 +703,7 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
     neon: {
       palette: {
         skyTop: 0x120c38, skyHorizon: 0x6a3aa8, fog: 0x3a2270, sun: 0xf3eaff, stars: 1,
-        ground: [0x241d4d, 0x2e2660], road: [0x1c1838, 0x3ff7ff], kerb: [0xff3df2, 0x3ff7ff],
+        ground: [0x1b1733, 0x221d40], road: [0x16141f, 0x3ff7ff], kerb: [0xff3df2, 0x3ff7ff],
         hills: 0x2b1f5c, cloud: 0x5b3f9a, cloudRim: 0x2a1d55,
         hemiSky: 0x9f8bff, hemiGround: 0x3a2a70, hemiIntensity: 1.0, sunIntensity: 0.6
       },
@@ -715,8 +715,8 @@ export function buildBiomes(): Record<BiomeId, BiomeLook> {
     },
     beach: {
       palette: {
-        skyTop: 0x2fc6ff, skyHorizon: 0xfff2c9, fog: 0xfff0c8, sun: 0xfff3b0, stars: 0,
-        ground: [0xffe3a3, 0xf7d58a], road: [0x55607f, 0xffffff], kerb: [0x2ec4b6, 0xffffff],
+        skyTop: 0x2fc6ff, skyHorizon: 0xdbe8ef, fog: 0xd6e4ec, sun: 0xfff3b0, stars: 0,
+        ground: [0xe8cf95, 0xdcc083], road: [0x44474f, 0xf2f2ee], kerb: [0x2aa89c, 0xf2f2ee],
         hills: 0x6fd6c9, cloud: 0xffffff, cloudRim: 0xbfe8f5,
         hemiSky: 0xf0fbff, hemiGround: 0xe9cf8f, hemiIntensity: 1.15, sunIntensity: 1.8
       },
