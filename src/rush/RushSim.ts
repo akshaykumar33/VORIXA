@@ -1,5 +1,11 @@
 import { createRng, type Rng } from '../world/Rng';
 import { spawnPattern, placeStarCoin, OPENING_CLEAR } from './Patterns';
+import { statsFor, defaultLoadout, type CarStats, type WeaponId } from './Garage';
+
+/** Time between shots, per weapon, before the rapid-fire upgrade. */
+const WEAPON_INTERVAL: Record<WeaponId, number> = { blaster: 1, spread: 1.35, laser: 0.7 };
+/** Spread gun: the side shots fan out this fast sideways (m/s). */
+const SPREAD_VX = 9;
 
 /**
  * Rush: the whole game as a pure, deterministic simulation.
@@ -171,6 +177,10 @@ export interface Bullet {
   targetId: number;
   /** A rocket from an item: kills outright and splashes. */
   rocket: boolean;
+  /** A laser bolt: passes through what it hits instead of stopping. */
+  pierce: boolean;
+  /** The last entity a piercing bolt hit, so it damages each thing once. */
+  lastHit: number;
 }
 
 export type FxType =
@@ -273,6 +283,8 @@ export class RushSim {
   public grounded = true;
   /** Lateral velocity this tick, for body roll. */
   public vx = 0;
+  /** The garage's effect on the car. Set before `reset`/`startStage`, which apply it. */
+  public car: CarStats = statsFor(defaultLoadout());
   public hearts = MAX_HEARTS;
   public invulnerable = 0;
   public nitro = 0.5;
@@ -334,7 +346,7 @@ export class RushSim {
       this.entities.push({ id: 0, kind: 'coin', alive: false, x: 0, y: 0, z: 0, vz: 0, hp: 0, age: 0, timer: 0, offset: 0, passed: false });
     }
     for (let i = 0; i < BULLET_CAPACITY; i++) {
-      this.bullets.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, life: 0, targetId: 0, rocket: false });
+      this.bullets.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, life: 0, targetId: 0, rocket: false, pierce: false, lastHit: 0 });
     }
     for (let i = 0; i < FX_CAPACITY; i++) this.fx.push({ type: 'coin', x: 0, y: 0, z: 0, amount: 0 });
   }
@@ -349,9 +361,9 @@ export class RushSim {
     this.startZ = 0;
     this.speed = 0;
     this.grounded = true;
-    this.hearts = MAX_HEARTS;
+    this.hearts = this.car.maxHearts;
     this.invulnerable = 0;
-    this.nitro = 0.5;
+    this.nitro = this.car.startNitro;
     this.nitroActive = false;
     this.score = this.coins = this.kills = this.droneKills = 0;
     this.nearMisses = this.flips = 0;
@@ -378,9 +390,16 @@ export class RushSim {
     for (const b of this.bullets) b.alive = false;
   }
 
+  public get maxHearts(): number {
+    return this.car.maxHearts;
+  }
+
   public start(): void {
     if (this.phase !== 'ready') return;
     this.phase = 'running';
+    // Garage perks that begin every run.
+    if (this.car.startShield) this.shieldTime = SHIELD_SECONDS;
+    this.magnetTime = this.car.startMagnet;
     this.speed = Math.max(this.speed, START_SPEED);
     // The car has been cruising under the title; the road ahead is measured from where it is now.
     this.nextSpawnZ = this.z + OPENING_CLEAR;
@@ -526,7 +545,7 @@ export class RushSim {
     this.lane = Math.max(MIN_LANE, Math.min(MAX_LANE, Math.round(intent.lane)));
     const targetX = this.lane * LANE_WIDTH;
     const delta = targetX - this.x;
-    const step = LANE_SWITCH_SPEED * dt;
+    const step = LANE_SWITCH_SPEED * this.car.handling * dt;
     const before = this.x;
     this.x = Math.abs(delta) <= step ? targetX : this.x + Math.sign(delta) * step;
     this.vx = dt > 0 ? (this.x - before) / dt : 0;
@@ -536,7 +555,7 @@ export class RushSim {
     if (this.phase === 'running') {
       const cruise = Math.min(START_SPEED + this.elapsed * SPEED_RAMP, MAX_SPEED);
       this.nitroActive = intent.nitro && this.nitro > 0;
-      if (this.nitroActive) this.nitro = Math.max(0, this.nitro - NITRO_DRAIN * dt);
+      if (this.nitroActive) this.nitro = Math.max(0, this.nitro - (NITRO_DRAIN / this.car.nitroCapacity) * dt);
       const target = cruise + (this.nitroActive ? NITRO_BONUS : 0);
       // Ease rather than snap, so crashes and nitro read as a surge and a recovery.
       this.speed += (target - this.speed) * (1 - Math.exp(-2.2 * dt));
@@ -576,23 +595,30 @@ export class RushSim {
   private fire(intent: RushIntent, dt: number): void {
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
     if (!intent.fire || this.fireCooldown > 0) return;
-    const bullet = this.bullets.find((b) => !b.alive);
-    if (!bullet) return;
-    this.fireCooldown = FIRE_INTERVAL;
+    const weapon = this.car.weapon;
+    this.fireCooldown = FIRE_INTERVAL * WEAPON_INTERVAL[weapon] * this.car.fireInterval;
 
     const muzzleY = this.y + 1.1;
     const muzzleZ = this.z + PLAYER_HALF_LENGTH;
     const aim = aimAt(this, intent.aimX, muzzleY, muzzleZ);
-    bullet.alive = true;
-    bullet.x = this.x;
-    bullet.y = muzzleY;
-    bullet.z = muzzleZ;
-    bullet.vx = aim.vx;
-    bullet.vy = aim.vy;
-    bullet.life = BULLET_LIFE;
-    bullet.targetId = aim.target?.id ?? 0;
-    bullet.rocket = false;
-    this.emit('fire', this.x, muzzleY, muzzleZ, 0);
+    // The spread gun adds two unguided side shots to the aimed one.
+    const shots = weapon === 'spread' ? [0, -SPREAD_VX, SPREAD_VX] : [0];
+    for (const side of shots) {
+      const bullet = this.bullets.find((b) => !b.alive);
+      if (!bullet) break;
+      bullet.alive = true;
+      bullet.x = this.x;
+      bullet.y = muzzleY;
+      bullet.z = muzzleZ;
+      bullet.vx = aim.vx + side;
+      bullet.vy = aim.vy;
+      bullet.life = BULLET_LIFE;
+      bullet.targetId = side === 0 ? aim.target?.id ?? 0 : 0;
+      bullet.rocket = false;
+      bullet.pierce = weapon === 'laser';
+      bullet.lastHit = 0;
+    }
+    this.emit('fire', this.x, muzzleY, muzzleZ, weapon === 'laser' ? 2 : weapon === 'spread' ? 1 : 0);
   }
 
   private clearStage(): void {
@@ -732,7 +758,10 @@ export class RushSim {
         // Swept along z: a bullet moves ~1 m per tick and would tunnel through a crate otherwise.
         if (b.z < e.z - shape.hz || b.z - step > e.z + shape.hz) continue;
         if (b.y < e.y - 0.4 || b.y > e.y + shape.height + 0.4) continue;
-        b.alive = false;
+        if (b.pierce && b.lastHit === e.id) continue;
+        // A laser keeps going; everything else stops at the first thing it hits.
+        if (b.pierce) b.lastHit = e.id;
+        else b.alive = false;
         if (b.rocket) {
           // Everything shootable near the target goes with it — except a boss, which takes a
           // big hit rather than falling to a single item.
@@ -747,12 +776,13 @@ export class RushSim {
         }
         if (e.kind === 'boss') {
           this.hurtBoss(e, 1);
-          break;
+          if (!b.pierce) break;
+          continue;
         }
         e.hp -= 1;
         this.emit('hit', b.x, b.y, e.z - shape.hz, 0);
         if (e.hp <= 0) this.destroy(e, e.kind === 'crate' || e.kind === 'goldcrate' ? 'smash' : 'explode');
-        break;
+        if (!b.pierce) break;
       }
     }
   }
@@ -858,6 +888,8 @@ export class RushSim {
     bullet.vy = 0;
     bullet.life = 2.5;
     bullet.targetId = target?.id ?? 0;
+    bullet.pierce = false;
+    bullet.lastHit = 0;
   }
 
   private startFlip(): void {
@@ -950,7 +982,7 @@ export class RushSim {
         this.emit('pickup', e.x, e.y, e.z, 0);
         return;
       case 'heart':
-        this.hearts = Math.min(MAX_HEARTS, this.hearts + 1);
+        this.hearts = Math.min(this.car.maxHearts, this.hearts + 1);
         e.alive = false;
         this.emit('pickup', e.x, e.y, e.z, 1);
         return;
@@ -960,6 +992,7 @@ export class RushSim {
       case 'crate':
         // Crates exist to be smashed. They feed the nitro, which is how ramming pays for itself.
         this.nitro = Math.min(1, this.nitro + 0.08);
+        if (this.car.magnetOnSmash) this.magnetTime = Math.max(this.magnetTime, 2);
         this.destroy(e, 'smash');
         return;
       case 'barrier':

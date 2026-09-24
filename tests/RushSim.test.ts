@@ -9,6 +9,7 @@ import {
 } from '../src/rush/RushSim';
 import { OPENING_CLEAR, PATTERN_NAMES, pickPattern } from '../src/rush/Patterns';
 import { createRng } from '../src/world/Rng';
+import { statsFor, defaultLoadout } from '../src/rush/Garage';
 
 const DT = 1 / 120;
 
@@ -407,5 +408,64 @@ describe('items', () => {
     const seen = new Set<string>();
     for (let i = 0; i < 400; i++) seen.add(sim.rollItem());
     expect(seen.size).toBe(5);
+  });
+});
+
+
+describe('garage effects', () => {
+  function withLoadout(mutate: (l: ReturnType<typeof defaultLoadout>) => void): RushSim {
+    const l = defaultLoadout();
+    mutate(l);
+    const sim = new RushSim(7);
+    sim.car = statsFor(l);
+    sim.reset();
+    sim.update(intent({ jump: true }), DT);
+    step(sim, 1);
+    for (const e of sim.entities) e.alive = false;
+    return sim;
+  }
+
+  it('armor adds hearts', () => {
+    expect(withLoadout((l) => (l.upgrades.armor = 2)).hearts).toBe(5);
+  });
+
+  it('the spread gun fires three shots at once', () => {
+    const sim = withLoadout((l) => {
+      l.owned.push('spread');
+      l.equipped = 'spread';
+    });
+    sim.update(intent({ fire: true }), DT);
+    expect(sim.bullets.filter((b) => b.alive)).toHaveLength(3);
+  });
+
+  it('a laser bolt passes through a whole line of crates', () => {
+    const sim = withLoadout((l) => {
+      l.owned.push('laser');
+      l.equipped = 'laser';
+    });
+    for (let i = 0; i < 3; i++) sim.spawn('crate', 0, sim.z + 30 + i * 4);
+    sim.update(intent({ fire: true }), DT);
+    step(sim, 0.4);
+    expect(sim.entities.filter((e) => e.alive && e.kind === 'crate')).toHaveLength(0);
+  });
+
+  it('rapid fire shoots more often', () => {
+    const count = (sim: RushSim) => {
+      let shots = 0;
+      for (let i = 0; i < 240; i++) {
+        sim.update(intent({ fire: true }), DT);
+        for (let f = 0; f < sim.fxCount; f++) if (sim.fx[f].type === 'fire') shots++;
+      }
+      return shots;
+    };
+    expect(count(withLoadout((l) => (l.upgrades.rapidFire = 3)))).toBeGreaterThan(count(withLoadout(() => {})) + 4);
+  });
+
+  it('handling makes lane changes quicker', () => {
+    const quick = withLoadout((l) => (l.upgrades.handling = 3));
+    step(quick, 0.15, intent({ lane: 1 }));
+    const stock = withLoadout(() => {});
+    step(stock, 0.15, intent({ lane: 1 }));
+    expect(quick.x).toBeGreaterThan(stock.x);
   });
 });

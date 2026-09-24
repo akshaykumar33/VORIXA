@@ -3,7 +3,7 @@ import { InputAction } from '../input/ActionTypes';
 import { RushAudio } from '../audio/RushAudio';
 import { FaceTracker } from '../input/FaceTracker';
 import { HandTracker } from '../input/HandTracker';
-import { RushSim, MAX_HEARTS, MAX_SPEED, START_SPEED, type RushPhase, type FxRecord } from '../rush/RushSim';
+import { RushSim, MAX_SPEED, START_SPEED, type RushPhase, type FxRecord } from '../rush/RushSim';
 import { RushControls, type ControlSources } from '../rush/RushControls';
 import { RushRenderer } from '../rendering/rush/RushRenderer';
 import { RushHUD, type DeviceStatus } from '../ui/RushHUD';
@@ -13,6 +13,8 @@ import { DrivingSchool, type SchoolTrack } from '../rush/DrivingSchool';
 import { loadCalibration, saveCalibration, normalizeGaze, type GazeCalibration } from '../rush/Calibration';
 import { CameraPreview, type PreviewReadout } from '../ui/CameraPreview';
 import { TourUI } from '../ui/TourUI';
+import { GarageUI } from '../ui/GarageUI';
+import { loadLoadout, saveLoadout, statsFor, buyUpgrade, buyWeapon, equip, type Loadout } from '../rush/Garage';
 import {
   TOUR,
   findStage,
@@ -132,6 +134,8 @@ export class RushGame {
   private frameSmashes = 0;
   private frameItems = 0;
   private readonly tour: TourUI;
+  private readonly shop: GarageUI;
+  private loadout: Loadout = loadLoadout();
   private progress: TourProgress = loadProgress();
   /** The World Tour stage being played, or null on the endless road. */
   private stage: StageDef | null = null;
@@ -165,8 +169,19 @@ export class RushGame {
     const hudRoot = container.querySelector<HTMLElement>('#rush-hud') ?? container;
     this.preview = new CameraPreview(hudRoot);
     this.tour = new TourUI(hudRoot);
+    this.shop = new GarageUI(hudRoot);
+    this.shop.onBuyUpgrade = (id) => this.spend(buyUpgrade(this.loadout, id, this.progress.bank));
+    this.shop.onBuyWeapon = (id) => this.spend(buyWeapon(this.loadout, id, this.progress.bank));
+    this.shop.onEquip = (id) => {
+      equip(this.loadout, id);
+      this.spend(0);
+    };
+    this.shop.onClose = () => this.closeShop();
+    this.sim.car = statsFor(this.loadout);
+    this.sim.reset();
     this.tour.onMenu = (choice) => {
-      if (choice === 'tour') this.openMap();
+      if (choice === 'garage') this.openShop();
+      else if (choice === 'tour') this.openMap();
       else if (choice === 'school') this.openSchoolPicker();
       else if (this.sim.phase === 'ready') this.sim.start();
     };
@@ -250,7 +265,7 @@ export class RushGame {
     src.face = gaze?.present ? this.face.commands : null;
     src.hand = hand;
     const intent = this.controls.resolve(src);
-    if (this.pickerOpen || this.tour.mapOpen || this.tour.resultOpen) {
+    if (this.pickerOpen || this.tour.mapOpen || this.tour.resultOpen || this.shop.open) {
       // Choosing a lesson or a stage must not start a race behind the menu.
       intent.jump = intent.fire = intent.nitro = intent.useItem = false;
       intent.lane = this.sim.lane;
@@ -382,6 +397,8 @@ export class RushGame {
           worlds: this.worldsReached()
         });
         if (sim.score > this.best) saveBest(sim.score);
+        this.progress.bank += sim.coins;
+        saveProgress(this.progress);
       }
     }
   }
@@ -432,7 +449,7 @@ export class RushGame {
       best: this.best,
       coins: sim.coins,
       hearts: sim.hearts,
-      maxHearts: MAX_HEARTS,
+      maxHearts: sim.maxHearts,
       nitro: sim.nitro,
       nitroActive: sim.nitroActive,
       combo: sim.combo,
@@ -512,6 +529,14 @@ export class RushGame {
    */
   private handleTourKeys(): boolean {
     const i = this.input;
+    if (this.shop.open) {
+      if (i.isJustPressed(InputAction.PAUSE)) this.closeShop();
+      return true;
+    }
+    if (this.sim.phase === 'ready' && !this.pickerOpen && !this.tour.mapOpen && i.isJustPressed(InputAction.SHOP)) {
+      this.openShop();
+      return true;
+    }
     if (this.tour.mapOpen) {
       if (i.isJustPressed(InputAction.STRAFE_LEFT)) this.selectOnMap(this.mapWorld, this.mapStop - 1);
       if (i.isJustPressed(InputAction.STRAFE_RIGHT)) this.selectOnMap(this.mapWorld, this.mapStop + 1);
@@ -544,6 +569,31 @@ export class RushGame {
       return true;
     }
     return false;
+  }
+
+  // ─── Garage shop ──────────────────────────────────────────────────────────────────────────
+
+  private openShop(): void {
+    if (this.sim.phase !== 'ready') this.restart();
+    this.tour.setMenuVisible(false);
+    this.shop.show(this.loadout, this.progress.bank);
+  }
+
+  private closeShop(): void {
+    this.shop.hide();
+    this.tour.setMenuVisible(true);
+  }
+
+  /** Takes coins from the shared bank after a purchase, saves, and redraws the shop. */
+  private spend(coins: number): void {
+    this.progress.bank -= coins;
+    saveProgress(this.progress);
+    saveLoadout(this.loadout);
+    this.sim.car = statsFor(this.loadout);
+    // New armor shows up straight away on the title screen, not only from the next run.
+    if (this.sim.phase === 'ready') this.sim.hearts = this.sim.car.maxHearts;
+    if (coins > 0) this.audio.play({ type: 'pickup', x: 0, y: 0, z: 0, amount: 0 });
+    this.shop.show(this.loadout, this.progress.bank);
   }
 
   /** Map stops in path order: the regular stages and boss, then the secret. */
@@ -800,6 +850,7 @@ export class RushGame {
   }
 
   private restart(): void {
+    this.sim.car = statsFor(this.loadout);
     this.setPaused(false);
     this.stage = null;
     this.renderer.setFixedBiome(null);

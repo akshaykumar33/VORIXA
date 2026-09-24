@@ -13,6 +13,8 @@ export enum InputAction {
   SCHOOL = 'SCHOOL',
   /** Enter: confirm on menus and the world map (Rush). */
   CONFIRM = 'CONFIRM',
+  /** Opens the garage shop from the title (Rush). */
+  SHOP = 'SHOP',
   CROUCH = 'CROUCH',
   RESTART = 'RESTART',
   GESTURE_TOGGLE = 'GESTURE_TOGGLE',

@@ -1,6 +1,6 @@
 import type { Rng } from '../world/Rng';
 import type { RushSim, EntityKind } from './RushSim';
-import { LANE_WIDTH, RAMP_VELOCITY, GRAVITY, MAX_HEARTS } from './RushSim';
+import { LANE_WIDTH, RAMP_VELOCITY, GRAVITY } from './RushSim';
 
 /**
  * The road ahead, one pattern at a time.
@@ -125,7 +125,7 @@ const patterns: Record<string, Pattern> = {
   },
 
   pickup(sim, rng, z) {
-    const kind: EntityKind = sim.hearts < MAX_HEARTS && rng.chance(0.35) ? 'heart' : 'nitro';
+    const kind: EntityKind = sim.hearts < sim.maxHearts && rng.chance(0.35) ? 'heart' : 'nitro';
     const lane = rng.pick(LANES);
     sim.spawn(kind, laneX(lane), z, 0.3);
     return 6;
