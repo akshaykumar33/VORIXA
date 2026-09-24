@@ -107,6 +107,12 @@ export class CombatView {
   private sway = 0;
   private reloadDip = 0;
   private currentWeapon: WeaponId | null = null;
+  /** First-person arms: sleeves and hands in the hero's colours. */
+  private readonly skinMaterial = new THREE.MeshStandardMaterial({ color: 0xd8a67c, roughness: 0.55 });
+  private readonly sleeveMaterial = new THREE.MeshStandardMaterial({ color: 0x5a3fd0, roughness: 0.85 });
+  private arms: THREE.Group | null = null;
+  /** Hidden while the hero drives. */
+  public holstered = false;
 
   public constructor(
     private readonly gunsGltf: GLTF,
@@ -163,6 +169,9 @@ export class CombatView {
       gun.getObjectByName('muzzle')?.add(this.heroFlash);
     }
     if (view) {
+      this.arms?.removeFromParent();
+      this.arms = this.buildArms(WEAPONS[id].length, id === 'pistol');
+      view.add(this.arms);
       this.viewRig.add(view);
       view.position.set(0.2, -0.2, -0.42);
       view.getObjectByName('muzzle')?.add(this.viewFlash);
@@ -179,7 +188,8 @@ export class CombatView {
 
   /** The muzzle in world space, for tracers; the first-person gun's when in first person. */
   public muzzle(firstPerson: boolean, out: THREE.Vector3): THREE.Vector3 {
-    const gun = firstPerson ? this.viewGun : this.heroGun;
+    void firstPerson;
+    const gun = this.heroGun;
     const m = gun?.getObjectByName('muzzle');
     if (!m) return out.copy(this.heroRoot.position).setY(1.4);
     m.updateWorldMatrix(true, false);
@@ -207,6 +217,45 @@ export class CombatView {
     view.muzzle.updateWorldMatrix(true, false);
     const from = new THREE.Vector3().setFromMatrixPosition(view.muzzle.matrixWorld);
     this.addTracer(from, new THREE.Vector3(tx, ty, tz), this.enemyTracerMaterial);
+  }
+
+  /** The hero's colours for the first-person arms. */
+  public setArmColours(skin: number, sleeve: number): void {
+    this.skinMaterial.color.setHex(skin);
+    this.sleeveMaterial.color.setHex(sleeve);
+  }
+
+  /**
+   * Two forearms and hands holding the gun, in the gun's space (grip at the origin, barrel down
+   * -z): the trigger hand on the grip, the support hand under the barrel (or cupping the grip
+   * for a pistol), both forearms running back toward the camera.
+   */
+  private buildArms(length: number, pistol: boolean): THREE.Group {
+    const g = new THREE.Group();
+    const limb = (from: THREE.Vector3, to: THREE.Vector3, radius: number, material: THREE.Material) => {
+      const d = to.clone().sub(from);
+      const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, Math.max(0.01, d.length() - radius * 2), 4, 10), material);
+      mesh.position.copy(from).addScaledVector(d, 0.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+      g.add(mesh);
+    };
+    const hand = (at: THREE.Vector3) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.09, 0.1), this.skinMaterial);
+      mesh.position.copy(at);
+      g.add(mesh);
+    };
+    const grip = new THREE.Vector3(0.0, -0.05, 0.02);
+    const support = pistol ? new THREE.Vector3(-0.03, -0.07, 0.0) : new THREE.Vector3(0.0, -0.05, -length * 0.42);
+    hand(grip);
+    hand(support);
+    // Wrist to elbow: back, down and out, sleeves over the upper part.
+    const rightElbow = new THREE.Vector3(0.1, -0.18, 0.34);
+    const leftElbow = pistol ? new THREE.Vector3(-0.14, -0.2, 0.32) : new THREE.Vector3(-0.2, -0.2, 0.1);
+    limb(grip.clone().add(new THREE.Vector3(0, -0.01, 0.05)), rightElbow, 0.038, this.skinMaterial);
+    limb(rightElbow.clone().lerp(grip, 0.35), rightElbow.clone().add(new THREE.Vector3(0.05, -0.08, 0.3)), 0.058, this.sleeveMaterial);
+    limb(support.clone().add(new THREE.Vector3(0, -0.01, 0.05)), leftElbow, 0.036, this.skinMaterial);
+    limb(leftElbow.clone().lerp(support, 0.35), leftElbow.clone().add(new THREE.Vector3(-0.08, -0.08, 0.3)), 0.056, this.sleeveMaterial);
+    return g;
   }
 
   public reloading(progress: number): void {
@@ -305,8 +354,8 @@ export class CombatView {
     // Muzzle flashes and their light.
     this.heroFlashLife -= dt;
     const flashing = this.heroFlashLife > 0;
-    this.heroFlash.visible = flashing && !firstPerson;
-    this.viewFlash.visible = flashing && firstPerson;
+    this.heroFlash.visible = flashing;
+    this.viewFlash.visible = false;
     if (flashing) this.heroFlash.rotation.z = this.viewFlash.rotation.z = Math.random() * Math.PI;
     this.flashLight.intensity = Math.max(0, this.flashLight.intensity - dt * 120);
 
@@ -340,7 +389,8 @@ export class CombatView {
       this.viewGun.position.set(aimX + Math.cos(this.sway * 0.5) * 0.008 * moving, aimY + bob - this.reloadDip * 0.25, -0.62 + this.kick * 0.06);
       this.viewGun.rotation.set(this.kick * 0.18 - this.reloadDip * 0.6, aiming ? 0 : 0.06, 0);
     }
-    if (this.heroGun) this.heroGun.visible = !firstPerson;
+    if (this.heroGun) this.heroGun.visible = !this.holstered;
+    if (this.viewGun) this.viewGun.visible = false;
     this.particles.update(dt);
   }
 }

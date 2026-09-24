@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { InputEngine } from '../input/InputEngine';
 import { InputAction } from '../input/ActionTypes';
-import { RushAudio } from '../audio/RushAudio';
-import type { FxRecord, FxType } from '../rush/RushSim';
+import { CityAudio } from '../audio/CityAudio';
 import { buildDistrict, type District } from '../city/CityLayout';
 import { HeroMotor, type HeroIntent } from '../city/HeroMotor';
 import { Arsenal, LOADOUT, WEAPONS, type WeaponId } from '../city/Weapons';
@@ -81,7 +80,9 @@ const NEXT_WAVE_DELAY = 6;
 
 export class CityGame {
   private readonly input = new InputEngine();
-  private readonly audio = new RushAudio();
+  private readonly audio = new CityAudio();
+  private stride = 0;
+  private lastStars = 0;
   private readonly district: District = buildDistrict(4);
   private readonly hero: HeroMotor;
   private readonly arsenal = new Arsenal(0x5eed);
@@ -96,7 +97,6 @@ export class CityGame {
     jumpPressed: false,
     faceCamera: false
   };
-  private readonly sound: FxRecord = { type: 'fire', x: 0, y: 0, z: 0, amount: 0 };
   private readonly from = new THREE.Vector3();
   private readonly to = new THREE.Vector3();
   private lastTime = -1;
@@ -215,6 +215,7 @@ export class CityGame {
       .then(() => {
         this.hud.loaded();
         this.renderer.combatView?.setWeapon(this.arsenal.current);
+        this.applyLook();
         // The chapter first; once it is done, the turf war never stops.
         if (!this.currentJob) {
           this.briefingDue = false;
@@ -330,6 +331,7 @@ export class CityGame {
     this.jobUI.setObjective(null);
     void document.exitPointerLock?.();
     this.jobUI.showFail(true, 'Job failed', reason);
+    this.audio.cue('fail');
   }
 
   private completeJob(cash: number): void {
@@ -344,8 +346,10 @@ export class CityGame {
     this.jobUI.setObjective(null);
     this.coins = [];
     this.renderer.jobView.setCoins([]);
-    this.hud.banner('Job complete', `${job.title} · +${cash.toLocaleString('en-US')}`);
-    void this.openStory(`${job.title} · complete`, `+${cash.toLocaleString('en-US')}`, job.outro, () => {
+    const paid = '+$' + cash.toLocaleString('en-US');
+    this.hud.banner('Job complete', job.title + ' · ' + paid);
+    this.audio.cue('complete');
+    void this.openStory(job.title + ' · complete', paid, job.outro, () => {
       const next = this.currentJob;
       if (next) void this.openBriefing(next);
       else {
@@ -390,7 +394,10 @@ export class CityGame {
           this.hud.banner('Cantor', 'Plated. Aim for the head');
           break;
         case 'step':
-          if (e.index > 0) this.hud.feed(`Objective: ${e.text}`);
+          if (e.index > 0) {
+            this.hud.feed(`Objective: ${e.text}`);
+            this.audio.cue('objective');
+          }
           break;
         case 'complete':
           this.completeJob(e.cash);
@@ -412,7 +419,7 @@ export class CityGame {
         c.taken = true;
         this.renderer.jobView.setCoins(this.coins);
         this.hud.feed(`★ ${this.coins.filter((k) => k.taken).length} / ${this.coins.length}`, true);
-        this.play('pickup', c.x, c.z);
+        this.audio.cue('star');
       }
     }
     r.update(
@@ -506,8 +513,16 @@ export class CityGame {
     this.hud.showCard(!this.playing, this.started);
   }
 
+  /** The first-person arms wear the current crew member's skin and sleeves. */
+  private applyLook(): void {
+    const palette = this.crew.palette;
+    const sleeve = Object.entries(palette).find(([name]) => !/skin|hair|eye|brow|moustache|gold|earring/i.test(name));
+    this.renderer.combatView?.setArmColours(palette.Skin ?? 0xd8a67c, sleeve ? sleeve[1] : 0x3a3f4a);
+  }
+
   /** The current crew member's perk, applied to the guns, the fight and the cars. */
   private applyPerks(): void {
+    this.applyLook();
     const e = perkEffects(this.crew.perk);
     this.perks = e;
     this.arsenal.reloadScale = e.reloadTime;
@@ -606,15 +621,6 @@ export class CityGame {
     this.capture();
   }
 
-  private play(type: FxType, x: number, z: number): void {
-    const s = this.sound;
-    s.type = type;
-    // Rush's synth pans by x / 7 around the listener.
-    s.x = (x - this.hero.x) * 0.5;
-    s.z = z;
-    this.audio.play(s);
-  }
-
   private frame(nowMs: number): void {
     const now = nowMs / 1000;
     const dt = this.lastTime < 0 ? 0 : Math.max(0, Math.min(now - this.lastTime, MAX_FRAME));
@@ -630,6 +636,7 @@ export class CityGame {
       r.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, r.pitch - i.getAxis(InputAction.LOOK_Y) * MOUSE_SENSITIVITY));
       if (i.isJustPressed(InputAction.VIEW_TOGGLE)) r.view = r.view === 'third' ? 'first' : 'third';
       if (i.isJustPressed(InputAction.RESTART)) this.arsenal.reload();
+      if (i.isJustPressed(InputAction.MUTE_TOGGLE)) this.hud.feed(this.audio.toggleMute() ? 'Sound off (M)' : 'Sound on (M)');
     } else if (this.down && i.isJustPressed(InputAction.RESTART)) this.respawn();
     r.aiming = active && i.isPressed(InputAction.ITEM);
     r.aimFov = WEAPONS[this.arsenal.current].aimFov;
@@ -659,7 +666,6 @@ export class CityGame {
 
     const slow = r.aiming && this.perks.bulletTimeWhenAiming ? 0.45 : 1;
     this.timeScale += (slow - this.timeScale) * (1 - Math.exp(-10 * dt));
-    this.audio.setSlowmo((1 - this.timeScale) / 0.55);
     if (car && this.perks.carRepair && car.health > 0) car.health = Math.min(100, car.health + 2 * dt);
     this.accumulator += dt * this.timeScale;
     while (this.accumulator >= TICK) {
@@ -700,8 +706,10 @@ export class CityGame {
     const spread = w.spread * (r.aiming ? w.aimSpread : 1) + w.moveSpread * moving + (this.hero.grounded ? 0 : 0.05);
     this.hud.setCrosshair(active, spread, r.camera.fov);
     r.combatView?.reloading(a.reloadProgress);
+    r.reloadProgress = a.reloadProgress;
+    if (r.combatView) r.combatView.holstered = !!this.driving;
 
-    this.audio.update(car ? Math.abs(car.forwardSpeed) : 0, car ? Math.abs(car.forwardSpeed) / car.spec.maxSpeed : 0, drive.handbrake, null);
+    this.stepSound(dt, car, drive.throttle);
     this.hud.setVehicle(car ? { speed: Math.abs(car.forwardSpeed), health: car.health } : null, !car && active && !!this.carNearHero());
     this.hud.setHeat(this.life.stars);
     // The objective panel shows even while paused; the job only advances in play.
@@ -712,6 +720,35 @@ export class CityGame {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  /** Listener, engine, tyres, siren, footsteps and the heat alarm, once a frame. */
+  private stepSound(dt: number, car: Vehicle | null, throttle: number): void {
+    const a = this.audio;
+    a.setListener(this.hero.x, this.hero.z, this.renderer.yaw);
+    a.setEngine(car ? { speedT: Math.abs(car.forwardSpeed) / (car.spec.maxSpeed * car.speedScale), throttle: Math.abs(throttle), slip: car.slip } : null);
+    let nearest: { x: number; z: number } | null = null;
+    let best = Infinity;
+    for (const e of this.combat.enemies) {
+      if (e.kind !== 'police' || e.state === 'dead') continue;
+      const d = Math.hypot(e.motor.x - this.hero.x, e.motor.z - this.hero.z);
+      if (d < best) {
+        best = d;
+        nearest = { x: e.motor.x, z: e.motor.z };
+      }
+    }
+    a.setSiren(nearest, dt);
+    // Footsteps, one per stride.
+    if (!car && this.hero.grounded && this.hero.speed > 0.6) {
+      this.stride += this.hero.speed * dt;
+      const length = this.hero.speed > 5 ? 1.7 : 1.1;
+      if (this.stride > length) {
+        this.stride = 0;
+        a.footstep(this.hero.x, this.hero.z, this.hero.speed > 5);
+      }
+    }
+    if (this.life.stars > this.lastStars) a.cue('heat');
+    this.lastStars = this.life.stars;
+  }
+
   private stepCars(): void {
     for (const v of this.vehicles) {
       v.step(v === this.driving ? this.drive : { throttle: 0, steer: 0, handbrake: true }, TICK);
@@ -720,11 +757,11 @@ export class CityGame {
           this.renderer.vehicleView?.crash(fx.x, fx.z, fx.impact);
           if (v === this.driving) {
             this.renderer.punchPitch += Math.min(0.08, fx.impact * 0.004);
-            this.play('crash', fx.x, fx.z);
+            this.audio.crash(fx.x, fx.z, fx.impact);
           }
         } else if (fx.type === 'wrecked') {
           this.hud.feed('Car wrecked');
-          this.play('explode', v.x, v.z);
+          this.audio.explosion(v.x, v.z);
         }
       }
     }
@@ -735,7 +772,7 @@ export class CityGame {
         if (Math.abs(va.x - vb.x) > 6 || Math.abs(va.z - vb.z) > 6) continue;
         const impact = separate(va, vb);
         if (impact > 4 && (va === this.driving || vb === this.driving)) {
-          this.play('crash', va.x, va.z);
+          this.audio.crash(va.x, va.z, impact);
           this.renderer.vehicleView?.crash((va.x + vb.x) / 2, (va.z + vb.z) / 2, impact);
         }
       }
@@ -803,8 +840,9 @@ export class CityGame {
     const a = this.arsenal;
     const result = a.step(TICK, trigger, r.aiming, Math.min(1, this.hero.speed / 4.6), !this.hero.grounded);
     for (const ev of a.events) {
-      if (ev === 'dry') this.play('hit', this.hero.x, 0);
-      if (ev === 'reloadStart') this.play('pickup', this.hero.x, 0);
+      if (ev === 'dry') this.audio.dryClick();
+      if (ev === 'reloadStart') this.audio.reload('start');
+      if (ev === 'reloadEnd') this.audio.reload('end');
     }
     if (!result) return;
     const cam = r.camera.position;
@@ -825,7 +863,8 @@ export class CityGame {
     r.punchPitch += result.kickPitch;
     r.punchYaw += result.kickYaw;
     r.sinceFired = 0;
-    this.play('fire', this.hero.x, 0);
+    this.audio.gunshot(a.current, this.hero.x, this.hero.z, true);
+    for (const h of hits) if (h.kind === 'world') this.audio.impact(h.x, h.z, false);
     const view = r.combatView;
     if (view) {
       view.muzzle(r.view === 'first', this.from);
@@ -845,17 +884,18 @@ export class CityGame {
         case 'enemyShot':
           view?.enemyFired(fx.enemy, fx.tx, fx.ty, fx.tz);
           this.life.gunshot(fx.enemy.motor.x, fx.enemy.motor.z);
-          this.play('enemyFire', fx.enemy.motor.x, fx.enemy.motor.z);
+          this.audio.gunshot(fx.enemy.kind === 'swat' ? 'smg' : fx.enemy.kind === 'police' ? 'pistol' : 'rifle', fx.enemy.motor.x, fx.enemy.motor.z, false);
           break;
         case 'enemyHurt':
           view?.impact(fx.x, fx.y, fx.z, true);
           this.hud.hitMarker(false);
-          this.play('hit', fx.x, fx.z);
+          this.audio.impact(fx.x, fx.z, true);
+          this.audio.cue('hit');
           break;
         case 'enemyKilled':
           this.hud.hitMarker(true);
           this.hud.feed(fx.headshot ? 'Headshot' : 'Enemy down', fx.headshot);
-          this.play('takedown', fx.enemy.motor.x, fx.enemy.motor.z);
+          this.audio.cue('kill');
           break;
         case 'impact':
           view?.impact(fx.x, fx.y, fx.z, false);
@@ -870,7 +910,7 @@ export class CityGame {
           const world = Math.atan2(fx.fromX - this.hero.x, fx.fromZ - this.hero.z);
           const viewYaw = Math.atan2(-Math.sin(this.renderer.yaw), -Math.cos(this.renderer.yaw));
           this.hud.damageFrom(-(world - viewYaw));
-          this.play('hit', this.hero.x, 0);
+          this.audio.impact(this.hero.x, this.hero.z, true);
           break;
         }
         case 'heroDown':
@@ -883,7 +923,7 @@ export class CityGame {
           this.downFor = 0;
           this.hud.showDown(true, `${c.kills} down · ${c.headshots} headshots · wave ${c.wave}`);
           void document.exitPointerLock?.();
-          this.play('gameOver', this.hero.x, 0);
+          this.audio.cue('fail');
           break;
         case 'policeDown':
           this.life.raiseHeat(1);
@@ -891,7 +931,7 @@ export class CityGame {
           break;
         case 'pickup':
           this.hud.feed(`+${fx.rounds} ${WEAPONS[fx.weapon].name} rounds`);
-          this.play('pickup', this.hero.x, 0);
+          this.audio.cue('pickup');
           break;
         case 'waveClear': {
           const before = unlocked(this.wavesCleared).length;
@@ -902,7 +942,7 @@ export class CityGame {
             const j = joined[0];
             this.hud.banner(`${j.name} joins the crew`, `"${j.alias}" · ${j.perk ? PERKS[j.perk].text : ''} · press H at the Safehouse`);
           } else this.hud.banner('Intersection clear', `Wave ${fx.wave} down · next crew in ${NEXT_WAVE_DELAY} s`);
-          this.play('itemGet', this.hero.x, 0);
+          this.audio.cue('complete');
           // Waves roll on only in the turf war, after the chapter.
           if (!this.currentJob) this.nextWaveIn = NEXT_WAVE_DELAY;
           break;

@@ -57,6 +57,10 @@ export class CityRenderer {
   public aimFov = 48;
   /** Seconds since the hero last fired, for the shooting poses. */
   public sinceFired = 99;
+  /** 0..1 through a reload (0 when not reloading), set by the game each frame. */
+  public reloadProgress = 0;
+  /** The reload gesture: the arms-only part of the "Interact" clip, blended over anything. */
+  private reloadAction: THREE.AnimationAction | null = null;
   /** Recoil punch on the view, radians; decays back to the aim point. */
   public punchPitch = 0;
   public punchYaw = 0;
@@ -67,6 +71,7 @@ export class CityRenderer {
   /** The car the hero is driving, or null on foot. */
   public driving: Vehicle | null = null;
   private heroHand: THREE.Object3D | null = null;
+  private heroHead: THREE.Object3D | null = null;
 
   private renderer!: THREE.WebGLRenderer;
   private post: PostFX | null = null;
@@ -258,9 +263,22 @@ export class CityRenderer {
   }
 
   private buildHero(person: Person): void {
+    // An arms-only copy of "Interact" (reach and work with the hands) is the reload: it plays
+    // over whatever the legs are doing, so the hero can reload on the move.
+    const interact = person.actions.get('Interact')?.getClip();
+    if (interact) {
+      const arms = interact.clone();
+      arms.name = 'Reload_Arms';
+      arms.tracks = arms.tracks.filter((t) => /arm|wrist|index|middle|ring|pinky|thumb|shoulder/i.test(t.name));
+      this.reloadAction = person.mixer.clipAction(arms);
+      this.reloadAction.setLoop(THREE.LoopRepeat, Infinity);
+      this.reloadAction.weight = 0;
+      this.reloadAction.play();
+    } else this.reloadAction = null;
     this.hero = person.root;
     this.heroMeshes = person.meshes;
     this.heroHand = person.hand;
+    this.heroHead = person.model.getObjectByName('Head') ?? null;
     this.mixer = person.mixer;
     this.actions = person.actions;
     this.current = null;
@@ -372,13 +390,20 @@ export class CityRenderer {
     else if (speed > 2.6) this.play('Run', 0.2, false, speed / 5.2);
     else if (speed > 0.25) this.play('Walk', 0.2, false, Math.max(0.7, speed / 1.7));
     else this.play('Idle_Gun', 0.25);
+    if (this.reloadAction) {
+      const target = this.reloadProgress > 0 && !this.driving ? 1.4 : 0;
+      this.reloadAction.weight += (target - this.reloadAction.weight) * Math.min(1, 12 * dt);
+    }
     this.mixer?.update(dt);
     this.sinceFired += dt;
 
     // First person: the body would fill the view; hide it (the gun viewmodel comes with gunplay).
-    // Driving: the hero is inside the car.
-    const visible = this.view === 'third' && !this.driving;
+    // Inside a car the hero is hidden (the pack's windows are opaque). In first person the body
+    // stays: the head is collapsed so the camera can sit at the eyes and look down at real arms
+    // holding the real gun, as modern shooters do.
+    const visible = !this.driving;
     for (const m of this.heroMeshes) m.visible = visible;
+    if (this.heroHead) this.heroHead.scale.setScalar(this.view === 'first' ? 0.001 : 1);
   }
 
   /** Chase camera behind the car (or the driver's view in first person), wider at speed. */
@@ -428,6 +453,11 @@ export class CityRenderer {
 
     if (this.view === 'first') {
       cam.position.set(hero.x, hero.y + EYE_HEIGHT, hero.z);
+      if (this.heroHead) {
+        // The eyes: the head bone, a touch forward so the collapsed head never shows.
+        this.heroHead.getWorldPosition(this.tmp);
+        cam.position.set(this.tmp.x + lookX * 0.14, this.tmp.y + 0.1, this.tmp.z + lookZ * 0.14);
+      }
       this.target.set(cam.position.x + lookX, cam.position.y + lookY, cam.position.z + lookZ);
       cam.lookAt(this.target);
       return;
