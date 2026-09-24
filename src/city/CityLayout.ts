@@ -58,11 +58,14 @@ export const ROAD_HALF_WIDTH = 9;
 export const SEGMENTS_PER_BLOCK = 6;
 export const PITCH = INTERSECTION + ROAD_SEGMENT * SEGMENTS_PER_BLOCK;
 
-/** Footprints of the prebuilt buildings in their own space, front at z = 0. */
+/**
+ * Footprints of the prebuilt buildings in their own space, front at z = 0. `height` is the roof
+ * the hero stands on (measured from the models' flat roofs; the cornices rise 0.2 m above it).
+ */
 export const BUILDINGS: Record<string, { minX: number; maxX: number; minZ: number; maxZ: number; height: number }> = {
-  Building_Large_2: { minX: -9.32, maxX: 11.32, minZ: -16.32, maxZ: 0.32, height: 28 },
-  Building_Medium_2_001: { minX: -7.53, maxX: 7.53, minZ: -12.49, maxZ: 0.57, height: 25 },
-  Building_Small_1: { minX: -7.23, maxX: 5.23, minZ: -12.23, maxZ: 2.31, height: 17 }
+  Building_Large_2: { minX: -9.32, maxX: 11.32, minZ: -16.32, maxZ: 0.32, height: 27.8 },
+  Building_Medium_2_001: { minX: -7.53, maxX: 7.53, minZ: -12.49, maxZ: 0.57, height: 24.8 },
+  Building_Small_1: { minX: -7.23, maxX: 5.23, minZ: -12.23, maxZ: 2.31, height: 16.8 }
 };
 
 /** Models parked at the kerb (police cars and taxis more rarely than ordinary cars). */

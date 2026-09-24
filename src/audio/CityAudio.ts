@@ -82,6 +82,9 @@ export class CityAudio {
   private sirenPan!: StereoPannerNode;
   private sirenPhase = 0;
   private bedGain!: GainNode;
+  /** Rushing air while gliding: bandpassed noise, louder and brighter with speed. */
+  private windGain: GainNode | null = null;
+  private windFilter: BiquadFilterNode | null = null;
 
   public get isMuted(): boolean {
     return this.muted;
@@ -190,6 +193,18 @@ export class CityAudio {
     this.bedGain.gain.value = 0.05;
     bed.connect(bedFilter).connect(this.bedGain).connect(this.master);
     bed.start();
+
+    const wind = ctx.createBufferSource();
+    wind.buffer = this.noise;
+    wind.loop = true;
+    this.windFilter = ctx.createBiquadFilter();
+    this.windFilter.type = 'bandpass';
+    this.windFilter.frequency.value = 500;
+    this.windFilter.Q.value = 0.6;
+    this.windGain = ctx.createGain();
+    this.windGain.gain.value = 0;
+    wind.connect(this.windFilter).connect(this.windGain).connect(this.sfx);
+    wind.start();
     void this.loadRecordings(ctx);
   }
 
@@ -397,6 +412,53 @@ export class CityAudio {
     if (!v) return;
     this.tone(v.input, v.at, 'sine', 70, 22, 0.9, 1);
     this.burst(v.input, v.at, 1.1, 'lowpass', 700, 0.6, 1);
+  }
+
+  /** Wind while gliding, 0 (none) to 1 (diving flat out). */
+  public setWind(level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.windGain || !this.windFilter) return;
+    const t = ctx.currentTime;
+    this.windGain.gain.setTargetAtTime(level * 0.32, t, 0.25);
+    this.windFilter.frequency.setTargetAtTime(350 + level * 1400, t, 0.25);
+  }
+
+  /** The glider's canopy catching air (open), or being gathered in (closed). */
+  public glider(open: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    const at = ctx.currentTime;
+    this.burst(this.sfx, at, open ? 0.45 : 0.25, 'lowpass', open ? 420 : 900, 0.8, open ? 0.7 : 0.3, 0.01);
+    if (open) this.burst(this.sfx, at + 0.05, 0.3, 'bandpass', 1400, 1.5, 0.2, 0.02);
+  }
+
+  /**
+   * Cantor on the radio: a click as the channel opens, a garbled, band-limited voice under the
+   * subtitles for as long as the line runs (syllables of filtered noise at speaking pace), hiss,
+   * and a click as it closes. No recording of a voice, so this stands in for one.
+   */
+  public radio(seconds: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    const at = ctx.currentTime;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 1500;
+    band.Q.value = 0.8;
+    const out = ctx.createGain();
+    out.gain.value = 0.9;
+    band.connect(out).connect(this.sfx);
+    this.burst(band, at, 0.06, 'highpass', 3000, 0.7, 0.5);
+    this.burst(band, at, seconds, 'highpass', 2500, 0.5, 0.05, 0.05);
+    let t = at + 0.12;
+    const end = at + seconds - 0.3;
+    while (t < end) {
+      const length = 0.07 + Math.random() * 0.13;
+      this.burst(band, t, length, 'bandpass', 500 + Math.random() * 900, 4, 0.18 + Math.random() * 0.12, 0.015);
+      // Gaps between words, longer between phrases.
+      t += length + (Math.random() < 0.18 ? 0.25 + Math.random() * 0.2 : 0.02 + Math.random() * 0.05);
+    }
+    this.burst(band, end + 0.25, 0.08, 'highpass', 3000, 0.7, 0.45);
   }
 
   /** Gas escaping a holed propane tank, until it goes. */

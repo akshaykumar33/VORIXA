@@ -131,3 +131,26 @@ Asked for Far Cry's feel, the city gained its two signature systems:
 * **Honest limits.** The props are procedural (no CC0 barrier or sandbag models were in the kits),
   fire does not spread across the street on its own (it has nothing to burn on asphalt), and there
   is no wildlife or open country yet: the district is still all city.
+
+## Update (2026-09-25): Cantor on the radio, rooftops and the glider
+
+* **Cantor's radio** (`src/city/Radio.ts`, `src/ui/CityRadio.ts`). The Choir's boss cuts into the
+  hero's frequency about what just happened: an outpost approached, spotted, alarmed, silenced or
+  lost; a chain reaction; the hero down; three stars of heat; quiet takedowns; the glider; waves;
+  his own fight; and, after long quiet, idle menace. He never talks over himself, leaves ten
+  seconds between ordinary lines and forty before the same kind of remark, uses every line for a
+  moment before repeating one, and cuts in regardless for the moments that matter. The panel shows
+  his studio portrait and types out his words (whole, with reduced motion; announced whole to
+  screen readers). There is no recorded voice: a band-limited, syllable-paced radio babble under
+  the subtitles stands in for one.
+* **Rooftops** (`src/city/Rooftops.ts`). Every large and medium building has a fire-escape ladder
+  on its front; E climbs it. Building colliders now top out at the measured roof (27.8, 24.8,
+  16.8 m), so the hero stands on the roof itself. A fall without the glider hurts, and from a
+  building it kills.
+* **The glider** (`HeroMotor` modes). Space in the air with 2.5 m or more below opens it: 13 m/s,
+  2.4 m/s sink, steered by the camera, W to dive (faster, steeper), S to flare. Heat rises off
+  every fire and lifts it (`Chaos.updraft`), and blasts throw it upward, so the chaos is also a
+  way up. Drawn as a paraglider in the crew's colour that snaps open and banks into turns, with
+  wind that rises with speed.
+* **Honest limits.** The glider pose is the library's jump loop (there is no hanging pose in the
+  free clips), the climb reuses a mantle clip, and Cantor's voice is not a voice.

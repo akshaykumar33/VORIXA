@@ -169,7 +169,7 @@ const MARKUP = `
     <div class="meter" role="meter" aria-label="Car condition"><i></i></div>
   </div>
   <div class="prompt chip" hidden>Get in <kbd>F</kbd></div>
-  <div class="takedown chip" hidden>Takedown <kbd>E</kbd></div>
+  <div class="takedown chip" hidden><span>Takedown</span> <kbd>E</kbd></div>
   <section class="card intro" aria-labelledby="city-title">
     <p class="kicker">VORIXA City · HEAT · Chapter 1</p>
     <h1 id="city-title">VORIXA <span>City</span></h1>
@@ -184,7 +184,8 @@ const MARKUP = `
       <div>Sprint · Jump <span>Shift · Space</span></div>
       <div>First / third person <span>V</span></div>
       <div>Get in / out of a car <span>F</span></div>
-      <div>Silent takedown, from behind <span>E</span></div>
+      <div>Silent takedown, from behind · climb a ladder <span>E</span></div>
+      <div>Glider (in the air, from a height) <span>Space</span></div>
       <div>Drive · handbrake <span>W A S D · Space</span></div>
     </div>
     <div class="bar" role="progressbar" aria-label="Loading the city" aria-valuemin="0" aria-valuemax="100"><i></i></div>
@@ -419,11 +420,17 @@ export class CityHUD {
     el.classList.toggle('ringing', ringing);
   }
 
-  /** The takedown prompt, shown when a guard is in reach. */
-  public setTakedown(on: boolean): void {
+  private lastAction = '';
+
+  /** The context prompt: a takedown in reach, a ladder to climb, the glider to open (null: none). */
+  public setAction(label: string | null, key = 'E'): void {
+    const k = `${label}|${key}`;
+    if (k === this.lastAction) return;
+    this.lastAction = k;
     const el = this.q('.takedown');
-    if (el.hidden === !on) return;
-    el.hidden = !on;
+    el.hidden = label === null;
+    el.querySelector('span')!.textContent = label ?? '';
+    el.querySelector('kbd')!.textContent = key;
   }
 
   /** HEAT, the wanted level: filled stars, flashing when it rises. */

@@ -162,6 +162,20 @@ export class Chaos {
     return f;
   }
 
+  /**
+   * Rising air over the fires at (x, z), `height` metres up (m/s upward): strong low down and
+   * close in, fading with distance and height. A glider rides it up.
+   */
+  public updraft(x: number, z: number, height: number): number {
+    let lift = 0;
+    for (const f of this.fires) {
+      const reach = f.radius * 2.4;
+      const d = Math.hypot(f.x - x, f.z - z);
+      if (d < reach) lift = Math.max(lift, 9 * (1 - d / reach) * Math.max(0, 1 - height / 45));
+    }
+    return lift;
+  }
+
   /** Whether (x, z) is inside a fire. */
   public burning(x: number, z: number): boolean {
     return this.fires.some((f) => f.life > 0 && Math.hypot(x - f.x, z - f.z) < f.radius);

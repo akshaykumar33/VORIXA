@@ -5,6 +5,12 @@ import type { Box } from './CityLayout';
  * a jump, and collision against the city's boxes. Pure and deterministic, stepped at a fixed rate
  * by the game, so it is testable without a renderer.
  *
+ * Two more ways to move, for the Far Cry layer: **climbing** a rooftop ladder (a scripted ascent,
+ * then a step onto the roof), and **gliding**. Jump pressed in the air with enough height under
+ * the hero opens the glider: a slow, steady sink at gliding speed, steered toward where the camera
+ * looks, diving (forward) or flaring (back), lifted by any updraft the game reports (heat rising
+ * off fires). Jump again folds it away. Landing reports how hard it was, for fall damage.
+ *
  * Direction conventions match Three.js: a camera with `rotation.y = yaw` looks along
  * (-sin yaw, 0, -cos yaw). The hero's model faces +z, so it turns to `facing = atan2(dx, dz)`.
  */
@@ -15,6 +21,12 @@ export const SPRINT_SPEED = 7.4;
 export const JUMP_VELOCITY = 6.2;
 export const GRAVITY = 20;
 export const HERO_RADIUS = 0.35;
+export const GLIDE_SPEED = 13;
+export const GLIDE_SINK = 2.4;
+/** Height over the ground below needed to open the glider. */
+export const GLIDE_MIN_HEIGHT = 2.5;
+/** Metres per second up the ladder. */
+export const CLIMB_SPEED = 8;
 const ACCEL_GROUND = 26;
 const ACCEL_AIR = 7;
 /** Turns toward where it is going at this rate (radians per second, eased). */
@@ -35,7 +47,8 @@ export interface HeroIntent {
   faceCamera: boolean;
 }
 
-export type HeroFx = 'jump' | 'land';
+export type HeroFx = 'jump' | 'land' | 'glide' | 'stow' | 'climbed';
+export type HeroMode = 'foot' | 'glide' | 'climb';
 
 export class HeroMotor {
   public x = 0;
@@ -49,7 +62,17 @@ export class HeroMotor {
   /** Seconds in the air since leaving the ground, for the landing animation. */
   public airTime = 0;
   public readonly fx: HeroFx[] = [];
+  public mode: HeroMode = 'foot';
+  /** Rising air under the glider (m/s upward), reported by the game each step (fires, blasts). */
+  public updraft = 0;
+  /** How fast the hero was falling on the last landing, m/s: the game turns it into fall damage. */
+  public landSpeed = 0;
+  /** 0 to 1 through a climb. */
+  public climbProgress = 0;
   private coyote = 0;
+  private climbFrom = { x: 0, y: 0, z: 0 };
+  private climbTo = { x: 0, y: 0, z: 0 };
+  private climbTime = 1;
 
   public constructor(
     private readonly colliders: readonly Box[],
@@ -63,6 +86,28 @@ export class HeroMotor {
     this.vx = this.vy = this.vz = 0;
     this.facing = facing;
     this.grounded = true;
+    this.mode = 'foot';
+  }
+
+  /** Height of the hero's feet over whatever is below them. */
+  public get height(): number {
+    return this.y - this.floorAt(this.x, this.z);
+  }
+
+  /**
+   * Climbs a ladder: straight up at (fromX, fromZ) to height `toY`, then a step onto the roof at
+   * (toX, toZ), facing `facing`.
+   */
+  public climb(fromX: number, fromZ: number, toX: number, toY: number, toZ: number, facing: number): void {
+    this.mode = 'climb';
+    this.climbFrom = { x: fromX, y: this.y, z: fromZ };
+    this.climbTo = { x: toX, y: toY, z: toZ };
+    this.climbTime = Math.max(1, (toY - this.y) / CLIMB_SPEED) + 0.45;
+    this.climbProgress = 0;
+    this.facing = facing;
+    this.vx = this.vy = this.vz = 0;
+    this.x = fromX;
+    this.z = fromZ;
   }
 
   /** Horizontal speed, m/s. */
@@ -72,6 +117,8 @@ export class HeroMotor {
 
   public step(intent: HeroIntent, dt: number): void {
     this.fx.length = 0;
+    if (this.mode === 'climb') return this.stepClimb(dt);
+    if (this.mode === 'glide') return this.stepGlide(intent, dt);
 
     // Desired velocity from the camera-relative stick.
     const sin = Math.sin(intent.cameraYaw);
@@ -105,6 +152,12 @@ export class HeroMotor {
       this.grounded = false;
       this.coyote = 0;
       this.fx.push('jump');
+    } else if (intent.jumpPressed && !this.grounded && this.height > GLIDE_MIN_HEIGHT) {
+      this.mode = 'glide';
+      this.fx.push('glide');
+      // The canopy catches: most of the fall is arrested at once.
+      this.vy = Math.max(this.vy, -GLIDE_SINK * 2);
+      return;
     }
 
     this.vy -= GRAVITY * dt;
@@ -118,6 +171,7 @@ export class HeroMotor {
     const floor = this.floorAt(this.x, this.z);
     if (this.y <= floor) {
       if (!this.grounded) {
+        this.landSpeed = Math.max(0, -this.vy);
         this.fx.push('land');
       }
       this.y = floor;
@@ -127,6 +181,67 @@ export class HeroMotor {
     } else {
       if (this.grounded && this.y - floor > 0.05) this.grounded = false;
       if (!this.grounded) this.airTime += dt;
+    }
+  }
+
+  private stepClimb(dt: number): void {
+    this.climbProgress = Math.min(1, this.climbProgress + dt / this.climbTime);
+    const t = this.climbProgress;
+    const up = 1 - 0.45 / this.climbTime;
+    const a = this.climbFrom;
+    const b = this.climbTo;
+    if (t < up) {
+      this.x = a.x;
+      this.z = a.z;
+      this.y = a.y + (b.y - a.y) * (t / up);
+    } else {
+      const k = (t - up) / (1 - up);
+      this.x = a.x + (b.x - a.x) * k;
+      this.z = a.z + (b.z - a.z) * k;
+      this.y = b.y;
+    }
+    this.vx = this.vy = this.vz = 0;
+    if (t >= 1) {
+      this.mode = 'foot';
+      this.grounded = true;
+      this.landSpeed = 0;
+      this.fx.push('climbed');
+    }
+  }
+
+  private stepGlide(intent: HeroIntent, dt: number): void {
+    if (intent.jumpPressed) {
+      this.mode = 'foot';
+      this.fx.push('stow');
+      return;
+    }
+    // Steer toward where the camera looks; forward dives, back flares.
+    const want = Math.atan2(-Math.sin(intent.cameraYaw), -Math.cos(intent.cameraYaw));
+    this.facing += wrap(want - this.facing) * Math.min(1, 2.2 * dt);
+    const dive = clamp(intent.forward, -1, 1);
+    const speed = GLIDE_SPEED + dive * 4;
+    const sink = GLIDE_SINK + (dive > 0 ? dive * 2.6 : dive * 0.9);
+    const fx = Math.sin(this.facing);
+    const fz = Math.cos(this.facing);
+    const side = clamp(intent.right, -1, 1) * 3;
+    const k = Math.min(1, 1.8 * dt);
+    this.vx += (fx * speed + fz * side - this.vx) * k;
+    this.vz += (fz * speed - fx * side - this.vz) * k;
+    this.vy += (-sink + this.updraft - this.vy) * Math.min(1, 2.5 * dt);
+    this.x += this.vx * dt;
+    this.z += this.vz * dt;
+    this.y += this.vy * dt;
+    this.collide();
+    this.airTime += dt;
+    const floor = this.floorAt(this.x, this.z);
+    if (this.y <= floor) {
+      this.y = floor;
+      this.landSpeed = Math.max(0, -this.vy);
+      this.vy = 0;
+      this.grounded = true;
+      this.airTime = 0;
+      this.mode = 'foot';
+      this.fx.push('land', 'stow');
     }
   }
 

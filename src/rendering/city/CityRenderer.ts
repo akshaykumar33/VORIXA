@@ -3,7 +3,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Box, District } from '../../city/CityLayout';
-import type { HeroMotor } from '../../city/HeroMotor';
+import { wrap, type HeroFx, type HeroMotor } from '../../city/HeroMotor';
 import { SkyLibrary } from '../rush/SkyLibrary';
 import { PostFX } from '../rush/PostFX';
 import { rayBoxes, type Combat } from '../../city/Combat';
@@ -15,6 +15,8 @@ import { CityLifeView } from './CityLifeView';
 import { JobView } from './JobView';
 import { ChaosView } from './ChaosView';
 import { OutpostView } from './OutpostView';
+import { RooftopView } from './RooftopView';
+import type { Ladder } from '../../city/Rooftops';
 import type { Chaos } from '../../city/Chaos';
 import type { OutpostDef, Outposts } from '../../city/Outposts';
 import type { CityLife } from '../../city/CityLife';
@@ -44,7 +46,7 @@ const EYE_HEIGHT = 1.68;
 /** Clips of the Ultimate Modular Characters rig that the hero uses. */
 type Clip =
   | 'Idle' | 'Walk' | 'Run' | 'Run_Back' | 'Run_Left' | 'Run_Right' | 'Run_Shoot'
-  | 'Idle_Gun' | 'Idle_Gun_Pointing' | 'Idle_Gun_Shoot' | 'Gun_Shoot' | 'Roll' | 'Wave' | 'Death' | 'Takedown';
+  | 'Idle_Gun' | 'Idle_Gun_Pointing' | 'Idle_Gun_Shoot' | 'Gun_Shoot' | 'Roll' | 'Wave' | 'Death' | 'Takedown' | 'Climb' | 'Glide';
 
 /** The run clip frozen here is a full stride: it reads as a leap, and the rig's IK feet stay put. */
 const LEAP_PHASE = 0.3;
@@ -75,6 +77,9 @@ export class CityRenderer {
   /** Barrels, blasts and fires. */
   public readonly chaosView: ChaosView;
   public outpostView: OutpostView | null = null;
+  /** Ladders up the tall buildings, and the hero's glider. */
+  public rooftopView: RooftopView | null = null;
+  private lastFacing = 0;
   /** The simulations the two views above draw, set by the game. */
   public chaos: Chaos | null = null;
   public outposts: Outposts | null = null;
@@ -293,6 +298,7 @@ export class CityRenderer {
       this.reloadAction.play();
     } else this.reloadAction = null;
     this.hero = person.root;
+    if (this.rooftopView) person.root.add(this.rooftopView.glider);
     this.heroMeshes = person.meshes;
     this.heroHand = person.hand;
     this.heroGrip = person.grip;
@@ -349,6 +355,14 @@ export class CityRenderer {
     this.scene.add(this.outpostView.group);
   }
 
+  /** Builds the rooftop ladders and the glider (in the crew's colour). */
+  public setLadders(ladders: readonly Ladder[], accent: string): void {
+    this.rooftopView?.group.removeFromParent();
+    this.rooftopView = new RooftopView(ladders, accent);
+    this.scene.add(this.rooftopView.group);
+    this.hero?.add(this.rooftopView.glider);
+  }
+
   /** The hero's silent takedown: a short, sharp strike. */
   public takedown(): void {
     this.takingDown = 0.7;
@@ -357,8 +371,10 @@ export class CityRenderer {
   }
 
   /** Called with the hero's per-step effects, for animation cues. */
-  public heroEvent(fx: 'jump' | 'land'): void {
+  public heroEvent(fx: HeroFx): void {
     if (fx === 'land') this.landing = 0.15;
+    if (fx === 'glide') this.rooftopView?.setGliding(true);
+    if (fx === 'stow') this.rooftopView?.setGliding(false);
   }
 
   public render(hero: HeroMotor, dt: number, combat?: Combat, vehicles: readonly Vehicle[] = [], life?: CityLife): void {
@@ -380,6 +396,9 @@ export class CityRenderer {
     if (life) this.lifeView?.update(life, dt);
     if (this.chaos) this.chaosView.update(this.chaos, dt);
     if (this.outposts) this.outpostView?.update(this.outposts, dt, this.camera.position);
+    const turn = dt > 0 ? wrap(hero.facing - this.lastFacing) / dt : 0;
+    this.lastFacing = hero.facing;
+    this.rooftopView?.update(dt, turn, hero.x, hero.z);
     this.jobView.update(performance.now() / 1000);
     if (this.driving) this.placeDriveCamera(this.driving, dt);
     else this.placeCamera(hero, dt);
@@ -402,6 +421,10 @@ export class CityRenderer {
 
     if (this.takingDown > 0) {
       this.takingDown -= dt;
+    } else if (hero.mode === 'climb') {
+      this.play('Climb', 0.15);
+    } else if (hero.mode === 'glide') {
+      this.play('Glide', 0.3);
     } else if (!hero.grounded) {
       // A leap: the run cycle held at full stride.
       if (this.currentName !== 'Run' || (this.current && this.current.timeScale !== 0)) {
@@ -475,7 +498,8 @@ export class CityRenderer {
   private placeCamera(hero: HeroMotor, dt: number): void {
     const k = 1 - Math.exp(-12 * dt);
     const cam = this.camera;
-    const targetFov = this.aiming ? this.aimFov : this.fovBase + Math.min(8, Math.max(0, hero.speed - 5) * 3);
+    const gliding = hero.mode === 'glide';
+    const targetFov = this.aiming ? this.aimFov : this.fovBase + (gliding ? 12 : Math.min(8, Math.max(0, hero.speed - 5) * 3));
     this.punchPitch *= Math.exp(-10 * dt);
     this.punchYaw *= Math.exp(-10 * dt);
     cam.fov += (targetFov - cam.fov) * k;
@@ -502,11 +526,12 @@ export class CityRenderer {
       return;
     }
 
-    this.cameraDistance += ((this.aiming ? CAMERA_DISTANCE_AIM : CAMERA_DISTANCE) - this.cameraDistance) * k;
+    // Gliding: pulled well back and up, to see the canopy and the drop.
+    this.cameraDistance += ((this.aiming ? CAMERA_DISTANCE_AIM : gliding ? 8.5 : CAMERA_DISTANCE) - this.cameraDistance) * k;
     this.shoulder += ((this.aiming ? SHOULDER_AIM : SHOULDER) - this.shoulder) * k;
     const rightX = Math.cos(yaw);
     const rightZ = -Math.sin(yaw);
-    const pivot = this.tmp.set(hero.x + rightX * this.shoulder, hero.y + PIVOT_HEIGHT, hero.z + rightZ * this.shoulder);
+    const pivot = this.tmp.set(hero.x + rightX * this.shoulder, hero.y + PIVOT_HEIGHT + (gliding ? 2.2 : 0), hero.z + rightZ * this.shoulder);
     // Back along the look direction, but never through a wall.
     const want = this.cameraDistance;
     const hit = rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, rayBoxes(pivot.x, pivot.y, pivot.z, -lookX, -lookY, -lookZ, want, this.carBoxes), this.colliders);

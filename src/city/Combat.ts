@@ -328,7 +328,8 @@ export class Combat {
       if (e.state === 'dead' || !burning(e.motor.x, e.motor.z)) continue;
       this.damage(e, dps * dt, false, { kind: 'enemy', distance: 0, x: e.motor.x, y: 1, z: e.motor.z, enemy: e }, 'fire', true);
     }
-    if (this.hp > 0 && burning(this.heroX, this.heroZ)) this.hurtHero(dps * dt, this.heroX, this.heroZ, true);
+    // Only standing in it: a glider or a rooftop over the flames is out of reach.
+    if (this.hp > 0 && this.heroY < 1.5 && burning(this.heroX, this.heroZ)) this.hurtHero(dps * dt, this.heroX, this.heroZ, true);
   }
 
   /**
@@ -362,6 +363,7 @@ export class Combat {
   }
 
   private heroX = 0;
+  private heroY = 0;
   private heroZ = 0;
 
   private damage(e: Enemy, amount: number, headshot: boolean, at: Hit, how?: 'blast' | 'fire' | 'takedown', quiet = false): void {
@@ -423,6 +425,7 @@ export class Combat {
     this.fx.length = 0;
     this.tick++;
     this.heroX = hero.x;
+    this.heroY = hero.y;
     this.heroZ = hero.z;
     this.sinceHurt += dt;
     if (this.hp > 0 && this.sinceHurt > REGEN_DELAY && this.hp < this.regenCap) this.hp = Math.min(this.regenCap, this.hp + 8 * dt);

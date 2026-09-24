@@ -44,7 +44,9 @@ const CAST_CLIPS: Record<string, string> = {
   Phone: 'Idle_TalkingPhone_Loop',
   Talk: 'Idle_Talking_Loop',
   FoldArms: 'Idle_FoldArms_Loop',
-  Takedown: 'Punch_Cross'
+  Takedown: 'Punch_Cross',
+  Climb: 'ClimbUp_1m',
+  Glide: 'Jump_Loop'
 };
 
 const LEGS = /^(pelvis|thigh|calf|foot|ball)/;

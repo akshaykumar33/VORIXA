@@ -12,6 +12,10 @@ import { CHAPTER_ONE, JobRunner, COIN_REACH, type Job, type Panel } from '../cit
 import { CityJobUI, type Blip, type StoryPanel } from '../ui/CityJobUI';
 import { Chaos, CAR_BLAST, EXPLOSIVES, FIRE_DPS, type Blast, type Explosive } from '../city/Chaos';
 import { Outposts, buildOutposts } from '../city/Outposts';
+import { Radio, type RadioCue } from '../city/Radio';
+import { buildLadders, ladderAt, type Ladder } from '../city/Rooftops';
+import { GLIDE_MIN_HEIGHT, type HeroFx } from '../city/HeroMotor';
+import { CityRadio } from '../ui/CityRadio';
 import type { Box } from '../city/CityLayout';
 import type { Citizen } from '../city/CityLife';
 
@@ -152,6 +156,17 @@ export class CityGame {
   /** Wrecked cars burning down to their blast: seconds left. */
   private readonly carFuses = new Map<Vehicle, number>();
   private readonly blown = new Set<Vehicle>();
+  /** Cantor, on the hero's frequency. */
+  private readonly radio = new Radio();
+  private readonly radioUI: CityRadio;
+  private saidHello = false;
+  /** Outposts Cantor has already warned the hero off. */
+  private readonly approached = new Set<string>();
+  /** When recent blasts went off, to notice a chain reaction. */
+  private readonly blasts: number[] = [];
+  private quietKills = 0;
+  private readonly ladders: Ladder[];
+  private climbedOnce = false;
 
   public constructor(
     private readonly renderer: CityRenderer,
@@ -177,6 +192,7 @@ export class CityGame {
     }
     this.renderer.chaos = this.chaos;
     this.renderer.outposts = this.outposts;
+    this.ladders = buildLadders(this.district);
     const s = this.district.spawn;
     this.hero.place(s.x, s.z, s.yaw + Math.PI);
     this.renderer.yaw = s.yaw;
@@ -196,6 +212,7 @@ export class CityGame {
     this.hud.onPick = () => this.pick();
     this.hud.onCloseSafehouse = () => this.closeSafehouse();
     this.jobUI = new CityJobUI(container.querySelector<HTMLElement>('#rush-hud.city') ?? container);
+    this.radioUI = new CityRadio(container.querySelector<HTMLElement>('#rush-hud.city') ?? container);
     this.jobUI.onContinue = () => this.continueStory();
     this.jobUI.onRetry = () => this.retryJob();
     this.jobUI.setCash(this.cash);
@@ -234,7 +251,7 @@ export class CityGame {
         return;
       }
       if (e.code === 'KeyF' && this.playing && !this.down) this.toggleCar();
-      if (e.code === 'KeyE' && this.playing && !this.down && !this.driving) this.takedown();
+      if (e.code === 'KeyE' && this.playing && !this.down && !this.driving) this.action();
       const slot = Number(e.code.replace('Digit', '')) - 1;
       if (e.code.startsWith('Digit') && slot >= 0 && slot < LOADOUT.length) this.select(LOADOUT[slot]);
     });
@@ -254,6 +271,8 @@ export class CityGame {
         this.renderer.combatView?.setWeapon(this.arsenal.current);
         this.renderer.setOutposts(this.outposts.defs, `#${(CREW[0].accent ?? 0x8a6cf0).toString(16).padStart(6, '0')}`);
         this.renderer.chaosView.setExplosives(this.chaos);
+        this.renderer.setLadders(this.ladders, `#${(this.crew.accent ?? 0x8a6cf0).toString(16).padStart(6, '0')}`);
+        void this.renderer.portrait(CANTOR).then((url) => this.radioUI.setPortrait(url)).catch(() => {});
         this.applyLook();
         // The chapter first; once it is done, the turf war never stops.
         if (!this.currentJob) {
@@ -430,6 +449,7 @@ export class CityGame {
           this.renderer.jobView.setCoins(this.coins);
           break;
         case 'spawnBoss':
+          this.cantor('bossArrive');
           this.combat.spawn('boss', e.x, e.z, Math.atan2(this.hero.x - e.x, this.hero.z - e.z));
           this.combat.spawnWave(e.x, e.z, e.guards);
           this.hud.banner('Cantor', 'Plated. Aim for the head');
@@ -638,6 +658,7 @@ export class CityGame {
     const [x, z] = this.wavePoints[this.waveIndex % this.wavePoints.length];
     this.waveIndex++;
     this.combat.spawnWave(x, z, 3 + this.waveIndex * 2);
+    this.cantor('wave');
     this.hud.banner(`Wave ${this.combat.wave}`, `${this.combat.alive} armed, holding the intersection ahead`);
   }
 
@@ -649,6 +670,7 @@ export class CityGame {
     this.renderer.yaw = s.yaw;
     this.renderer.pitch = -0.12;
     this.combat.reviveHero();
+    this.renderer.heroEvent('stow');
     // Waking up in hospital wipes the slate, as in GTA.
     this.life.heat = 0;
     // A fresh pistol magazine at least: nobody respawns empty-handed.
@@ -708,7 +730,7 @@ export class CityGame {
     intent.sprint = active && !car && i.isPressed(InputAction.DASH) && !r.aiming;
     intent.jumpPressed = active && !car && i.isJustPressed(InputAction.JUMP);
     intent.faceCamera = r.aiming || r.view === 'first' || r.sinceFired < 0.6;
-    const trigger = active && !car && (i.isPressed(InputAction.FIRE) || i.isJustPressed(InputAction.FIRE));
+    const trigger = active && !car && this.hero.mode !== 'climb' && (i.isPressed(InputAction.FIRE) || i.isJustPressed(InputAction.FIRE));
 
     const slow = r.aiming && this.perks.bulletTimeWhenAiming ? 0.45 : 1;
     this.timeScale += (slow - this.timeScale) * (1 - Math.exp(-10 * dt));
@@ -725,7 +747,11 @@ export class CityGame {
         this.hero.vz = car.vz;
         this.hero.facing = car.heading;
       }
-      for (const fx of this.hero.fx) r.heroEvent(fx);
+      for (const fx of this.hero.fx) {
+        r.heroEvent(fx);
+        this.onHeroFx(fx);
+      }
+      this.hero.updraft = this.hero.mode === 'glide' ? this.chaos.updraft(this.hero.x, this.hero.z, this.hero.height) : 0;
       intent.jumpPressed = false;
       this.stepGuns(trigger);
       this.stepCombat();
@@ -761,6 +787,15 @@ export class CityGame {
     this.hud.setVehicle(car ? { speed: Math.abs(car.forwardSpeed), health: car.health } : null, !car && active && !!this.carNearHero());
     this.hud.setHeat(this.life.stars);
     this.showOutposts(active && !car);
+    // Cantor: quiet while paused or reading a storyboard; he says hello once the hero is out.
+    const fill = { crew: this.crew.name.split(' ')[0] };
+    if (active && !this.saidHello && this.clock > 8) {
+      this.saidHello = true;
+      this.cantor('hello');
+    }
+    const idle = this.radio.step(active ? dt : 0, fill);
+    if (idle) this.onAir(idle.text, idle.seconds);
+    this.radioUI.update(dt);
     // The objective panel shows even while paused; the job only advances in play.
     this.stepJob(active ? dt : 0);
     this.drawRadar();
@@ -773,6 +808,7 @@ export class CityGame {
   private stepSound(dt: number, car: Vehicle | null, throttle: number): void {
     const a = this.audio;
     a.setListener(this.hero.x, this.hero.z, this.renderer.yaw);
+    a.setWind(this.hero.mode === 'glide' ? Math.min(1, this.hero.speed / 17) : 0);
     a.setEngine(car ? { speedT: Math.abs(car.forwardSpeed) / (car.spec.maxSpeed * car.speedScale), throttle: Math.abs(throttle), slip: car.slip } : null);
     let nearest: { x: number; z: number } | null = null;
     let best = Infinity;
@@ -794,7 +830,10 @@ export class CityGame {
         a.footstep(this.hero.x, this.hero.z, this.hero.speed > 5);
       }
     }
-    if (this.life.stars > this.lastStars) a.cue('heat');
+    if (this.life.stars > this.lastStars) {
+      a.cue('heat');
+      if (this.life.stars >= 3) this.cantor('heat');
+    }
     this.lastStars = this.life.stars;
   }
 
@@ -960,6 +999,14 @@ export class CityGame {
     return this.wavesCleared + (this.outposts?.liberatedCount ?? 0);
   }
 
+  /** E: a silent takedown of the guard in reach, or else the ladder the hero stands at. */
+  private action(): void {
+    if (this.hero.mode !== 'foot') return;
+    if (this.combat.takedownTarget(this.hero)) return this.takedown();
+    const ladder = ladderAt(this.ladders, this.hero.x, this.hero.z, this.hero.y);
+    if (ladder) this.hero.climb(ladder.x, ladder.z, ladder.roofX, ladder.roofY, ladder.roofZ, ladder.facing + Math.PI);
+  }
+
   /** A silent takedown of the guard in reach, if there is one. */
   private takedown(): void {
     const e = this.combat.takedown(this.hero);
@@ -967,6 +1014,33 @@ export class CityGame {
     this.hero.facing = Math.atan2(e.motor.x - this.hero.x, e.motor.z - this.hero.z);
     this.renderer.takedown();
     this.audio.impact(e.motor.x, e.motor.z, true);
+  }
+
+  /** Cantor says something about `cue`, if he has something to say. */
+  private cantor(cue: RadioCue, outpost?: string): void {
+    const line = this.radio.cue(cue, { outpost, crew: this.crew.name.split(' ')[0] });
+    if (line) this.onAir(line.text, line.seconds);
+  }
+
+  private onAir(text: string, seconds: number): void {
+    this.radioUI.say(text, seconds);
+    this.audio.radio(seconds);
+  }
+
+  /** The hero's moves: the glider opening and closing, the roof reached, and hard landings. */
+  private onHeroFx(fx: HeroFx): void {
+    if (fx === 'glide') {
+      this.audio.glider(true);
+      this.cantor('glider');
+    } else if (fx === 'stow') this.audio.glider(false);
+    else if (fx === 'climbed' && !this.climbedOnce) {
+      this.climbedOnce = true;
+      this.hud.banner('On the roof', 'Jump off, then press Space in the air to open the glider');
+    } else if (fx === 'land' && this.hero.landSpeed > 13) {
+      // A fall from a roof without the glider: about a storey is fine, a building is not.
+      this.combat.hurtHero((this.hero.landSpeed - 13) * 7, this.hero.x, this.hero.z);
+      this.renderer.punchPitch -= 0.08;
+    }
   }
 
   /** A bullet that hit the world may have hit a car: cars shot enough catch fire, then blow. */
@@ -1041,6 +1115,13 @@ export class CityGame {
     }
     this.renderer.chaosView.blast(b);
     this.audio.explosion(b.x, b.z);
+    if (this.hero.mode === 'glide') {
+      const d = Math.hypot(this.hero.x - b.x, this.hero.z - b.z);
+      if (d < b.radius * 2.5) this.hero.vy += 10 * (1 - d / (b.radius * 2.5));
+    }
+    this.blasts.push(this.clock);
+    while (this.blasts.length && this.clock - this.blasts[0] > 2.5) this.blasts.shift();
+    if (this.blasts.length >= 3) this.cantor('chain');
   }
 
   /** The outposts, stepped with the fight. */
@@ -1053,14 +1134,17 @@ export class CityGame {
         case 'spotted':
           this.hud.banner('Spotted', `${name} · they are going for the alarm · shoot it out`);
           this.audio.cue('heat');
+          this.cantor('spotted', name);
           break;
         case 'alarm':
           this.hud.banner('Alarm', `${name} is calling for backup`);
           this.audio.alarm(ev.outpost.alarm.x, ev.outpost.alarm.z);
+          this.cantor('alarm', name);
           break;
         case 'alarmDown':
           this.hud.feed('Alarm destroyed');
           this.audio.impact(ev.outpost.alarm.x, ev.outpost.alarm.z, false);
+          this.cantor('alarmDown', name);
           break;
         case 'reinforcements':
           this.hud.feed(`${ev.count} Choir reinforcements incoming`);
@@ -1074,6 +1158,7 @@ export class CityGame {
           const bonuses = [ev.undetected ? 'Undetected' : '', ev.quiet ? 'No alarm' : ''].filter(Boolean).join(' · ');
           this.hud.banner('Outpost liberated', `${name} · +$${ev.cash.toLocaleString('en-US')}${bonuses ? ' · ' + bonuses : ''}`);
           this.audio.cue('complete');
+          this.cantor('liberated', name);
           const joined = unlocked(this.progress).slice(before);
           if (joined.length) this.hud.feed(`${joined[0].name} joins the crew · press H at the Safehouse`);
           break;
@@ -1091,6 +1176,10 @@ export class CityGame {
     let best = Infinity;
     for (const d of o.defs) {
       const dist = Math.hypot(d.x - this.hero.x, d.z - this.hero.z);
+      if (dist < 70 && o.stateOf(d.id) === 'held' && !this.approached.has(d.id)) {
+        this.approached.add(d.id);
+        this.cantor('approach', d.name);
+      }
       if (dist > 90 || dist > best) continue;
       const left = o.alarmCountdown(d.id);
       const state = o.stateOf(d.id);
@@ -1105,7 +1194,12 @@ export class CityGame {
       }
     }
     this.hud.setAlarm(text, ringing);
-    this.hud.setTakedown(onFoot && this.combat.takedownTarget(this.hero) !== null);
+    const h = this.hero;
+    if (onFoot && h.mode === 'foot' && this.combat.takedownTarget(h)) this.hud.setAction('Takedown');
+    else if (onFoot && h.mode === 'foot' && ladderAt(this.ladders, h.x, h.z, h.y)) this.hud.setAction('Climb');
+    else if (onFoot && h.mode === 'foot' && !h.grounded && h.vy < 0 && h.height > GLIDE_MIN_HEIGHT + 1) this.hud.setAction('Open glider', 'Space');
+    else if (onFoot && h.mode === 'glide') this.hud.setAction('Fold glider', 'Space');
+    else this.hud.setAction(null);
   }
 
   private stepCombat(): void {
@@ -1132,6 +1226,10 @@ export class CityGame {
           this.audio.cue('hit');
           break;
         case 'enemyKilled':
+          if (fx.how === 'takedown' && ++this.quietKills >= 2) {
+            this.quietKills = 0;
+            this.cantor('quiet');
+          }
           this.hud.hitMarker(true);
           this.hud.feed(
             fx.how === 'takedown' ? 'Takedown' : fx.how === 'blast' ? 'Blown away' : fx.how === 'fire' ? 'Burned' : fx.headshot ? 'Headshot' : 'Enemy down',
@@ -1156,6 +1254,7 @@ export class CityGame {
           break;
         }
         case 'heroDown':
+          this.cantor('heroDown');
           if (this.runner) {
             this.runner = null;
             this.renderer.jobView.setTarget(null);
@@ -1190,6 +1289,7 @@ export class CityGame {
           break;
         }
         case 'bossDown':
+          this.cantor('bossDown');
           this.hud.banner('Cantor is down', 'Finish his choir');
           break;
       }
