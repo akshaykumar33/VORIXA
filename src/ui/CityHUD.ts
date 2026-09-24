@@ -191,7 +191,6 @@ const MARKUP = `
     <div class="bar" role="progressbar" aria-label="Loading the city" aria-valuemin="0" aria-valuemax="100"><i></i></div>
     <button class="btn primary play" type="button" disabled>Loading…</button>
     <button class="btn crewbtn" type="button">Choose crew <kbd>H</kbd></button>
-    <button class="btn back" type="button">Arcade: Rush</button>
   </section>
   <section class="card safehouse" hidden aria-labelledby="safe-name">
     <p class="kicker">Safehouse · choose your crew</p>
@@ -217,7 +216,6 @@ const MARKUP = `
 
 export class CityHUD {
   public onPlay: () => void = () => {};
-  public onBack: () => void = () => {};
   public onRespawn: () => void = () => {};
   public onOpenSafehouse: () => void = () => {};
   public onBrowse: (index: number) => void = () => {};
@@ -240,7 +238,6 @@ export class CityHUD {
     container.appendChild(this.root);
     this.q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
     this.q('.play').addEventListener('click', () => this.onPlay());
-    this.q('.back').addEventListener('click', () => this.onBack());
     this.q('.respawn').addEventListener('click', () => this.onRespawn());
     this.q('.crewbtn').addEventListener('click', () => this.onOpenSafehouse());
     this.q('.pick').addEventListener('click', () => this.onPick());

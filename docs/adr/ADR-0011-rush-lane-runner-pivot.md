@@ -1,6 +1,6 @@
 # ADR-0011: Pivot to Rush, a Cartoon Lane Runner with Shooting
 
-* **Status**: Accepted
+* **Status**: Superseded by ADR-0014 (the mode it describes was removed on 2026-09-25)
 * **Date**: 2026-09-23
 * **Deciders**: Project owner, working session
 
