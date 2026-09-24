@@ -6,6 +6,8 @@ import type { Box, District } from '../../city/CityLayout';
 import type { HeroMotor } from '../../city/HeroMotor';
 import { SkyLibrary } from '../rush/SkyLibrary';
 import { PostFX } from '../rush/PostFX';
+import { rayBoxes, type Combat } from '../../city/Combat';
+import { CombatView } from './CombatView';
 
 /**
  * Draws VORIXA City (ADR-0014) from the CC0 Quaternius assets built by
@@ -46,6 +48,15 @@ export class CityRenderer {
   public yaw = 0;
   public pitch = -0.12;
   public aiming = false;
+  /** Field of view while aiming: the current gun's (a sniper zooms far further). */
+  public aimFov = 48;
+  /** Seconds since the hero last fired, for the shooting poses. */
+  public sinceFired = 99;
+  /** Recoil punch on the view, radians; decays back to the aim point. */
+  public punchPitch = 0;
+  public punchYaw = 0;
+  public combatView: CombatView | null = null;
+  private heroHand: THREE.Object3D | null = null;
 
   private renderer!: THREE.WebGLRenderer;
   private post: PostFX | null = null;
@@ -125,15 +136,21 @@ export class CityRenderer {
     let done = 0;
     const track = <T,>(p: Promise<T>) =>
       p.then((v) => {
-        onProgress(++done / 2);
+        onProgress(++done / 5);
         return v;
       });
-    const [city, hero] = await Promise.all([
+    const [city, hero, guns, swat, soldier] = await Promise.all([
       track(this.loader.loadAsync('/city/district/city.gltf')),
-      track(this.loader.loadAsync(HERO_MODEL))
+      track(this.loader.loadAsync(HERO_MODEL)),
+      track(this.loader.loadAsync('/city/guns.glb')),
+      track(this.loader.loadAsync('/city/people/m-swat.glb')),
+      track(this.loader.loadAsync('/city/people/f-soldier.glb'))
     ]);
     this.buildDistrict(city, district);
     this.buildHero(hero);
+    this.scene.add(this.camera);
+    this.combatView = new CombatView(guns, { swat, soldier }, this.camera, this.heroHand, this.hero!);
+    this.scene.add(this.combatView.group);
     this.ready = true;
   }
 
@@ -225,6 +242,7 @@ export class CityRenderer {
     });
     const root = new THREE.Group();
     root.add(model);
+    this.heroHand = model.getObjectByName('WristR') ?? model.getObjectByName('Wrist_R') ?? model.getObjectByName('Wrist.R') ?? null;
     this.hero = root;
     this.scene.add(root);
     this.mixer = new THREE.AnimationMixer(model);
@@ -251,13 +269,16 @@ export class CityRenderer {
     if (fx === 'land') this.landing = 0.15;
   }
 
-  public render(hero: HeroMotor, dt: number): void {
+  public render(hero: HeroMotor, dt: number, combat?: Combat): void {
     if (!this.ready || !this.hero) {
       this.renderer.render(this.scene, this.camera);
       return;
     }
     this.animateHero(hero, dt);
     this.placeCamera(hero, dt);
+    if (combat && this.combatView) {
+      this.combatView.update(combat, dt, performance.now() / 1000, this.view === 'first', this.aiming, Math.min(1, hero.speed / 4.6));
+    }
 
     this.sun.position.set(hero.x - 40, 70, hero.z + 25);
     this.sun.target.position.set(hero.x, 0, hero.z);
@@ -281,7 +302,7 @@ export class CityRenderer {
       }
     } else if (this.aiming) {
       // Aiming: strafe, backpedal or advance relative to where the hero faces.
-      if (speed < 0.5) this.play('Idle_Gun_Pointing', 0.12);
+      if (speed < 0.5) this.play(this.sinceFired < 0.25 ? 'Idle_Gun_Shoot' : 'Idle_Gun_Pointing', 0.1);
       else {
         const fx = Math.sin(hero.facing);
         const fz = Math.cos(hero.facing);
@@ -290,11 +311,14 @@ export class CityRenderer {
         const clip: Clip = along > 0.7 ? 'Run_Shoot' : along < -0.7 ? 'Run_Back' : side > 0 ? 'Run_Left' : 'Run_Right';
         this.play(clip, 0.15, false, Math.max(0.6, speed / 4.6));
       }
-    } else if (speed > 5.6) this.play('Run', 0.2, false, 1.1 + (speed - 5.6) * 0.12);
+    } else if (this.sinceFired < 0.4 && speed > 0.5) this.play('Run_Shoot', 0.1, false, Math.max(0.7, speed / 4.6));
+    else if (this.sinceFired < 0.4) this.play('Idle_Gun_Shoot', 0.08);
+    else if (speed > 5.6) this.play('Run', 0.2, false, 1.1 + (speed - 5.6) * 0.12);
     else if (speed > 2.6) this.play('Run', 0.2, false, speed / 5.2);
     else if (speed > 0.25) this.play('Walk', 0.2, false, Math.max(0.7, speed / 1.7));
-    else this.play('Idle', 0.25);
+    else this.play('Idle_Gun', 0.25);
     this.mixer?.update(dt);
+    this.sinceFired += dt;
 
     // First person: the body would fill the view; hide it (the gun viewmodel comes with gunplay).
     const visible = this.view === 'third';
@@ -304,13 +328,17 @@ export class CityRenderer {
   private placeCamera(hero: HeroMotor, dt: number): void {
     const k = 1 - Math.exp(-12 * dt);
     const cam = this.camera;
-    const targetFov = this.aiming ? 48 : this.fovBase + Math.min(8, Math.max(0, hero.speed - 5) * 3);
+    const targetFov = this.aiming ? this.aimFov : this.fovBase + Math.min(8, Math.max(0, hero.speed - 5) * 3);
+    this.punchPitch *= Math.exp(-10 * dt);
+    this.punchYaw *= Math.exp(-10 * dt);
     cam.fov += (targetFov - cam.fov) * k;
     cam.updateProjectionMatrix();
 
-    const lookX = -Math.sin(this.yaw) * Math.cos(this.pitch);
-    const lookY = Math.sin(this.pitch);
-    const lookZ = -Math.cos(this.yaw) * Math.cos(this.pitch);
+    const yaw = this.yaw + this.punchYaw;
+    const pitch = this.pitch + this.punchPitch;
+    const lookX = -Math.sin(yaw) * Math.cos(pitch);
+    const lookY = Math.sin(pitch);
+    const lookZ = -Math.cos(yaw) * Math.cos(pitch);
 
     if (this.view === 'first') {
       cam.position.set(hero.x, hero.y + EYE_HEIGHT, hero.z);
@@ -321,8 +349,8 @@ export class CityRenderer {
 
     this.cameraDistance += ((this.aiming ? CAMERA_DISTANCE_AIM : CAMERA_DISTANCE) - this.cameraDistance) * k;
     this.shoulder += ((this.aiming ? SHOULDER_AIM : SHOULDER) - this.shoulder) * k;
-    const rightX = Math.cos(this.yaw);
-    const rightZ = -Math.sin(this.yaw);
+    const rightX = Math.cos(yaw);
+    const rightZ = -Math.sin(yaw);
     const pivot = this.tmp.set(hero.x + rightX * this.shoulder, hero.y + PIVOT_HEIGHT, hero.z + rightZ * this.shoulder);
     // Back along the look direction, but never through a wall.
     const want = this.cameraDistance;
@@ -352,39 +380,4 @@ function toFloat(source: THREE.BufferGeometry): THREE.BufferGeometry {
   }
   if (source.index) geometry.setIndex(Array.from(source.index.array as ArrayLike<number>));
   return geometry;
-}
-
-/** Distance along a ray to the nearest box (slab test), or `max` if none is closer. */
-export function rayBoxes(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number, boxes: readonly Box[]): number {
-  let best = max;
-  for (const b of boxes) {
-    let t0 = 0;
-    let t1 = best;
-    const slabs: [number, number, number, number][] = [
-      [ox, dx, b.minX, b.maxX],
-      [oy, dy, 0, b.height],
-      [oz, dz, b.minZ, b.maxZ]
-    ];
-    let hit = true;
-    for (const [o, d, lo, hi] of slabs) {
-      if (Math.abs(d) < 1e-9) {
-        if (o < lo || o > hi) {
-          hit = false;
-          break;
-        }
-        continue;
-      }
-      let ta = (lo - o) / d;
-      let tb = (hi - o) / d;
-      if (ta > tb) [ta, tb] = [tb, ta];
-      t0 = Math.max(t0, ta);
-      t1 = Math.min(t1, tb);
-      if (t0 > t1) {
-        hit = false;
-        break;
-      }
-    }
-    if (hit) best = Math.min(best, t0);
-  }
-  return best;
 }

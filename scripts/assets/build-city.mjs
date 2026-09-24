@@ -83,3 +83,26 @@ if (process.argv.includes('--force') || !fs.existsSync(path.join(OUT, 'district'
     }
   }
 }
+
+// ─── Guns (Ultimate Gun Pack) ─────────────────────────────────────────────────────────────────
+// The pack ships FBX, OBJ and .blend; the OBJs are converted with obj2gltf (Cesium, Apache-2.0):
+//   npx obj2gltf -i assets-src/quaternius/guns/OBJ/<Gun>.obj -o assets-src/quaternius/guns/glb/<Gun>.glb
+// and merged here into one file, one named root node per gun.
+{
+  const dir = path.join(SRC, 'guns/glb');
+  const out = path.join(OUT, 'guns.glb');
+  if (fs.existsSync(dir) && (process.argv.includes('--force') || !fs.existsSync(out))) {
+    const doc = new Document();
+    const scene = doc.createScene('guns');
+    for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.glb'))) {
+      const piece = await io.read(path.join(dir, f));
+      const map = mergeDocuments(doc, piece);
+      const holder = doc.createNode(path.basename(f, '.glb'));
+      for (const s of piece.getRoot().listScenes()) for (const child of s.listChildren()) holder.addChild(map.get(child));
+      scene.addChild(holder);
+    }
+    for (const s of doc.getRoot().listScenes()) if (s !== scene) s.dispose();
+    doc.getRoot().setDefaultScene(scene);
+    await finish(doc, out, 512);
+  }
+}
