@@ -8,37 +8,30 @@
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/jetbrains-mono';
 
-import { GameRenderer } from './rendering/GameRenderer';
-import { Game } from './game/Game';
-import { buildCourse } from './game/Course';
-import { seedFromString } from './world/Rng';
-
-/** The shared endless world. Fixed so two players on `?endless` are racing the same course. */
-const DEFAULT_ENDLESS_SEED = seedFromString('vorixa-endless-01');
-import { createPointerLockController } from './input/PointerLockController';
-import { RushRenderer } from './rendering/rush/RushRenderer';
-import { RushGame } from './game/RushGame';
-import { PlatformRenderer } from './rendering/platformer/PlatformRenderer';
-import { OnFootGame } from './game/OnFootGame';
-import { CityRenderer } from './rendering/city/CityRenderer';
-import { CityGame } from './game/CityGame';
+// Each mode is loaded only when it is played: a player in the city never downloads Rush, On Foot
+// or the parkour course, and the other way round.
 
 /**
  * VORIXA City: HEAT (ADR-0014) is the game. Its arcade modes are Rush (ADR-0011, `?mode=rush`) and
  * On Foot (ADR-0012, `?mode=onfoot`). The original parkour time-attack is kept, reachable with
  * `?mode=parkour`, until a later decision retires it.
  */
-function bootstrap(): void {
+async function bootstrap(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const mode = params.get('mode');
-  if (mode === 'parkour') bootstrapParkour();
-  else if (mode === 'onfoot') bootstrapOnFoot();
-  else if (mode === 'rush') bootstrapRush(params);
+  if (mode === 'parkour') await bootstrapParkour();
+  else if (mode === 'onfoot') await bootstrapOnFoot();
+  else if (mode === 'rush') await bootstrapRush(params);
   // VORIXA City: HEAT is the game (ADR-0014); Rush and On Foot are its arcade modes.
-  else bootstrapCity();
+  else await bootstrapCity();
 }
 
-function bootstrapRush(params: URLSearchParams): void {
+async function bootstrapRush(params: URLSearchParams): Promise<void> {
+  const [{ RushRenderer }, { RushGame }, { seedFromString }] = await Promise.all([
+    import('./rendering/rush/RushRenderer'),
+    import('./game/RushGame'),
+    import('./world/Rng')
+  ]);
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
   const viewport = document.getElementById('viewport');
   if (!canvas || !viewport) throw new Error('Could not locate #render-canvas and #viewport.');
@@ -68,7 +61,8 @@ function bootstrapRush(params: URLSearchParams): void {
 }
 
 /** VORIXA City (ADR-0014): the open-city flagship, in development. */
-function bootstrapCity(): void {
+async function bootstrapCity(): Promise<void> {
+  const [{ CityRenderer }, { CityGame }] = await Promise.all([import('./rendering/city/CityRenderer'), import('./game/CityGame')]);
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
   const viewport = document.getElementById('viewport');
   if (!canvas || !viewport) throw new Error('Could not locate #render-canvas and #viewport.');
@@ -87,7 +81,8 @@ function bootstrapCity(): void {
 }
 
 /** On Foot (ADR-0012): the driver's side-scrolling adventure, entered from the Rush title. */
-function bootstrapOnFoot(): void {
+async function bootstrapOnFoot(): Promise<void> {
+  const [{ PlatformRenderer }, { OnFootGame }] = await Promise.all([import('./rendering/platformer/PlatformRenderer'), import('./game/OnFootGame')]);
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
   const viewport = document.getElementById('viewport');
   if (!canvas || !viewport) throw new Error('Could not locate #render-canvas and #viewport.');
@@ -105,7 +100,16 @@ function bootstrapOnFoot(): void {
   }
 }
 
-function bootstrapParkour(): void {
+async function bootstrapParkour(): Promise<void> {
+  const [{ GameRenderer }, { Game }, { buildCourse }, { seedFromString }, { createPointerLockController }] = await Promise.all([
+    import('./rendering/GameRenderer'),
+    import('./game/Game'),
+    import('./game/Course'),
+    import('./world/Rng'),
+    import('./input/PointerLockController')
+  ]);
+  /** The shared endless world. Fixed so two players on `?endless` are racing the same course. */
+  const DEFAULT_ENDLESS_SEED = seedFromString('vorixa-endless-01');
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
   if (!canvas) throw new Error('Could not locate render canvas #render-canvas.');
 
@@ -195,10 +199,8 @@ function bootstrapParkour(): void {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', () => {
-    try {
-      bootstrap();
-    } catch (err) {
+    bootstrap().catch((err: unknown) => {
       console.error('[VORIXA] Fatal bootstrap exception:', err);
-    }
+    });
   });
 }

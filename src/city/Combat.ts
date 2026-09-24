@@ -106,6 +106,20 @@ export interface Enemy {
   lastSeen: number;
   /** The outpost this fighter guards (1-based); 0 for a wave or a job's crew. */
   post: number;
+  /**
+   * Heard something but has not seen the hero: walks over to where the noise came from and looks
+   * around, and only fights on actually seeing them.
+   */
+  heard: boolean;
+  lookX: number;
+  lookZ: number;
+  /** Seconds spent looking around at the noise; gives up and goes home after a while. */
+  searched: number;
+  /** Seconds trying to walk and not getting anywhere (a planter, a car, a barrier in the way). */
+  stuck: number;
+  /** Seconds left of stepping sideways around an obstacle, and which way. */
+  dodge: number;
+  dodgeSide: number;
 }
 
 export interface Hit {
@@ -142,6 +156,8 @@ export const HERO_MAX_ARMOR = 50;
 /** Health comes back on its own to here (GTA's half bar), after a moment out of fire. */
 const REGEN_CAP = 50;
 const REGEN_DELAY = 5;
+/** Seconds a guard searches where a noise came from before giving up. */
+export const SEARCH_TIME = 7;
 /** Reach of a silent takedown, from behind or before they are fighting. */
 export const TAKEDOWN_REACH = 1.9;
 
@@ -187,7 +203,8 @@ export class Combat {
     const e: Enemy = {
       id: this.nextId++, kind, motor, hp: kind === 'boss' ? BOSS_HP : kind === 'swat' ? 120 : 100,
       state: kind === 'police' || kind === 'boss' ? 'alert' : 'idle', alertTimer: kind === 'police' ? 1.2 : kind === 'boss' ? 1.5 : 0, cooldown: 0,
-      burst: 0, strafe: 1, strafeTimer: 0, hitTime: 99, deadTime: 0, homeX: x, homeZ: z, lastSeen: 99, post
+      burst: 0, strafe: 1, strafeTimer: 0, hitTime: 99, deadTime: 0, homeX: x, homeZ: z, lastSeen: 99, post,
+      heard: false, lookX: x, lookZ: z, searched: 0, stuck: 0, dodge: 0, dodgeSide: 1
     };
     this.enemies.push(e);
     return e;
@@ -310,14 +327,18 @@ export class Combat {
 
   /**
    * Something loud at (x, z): idle fighters within `radius` turn toward it and come looking
-   * (the pistol is quiet, the sniper rifle is heard across the district).
+   * (the pistol is quiet, the sniper rifle is heard across the district). Hearing is not seeing:
+   * they walk to the noise and search, and fight only once they set eyes on the hero.
    */
   public noise(x: number, z: number, radius: number): void {
     for (const e of this.enemies) {
-      if (e.state !== 'idle') continue;
+      if (e.state !== 'idle' && !(e.state === 'alert' && e.heard)) continue;
       if (Math.hypot(e.motor.x - x, e.motor.z - z) > radius) continue;
       e.state = 'alert';
-      e.alertTimer = (REACTION * 1.6 + hash(e.id, 9) * 0.6) * this.spotScale;
+      e.heard = true;
+      e.lookX = x;
+      e.lookZ = z;
+      e.searched = 0;
       e.motor.facing = Math.atan2(x - e.motor.x, z - e.motor.z);
     }
   }
@@ -371,8 +392,9 @@ export class Combat {
     e.hp -= e.kind === 'boss' && !headshot ? amount * BOSS_PLATE : amount;
     if (!quiet) e.hitTime = 0;
     // Being shot gives the hero away, from any direction.
-    if (e.state === 'idle' && how !== 'takedown') {
+    if ((e.state === 'idle' || e.heard) && how !== 'takedown') {
       e.state = 'alert';
+      e.heard = false;
       e.alertTimer = REACTION * 0.6;
     }
     if (!quiet) this.fx.push({ type: 'enemyHurt', enemy: e, headshot, x: at.x, y: at.y, z: at.z });
@@ -476,7 +498,23 @@ export class Combat {
         e.alertTimer = (REACTION + hash(e.id, 5) * 0.4) * this.spotScale;
       }
     }
-    if (e.state === 'alert') {
+    if (e.state === 'alert' && e.heard) {
+      // Searching: they see what is in front of them, or right beside them.
+      const ahead = Math.abs(Math.atan2(Math.sin(toHero - m.facing), Math.cos(toHero - m.facing))) < 1.4;
+      if (sees && (ahead || dist < 6)) {
+        // There they are.
+        e.heard = false;
+        e.alertTimer = (REACTION + hash(e.id, 5) * 0.4) * this.spotScale;
+      } else if (Math.hypot(e.lookX - m.x, e.lookZ - m.z) < 2.5) {
+        e.searched += dt;
+        // Looking around where the noise was.
+        m.facing += dt * 1.4 * (hash(e.id, 3) < 0.5 ? -1 : 1);
+        if (e.searched > SEARCH_TIME) {
+          e.state = 'idle';
+          e.heard = false;
+        }
+      }
+    } else if (e.state === 'alert') {
       e.alertTimer -= dt;
       if (e.alertTimer <= 0) e.state = 'fight';
     }
@@ -497,13 +535,30 @@ export class Combat {
       intent.forward = dist > KEEP_FAR || e.lastSeen > 1.5 ? 1 : dist < KEEP_NEAR ? -1 : 0;
       intent.right = e.lastSeen > 1.5 ? 0 : e.strafe * 0.8;
       intent.walk = intent.forward === 0;
+    } else if (e.state === 'alert' && e.heard && Math.hypot(e.lookX - m.x, e.lookZ - m.z) >= 2.5) {
+      intent.cameraYaw = Math.atan2(-(e.lookX - m.x), -(e.lookZ - m.z));
+      intent.forward = 1;
     } else if (e.state === 'idle' && Math.hypot(e.homeX - m.x, e.homeZ - m.z) > 1) {
       intent.cameraYaw = Math.atan2(-(e.homeX - m.x), -(e.homeZ - m.z));
       intent.forward = 1;
       intent.walk = true;
     }
+    // Blocked: hop anything low (planters, kerbs), and step sideways around anything taller.
+    intent.jumpPressed = false;
+    if (e.dodge > 0) {
+      e.dodge -= dt;
+      intent.right = e.dodgeSide;
+    } else if (intent.forward !== 0 && m.speed < 0.6 && m.grounded) {
+      e.stuck += dt;
+      if (e.stuck > 0.35) {
+        e.stuck = 0;
+        intent.jumpPressed = true;
+        e.dodge = 0.9;
+        e.dodgeSide = hash(e.id, this.tick) < 0.5 ? -1 : 1;
+      }
+    } else e.stuck = 0;
     m.step(intent, dt);
-    if (e.state !== 'idle') m.facing = toHero;
+    if (e.state === 'fight' || (e.state === 'alert' && !e.heard)) m.facing = toHero;
 
     // Shooting: bursts, with accuracy falling off with distance and a moving target.
     e.cooldown -= dt;

@@ -142,6 +142,31 @@ describe('Chaos in the fight', () => {
     expect(e.state).toBe('alert');
   });
 
+  it('sends a guard who heard a shot to look where it came from, without knowing where the hero is', () => {
+    const combat = new Combat(d.colliders, d.bounds);
+    const h = hero();
+    // The noise is 18 m down the road from the guard; the hero is far off, out of sight range.
+    const e = combat.spawn('swat', h.x + 30, h.z, 0);
+    combat.noise(h.x + 12, h.z, 45);
+    h.place(d.spawn.x, d.spawn.z + 100, 0);
+    for (let t = 0; t < 4; t += DT) combat.step(DT, h, () => {});
+    expect(e.state).toBe('alert');
+    expect(Math.hypot(e.motor.x - (d.spawn.x + 12), e.motor.z - d.spawn.z)).toBeLessThan(4);
+    // Nobody there: after a look around, back to their post.
+    for (let t = 0; t < 12; t += DT) combat.step(DT, h, () => {});
+    expect(e.state).toBe('idle');
+    expect(combat.hp).toBe(100);
+  });
+
+  it('turns a searching guard into a fighting one the moment they see the hero', () => {
+    const combat = new Combat(d.colliders, d.bounds);
+    const h = hero();
+    const e = combat.spawn('swat', h.x + 20, h.z, -Math.PI / 2);
+    combat.noise(h.x + 4, h.z, 45);
+    for (let t = 0; t < 2; t += DT) combat.step(DT, h, () => {});
+    expect(e.state).toBe('fight');
+  });
+
   it('takes a guard down silently from behind, but not one facing a fight', () => {
     const combat = new Combat(d.colliders, d.bounds);
     const h = hero();
