@@ -42,6 +42,10 @@ import {
   buildPortal,
   buildFinishArch,
   buildBoss,
+  buildTurret,
+  buildWatcher,
+  type TurretModel,
+  type WatcherModel,
   type PortalModel,
   coinGeometry,
   type DroneModel,
@@ -76,6 +80,8 @@ interface Actor {
   drone?: DroneModel;
   barrier?: BarrierModel;
   portal?: PortalModel;
+  turret?: TurretModel;
+  watcher?: WatcherModel;
   /** Hover height of the model's origin above the entity's y, for bobbing pickups. */
   lift: number;
 }
@@ -320,6 +326,22 @@ export class RushRenderer {
         p.burst('checkpoint', x, y + 1, z, { intensity: 0.7 });
         this.addTrauma(0.6);
         this.cheer = 1.1;
+        break;
+      case 'turretFire':
+        p.burst('muzzle', x, y, z, { intensity: 2 });
+        p.burst('smoke', x, y, z, { intensity: 0.5 });
+        break;
+      case 'spotted':
+        this.addTrauma(0.25);
+        break;
+      case 'sneaky':
+        p.burst('coin', x, y, z, { intensity: 1 });
+        break;
+      case 'assassinate':
+        p.burst('explode', x, y, z, { intensity: 1.6 });
+        p.burst('checkpoint', x, y, z, { intensity: 1 });
+        this.addTrauma(0.4);
+        this.cheer = 1.4;
         break;
       case 'bossHit':
         this.bossFlinch = 1;
@@ -660,6 +682,21 @@ export class RushRenderer {
         actor.portal = portal;
         break;
       }
+      case 'turret': {
+        const turret = buildTurret();
+        root.add(turret.root);
+        actor.turret = turret;
+        break;
+      }
+      case 'watcher': {
+        const watcher = buildWatcher();
+        root.add(watcher.root);
+        // The pool of light lives in the actor, not the drone, so it can sit on the road.
+        root.add(watcher.spot);
+        actor.watcher = watcher;
+        blob.visible = false;
+        break;
+      }
       case 'flag':
         root.add(buildFinishArch());
         blob.visible = false;
@@ -728,6 +765,30 @@ export class RushRenderer {
         break;
       case 'crate':
         if (model) model.rotation.y = Math.sin(e.id) * 0.3;
+        break;
+      case 'turret':
+        if (actor.turret) {
+          // Track the car: it sits at the origin of car-relative space.
+          const zRel = -(e.z - sim.z);
+          actor.turret.head.rotation.y = Math.atan2(sim.x - e.x, -zRel);
+        }
+        break;
+      case 'watcher':
+        if (actor.watcher) {
+          const w = actor.watcher;
+          w.root.position.y = Math.sin(t * 1.5 + e.id) * 0.2;
+          // Aim the searchlight at its lane: tilt the cone and stretch it down to the road.
+          const dx = sim.watcherLane(e) * LANE_WIDTH - e.x;
+          const drop = e.y + actor.lift - 0.8;
+          w.beam.position.set(0, -0.8, 0);
+          w.beam.rotation.z = Math.atan2(dx, drop);
+          w.beam.scale.set(1, Math.hypot(dx, drop), 1);
+          const tx = w.spot.position.x;
+          w.spot.position.set(tx + (dx - tx) * 0.2, -(e.y + actor.lift) + 0.05, 0);
+          // It reddens as the car closes in: the tell to pick a dark lane.
+          const close = THREE.MathUtils.clamp(1 - (e.z - sim.z) / 40, 0, 1);
+          (w.beam.material as THREE.MeshBasicMaterial).color.setRGB(1, 0.95 - close * 0.6, 0.69 - close * 0.5);
+        }
         break;
       case 'starcoin':
         if (model) {

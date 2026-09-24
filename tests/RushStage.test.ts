@@ -133,3 +133,79 @@ describe('bosses', () => {
     expect(seenIds.size).toBeGreaterThan(10);
   });
 });
+
+describe('turrets', () => {
+  it('fire shots that curve into the lane the car is in', () => {
+    const sim = emptyStage({ difficulty: 0.5 });
+    sim.update(intent({ lane: 1 }), DT);
+    run(sim, 0.3, intent({ lane: 1 }));
+    sim.spawn('turret', -6.2, sim.z + 60, 0);
+    let arrived = false;
+    run(sim, 4, intent({ lane: 1 }), () => {
+      sim.hearts = MAX_HEARTS;
+      for (const e of sim.entities) {
+        if (e.alive && e.kind === 'shot' && Math.abs(e.z - sim.z) < 4) arrived ||= Math.abs(e.x - LANE_WIDTH) < 1.2;
+      }
+    });
+    expect(arrived).toBe(true);
+  });
+
+  it('can be blasted', () => {
+    const sim = emptyStage({ difficulty: 0.5 });
+    sim.spawn('turret', 6.2, sim.z + 50, 0);
+    run(sim, 2.5, intent({ fire: true, aimX: 1 }), () => (sim.invulnerable = 1));
+    expect(sim.entities.some((e) => e.alive && e.kind === 'turret')).toBe(false);
+  });
+});
+
+describe('watchers', () => {
+  function underWatcher(lane: number): { sim: RushSim; seen: string[] } {
+    const sim = emptyStage({ difficulty: 0.3 });
+    const w = sim.spawn('watcher', 0, sim.z + 40, 4.2)!;
+    // Freeze its sweep on the given lane by picking its phase.
+    let seen: string[] = [];
+    seen = run(sim, 3, intent({ lane }), () => {
+      w.age = 0;
+      w.id = [...Array(200).keys()].find((id) => Math.round(Math.sin(id) * 1.25) === lane)!;
+    });
+    return { sim, seen };
+  }
+
+  it('spot a car in their light and call the drones', () => {
+    const { sim, seen } = underWatcher(0);
+    expect(seen).toContain('spotted');
+    expect(sim.entities.some((e) => e.alive && e.kind === 'drone')).toBe(true);
+  });
+
+  it('reward slipping through the dark lane', () => {
+    const sim = emptyStage({ difficulty: 0.3 });
+    const w = sim.spawn('watcher', 0, sim.z + 40, 4.2)!;
+    // Light pinned on the right lane; the car drives in the left.
+    const seen = run(sim, 3, intent({ lane: -1 }), () => {
+      w.age = 0;
+      w.id = [...Array(200).keys()].find((id) => Math.round(Math.sin(id) * 1.25) === 1)!;
+    });
+    expect(seen).toContain('sneaky');
+    expect(seen).not.toContain('spotted');
+  });
+
+  it('shrug off bullets', () => {
+    const sim = emptyStage({ difficulty: 0.3 });
+    sim.spawn('watcher', 0, sim.z + 40, 4.2);
+    const seen = run(sim, 0.8, intent({ fire: true }));
+    expect(seen).not.toContain('hit');
+  });
+
+  it('fall to an air assassination off the ramp', () => {
+    const sim = new RushSim(21);
+    sim.startStage(stage({ difficulty: 0.3 }), 21);
+    run(sim, 0.05);
+    for (const e of sim.entities) e.alive = false;
+    const rampZ = sim.z + 20;
+    sim.spawn('ramp', 0, rampZ);
+    const t = 14 / 26;
+    sim.spawn('watcher', 0, rampZ + 2.6 + sim.speed * t, 4.2);
+    const seen = run(sim, 3, intent(), () => (sim.hearts = MAX_HEARTS));
+    expect(seen).toContain('assassinate');
+  });
+});

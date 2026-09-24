@@ -63,6 +63,9 @@ const MOUSE_AIM_TIMEOUT = 4;
 const TRICK_POPUPS: Partial<Record<FxRecord['type'], { text: string; color: string }>> = {
   nearMiss: { text: 'CLOSE CALL!', color: '#3fa7ff' },
   shieldPop: { text: 'SHIELD SAVED YOU!', color: '#3ff7ff' },
+  spotted: { text: 'SPOTTED! DRONES INCOMING', color: '#ff4d5e' },
+  sneaky: { text: 'SNEAKY!', color: '#9b6bff' },
+  assassinate: { text: 'AIR ASSASSINATION!', color: '#ffd23f' },
   lightning: { text: 'ZAP!', color: '#ffd23f' },
   jumpOver: { text: 'JUMPED IT!', color: '#5ad16b' },
   flip: { text: 'FLIP!', color: '#ff5fa8' },
@@ -430,7 +433,8 @@ export class RushGame {
       if (!at) return;
       this.hud.popup(fx.amount > 0 ? `${trick.text} +${fx.amount}` : trick.text, this.crosshair.x, this.crosshair.y, trick.color);
       // A takedown gets a beat of slow motion: the moment to savour.
-      if (fx.type === 'takedown' && this.slowmo <= 0) this.slowmo = 0.45;
+      if ((fx.type === 'takedown' || fx.type === 'assassinate') && this.slowmo <= 0) this.slowmo = fx.type === 'assassinate' ? 0.7 : 0.45;
+      if (fx.type === 'spotted') this.hud.flashCrash();
       return;
     }
     if (fx.type !== 'explode' && fx.type !== 'smash' && fx.type !== 'pickup') return;

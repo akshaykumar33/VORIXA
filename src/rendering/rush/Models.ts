@@ -379,6 +379,73 @@ export function buildBoss(style: DroneStyle, hull: number, trim: number, baron: 
   return d;
 }
 
+export interface TurretModel {
+  root: THREE.Group;
+  /** Swivels to track the car. */
+  head: THREE.Group;
+}
+
+/** A squat roadside cannon with one angry eye. */
+export function buildTurret(): TurretModel {
+  const root = new THREE.Group();
+  root.add(part(new THREE.CylinderGeometry(0.9, 1.2, 1.2, 12).translate(0, 0.6, 0), 0x5a5f7a, { outline: 0.06 }));
+  const head = new THREE.Group();
+  head.position.y = 1.7;
+  head.add(part(new THREE.SphereGeometry(0.85, 16, 12), 0xff5a36, { outline: 0.06 }));
+  const barrel = part(new THREE.CylinderGeometry(0.22, 0.28, 1.6, 12).rotateX(Math.PI / 2).translate(0, 0, 1.0), 0x2b2d42, { outline: 0.04 });
+  head.add(barrel);
+  const eyeWhite = part(new THREE.SphereGeometry(0.28, 12, 10), 0xffffff, { outline: 0.03 });
+  eyeWhite.position.set(0, 0.45, 0.6);
+  head.add(eyeWhite);
+  const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), flat(0x1d1b33));
+  pupil.position.set(0, 0.45, 0.83);
+  head.add(pupil);
+  const brow = part(new THREE.BoxGeometry(0.6, 0.1, 0.1), 0x1d1b33, { outline: 0 });
+  brow.position.set(0, 0.8, 0.7);
+  brow.rotation.z = -0.25;
+  head.add(brow);
+  bake(head);
+  root.add(head);
+  bake(root, [head]);
+  return { root, head };
+}
+
+export interface WatcherModel {
+  root: THREE.Group;
+  /** The searchlight cone; the renderer aims and stretches it at the lit lane. */
+  beam: THREE.Mesh;
+  /** The pool of light on the road. */
+  spot: THREE.Mesh;
+}
+
+/** An armored searchlight drone. Grey and heavy: it looks like bullets would bounce off, and they do. */
+export function buildWatcher(): WatcherModel {
+  const root = new THREE.Group();
+  root.add(part(new THREE.SphereGeometry(1, 20, 12).scale(1.5, 0.55, 1.5), 0x4a4f6a, { outline: 0.07 }));
+  root.add(part(new THREE.TorusGeometry(1.5, 0.14, 8, 28).rotateX(Math.PI / 2), 0x2b2d42, { outline: 0.03 }));
+  const lamp = part(new THREE.CylinderGeometry(0.35, 0.5, 0.5, 14).translate(0, -0.55, 0), 0x2b2d42, { outline: 0.04 });
+  root.add(lamp);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.42, 16).rotateX(Math.PI / 2).translate(0, -0.81, 0), flat(0xfff3b0));
+  root.add(lens);
+  const visor = part(new THREE.BoxGeometry(1.2, 0.2, 0.2), 0xff4d5e, { outline: 0 });
+  visor.position.set(0, 0.25, 1.35);
+  root.add(visor);
+  bake(root);
+  // Apex at the lamp, base on the road: scaled and tilted each frame to hit the lit lane.
+  const beam = new THREE.Mesh(
+    new THREE.ConeGeometry(1.6, 1, 24, 1, true).translate(0, -0.5, 0),
+    bent(new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide }))
+  );
+  beam.renderOrder = 3;
+  root.add(beam);
+  const spot = new THREE.Mesh(
+    new THREE.CircleGeometry(1.7, 24).rotateX(-Math.PI / 2),
+    bent(new THREE.MeshBasicMaterial({ color: 0xfff7c2, transparent: true, opacity: 0.75, depthWrite: false }))
+  );
+  spot.renderOrder = 2;
+  return { root, beam, spot };
+}
+
 export function buildShot(): THREE.Group {
   const root = new THREE.Group();
   const orb = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), flat(0xff4fd8));

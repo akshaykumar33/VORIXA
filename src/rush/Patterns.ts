@@ -112,6 +112,24 @@ const patterns: Record<string, Pattern> = {
     return 12;
   },
 
+  // Contra: a turret on one side of the road (both, later on), with crates for cover and points.
+  turrets(sim, rng, z) {
+    const sides = sim.difficulty > 0.5 && rng.chance(0.5) ? [-1, 1] : [rng.pick([-1, 1])];
+    for (const side of sides) sim.spawn('turret', side * (LANE_WIDTH * 1.5 + 1.4), z + 30, 0);
+    sim.spawn('crate', laneX(rng.pick(LANES)), z + 10);
+    return 40;
+  },
+
+  // Assassin's Creed: a watcher sweeping its searchlight, and a ramp to leap onto it from.
+  stealth(sim, rng, z) {
+    const lane = rng.pick(LANES);
+    sim.spawn('ramp', laneX(lane), z);
+    // At a ramp launch's height, a car length or so past the top of the arc.
+    const t = RAMP_VELOCITY / GRAVITY;
+    sim.spawn('watcher', laneX(lane), z + 2.6 + Math.max(sim.speed, START_FOR_ARC) * t, 4.2);
+    return 40;
+  },
+
   drone(sim, rng, z) {
     if (sim.aliveDrones > 0) return patterns.crates(sim, rng, z);
     sim.spawn('drone', laneX(rng.pick(LANES)), z + 20, 3.4);
@@ -195,7 +213,9 @@ function weights(difficulty: number, allowDrones = true): [string, number][] {
     ['ramp', 0.8],
     ['drone', !allowDrones || d < 0.06 ? 0 : 0.7 + d * 1.5],
     ['pickup', 0.45],
-    ['items', 0.75]
+    ['items', 0.75],
+    ['turrets', d < 0.2 ? 0 : 0.5 + d],
+    ['stealth', d < 0.12 ? 0 : 0.55 + d * 0.6]
   ];
 }
 

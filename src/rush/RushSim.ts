@@ -114,7 +114,9 @@ export type EntityKind =
   | 'goldcrate'
   | 'portal'
   | 'flag'
-  | 'boss';
+  | 'boss'
+  | 'turret'
+  | 'watcher';
 
 /** Collision half-extents and height per kind. Heights decide what a jump clears. */
 export const KIND_SHAPE: Record<EntityKind, { hx: number; hz: number; height: number }> = {
@@ -133,7 +135,9 @@ export const KIND_SHAPE: Record<EntityKind, { hx: number; hz: number; height: nu
   goldcrate: { hx: 0.9, hz: 0.9, height: 1.6 },
   portal: { hx: 1.3, hz: 0.6, height: 3.0 },
   flag: { hx: 6, hz: 0.5, height: 5 },
-  boss: { hx: 2.4, hz: 2.4, height: 2.4 }
+  boss: { hx: 2.4, hz: 2.4, height: 2.4 },
+  turret: { hx: 1.1, hz: 1.1, height: 2.2 },
+  watcher: { hx: 1.6, hz: 1.6, height: 1.4 }
 };
 
 const POINTS: Partial<Record<EntityKind, number>> = {
@@ -159,6 +163,8 @@ export interface Entity {
   age: number;
   /** Kind-specific: the drone's fire countdown. */
   timer: number;
+  /** Sideways speed: turret shots curve across the lanes toward the car. */
+  vx: number;
   /** Kind-specific: the drone's hover offset ahead of the car. */
   offset: number;
   /** Set once the car has gone past it, so a close call or jump-over is counted once. */
@@ -210,7 +216,11 @@ export type FxType =
   | 'secretReveal'
   | 'secret'
   | 'finish'
-  | 'bossHit';
+  | 'bossHit'
+  | 'turretFire'
+  | 'spotted'
+  | 'sneaky'
+  | 'assassinate';
 
 export interface FxRecord {
   type: FxType;
@@ -343,7 +353,7 @@ export class RushSim {
   public constructor(private seed = 1) {
     this.rng = createRng(seed);
     for (let i = 0; i < ENTITY_CAPACITY; i++) {
-      this.entities.push({ id: 0, kind: 'coin', alive: false, x: 0, y: 0, z: 0, vz: 0, hp: 0, age: 0, timer: 0, offset: 0, passed: false });
+      this.entities.push({ id: 0, kind: 'coin', alive: false, x: 0, y: 0, z: 0, vz: 0, vx: 0, hp: 0, age: 0, timer: 0, offset: 0, passed: false });
     }
     for (let i = 0; i < BULLET_CAPACITY; i++) {
       this.bullets.push({ alive: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, life: 0, targetId: 0, rocket: false, pierce: false, lastHit: 0 });
@@ -478,10 +488,11 @@ export class RushSim {
       e.y = y;
       e.z = z;
       e.vz = vz;
-      e.hp = kind === 'traffic' ? 3 : kind === 'drone' ? 2 : kind === 'crate' ? 1 : kind === 'goldcrate' ? 6 : 0;
+      e.hp = kind === 'traffic' ? 3 : kind === 'drone' ? 2 : kind === 'crate' ? 1 : kind === 'goldcrate' ? 6 : kind === 'turret' ? 4 : 0;
       e.age = 0;
       e.timer = 1.4;
       e.offset = 0;
+      e.vx = 0;
       e.passed = false;
       return e;
     }
@@ -663,7 +674,11 @@ export class RushSim {
       if (this.magnetTime > 0 && e.kind === 'coin') this.pull(e, dt);
       if (e.kind === 'drone') this.updateDrone(e, dt);
       else if (e.kind === 'boss') this.updateBoss(e, dt);
-      else e.z += e.vz * dt;
+      else {
+        e.z += e.vz * dt;
+        e.x += e.vx * dt;
+      }
+      if (e.kind === 'turret') this.updateTurret(e, dt);
       if (e.z < this.z - DESPAWN_BEHIND) e.alive = false;
     }
   }
@@ -727,6 +742,30 @@ export class RushSim {
       for (const lane of [-1, 0, 1]) if (lane !== second) this.spawn('shot', lane * LANE_WIDTH, shotZ + 14, 0.9, -16);
     }
     this.emit('enemyFire', e.x, e.y, e.z, 0);
+  }
+
+  /**
+   * A roadside turret (Contra). It fires one shot at a time that curves across the lanes to arrive
+   * where the car is when it fires, so the answer is always "move" — or blast it first.
+   */
+  private updateTurret(e: Entity, dt: number): void {
+    if (this.phase !== 'running') return;
+    const ahead = e.z - this.z;
+    if (ahead < 15 || ahead > 90) return;
+    e.timer -= dt;
+    if (e.timer > 0) return;
+    e.timer = 1.8 - this.difficulty * 0.5;
+    const shot = this.spawn('shot', e.x, e.z - 1.5, 0.9, -16);
+    if (!shot) return;
+    // Time until the shot reaches the car, closing at the car's speed plus its own.
+    const t = Math.max((shot.z - this.z) / (this.speed + 16), 0.3);
+    shot.vx = (this.lane * LANE_WIDTH - e.x) / t;
+    this.emit('turretFire', e.x, 2, e.z, 0);
+  }
+
+  /** The lane a watcher's searchlight is on right now. It dwells, then sweeps to the next. */
+  public watcherLane(e: Entity): number {
+    return Math.round(Math.sin(e.age * 0.9 + e.id) * 1.25);
   }
 
   /** Damages the boss by `amount`; returns true if that finished it. */
@@ -802,7 +841,7 @@ export class RushSim {
 
   private collide(): void {
     for (const e of this.entities) {
-      if (!e.alive || e.kind === 'drone' || e.kind === 'boss' || e.kind === 'flag') continue;
+      if (!e.alive || e.kind === 'drone' || e.kind === 'boss' || e.kind === 'flag' || e.kind === 'turret') continue;
       const shape = KIND_SHAPE[e.kind];
       if (Math.abs(this.x - e.x) > PLAYER_HALF_WIDTH + shape.hx) continue;
       if (Math.abs(this.z - e.z) > PLAYER_HALF_LENGTH + shape.hz) continue;
@@ -921,6 +960,10 @@ export class RushSim {
   private checkPasses(): void {
     for (const e of this.entities) {
       if (!e.alive || e.passed) continue;
+      if (e.kind === 'watcher') {
+        this.checkWatcher(e);
+        continue;
+      }
       if (e.kind !== 'traffic' && e.kind !== 'truck' && e.kind !== 'barrier') continue;
       const shape = KIND_SHAPE[e.kind];
       if (e.z + shape.hz > this.z) continue;
@@ -937,6 +980,30 @@ export class RushSim {
         this.bonusScore += points;
         this.emit('nearMiss', e.x, 1.2, e.z, points);
       }
+    }
+  }
+
+  /**
+   * Stealth (Assassin's Creed): driving under a watcher, you are judged once — caught in its light,
+   * or slipped through the dark. Being caught brings the drones.
+   */
+  private checkWatcher(e: Entity): void {
+    if (e.z > this.z) return;
+    e.passed = true;
+    const lit = this.lane === this.watcherLane(e) && this.y < 2.5;
+    if (lit) {
+      this.combo = 1;
+      this.comboTimer = 0;
+      this.emit('spotted', this.x, 3, e.z, 0);
+      // The alarm: two drones scramble from up the road.
+      if (this.dronesAllowed) {
+        this.spawn('drone', -LANE_WIDTH, this.z + 70, 3.4);
+        this.spawn('drone', LANE_WIDTH, this.z + 85, 3.4);
+      }
+    } else {
+      const points = 150 * this.combo;
+      this.bonusScore += points;
+      this.emit('sneaky', this.x, 2, e.z, points);
     }
   }
 
@@ -962,6 +1029,16 @@ export class RushSim {
         return;
       case 'goldcrate':
         // Driving into it (you would have to jump) does nothing: it only opens to shots.
+        return;
+      case 'watcher':
+        // Only a leap off a ramp reaches one: the air assassination.
+        e.alive = false;
+        e.passed = true;
+        this.kills++;
+        this.bonusScore += 500 * this.combo;
+        this.combo = Math.min(MAX_COMBO, this.combo + 1);
+        this.comboTimer = COMBO_WINDOW;
+        this.emit('assassinate', e.x, e.y, e.z, 500);
         return;
       case 'itembox':
         e.alive = false;
@@ -1090,8 +1167,9 @@ export class RushSim {
   }
 }
 
+/** Watchers are armored: shots bounce off. The only way to take one down is from the air. */
 export function isShootable(kind: EntityKind): boolean {
-  return kind === 'drone' || kind === 'traffic' || kind === 'crate' || kind === 'goldcrate' || kind === 'boss';
+  return kind === 'drone' || kind === 'traffic' || kind === 'crate' || kind === 'goldcrate' || kind === 'boss' || kind === 'turret';
 }
 
 /**

@@ -436,6 +436,22 @@ export class RushAudio {
         // A descending "bwow" — a warning, not an attack yet.
         this.sweep('sawtooth', 700 * vary, 180, now, 0.25, 0.14, out, pan);
         break;
+      case 'turretFire':
+        this.sweep('square', 220 * vary, 70, now, 0.18, 0.25, out, pan);
+        break;
+      case 'spotted':
+        // A two-tone siren: the unmistakable sound of being seen.
+        [0, 1, 2, 3].forEach((i) => this.tone('square', i % 2 ? 660 : 880, now + i * 0.14, 0.13, 0.12, out, 3000));
+        break;
+      case 'sneaky':
+        this.tone('triangle', midiToHz(84), now, 0.12, 0.12, out, 6000, 0.005, 0, pan);
+        this.tone('triangle', midiToHz(91), now + 0.08, 0.2, 0.1, out, 6000, 0.005, 0, pan);
+        break;
+      case 'assassinate':
+        this.noiseHit(now, 0.3, 0.4, 'bandpass', 5000, out, pan, 800);
+        this.explosion(now + 0.05, 1, pan);
+        this.duck(0.6, 0.3);
+        break;
       case 'itemGet':
         // The roulette: a fast climbing flutter.
         for (let i = 0; i < 6; i++) this.tone('square', midiToHz(76 + (i % 3) * 4 + i), now + i * 0.04, 0.04, 0.09, out, 6000, 0.002, 0, pan);
