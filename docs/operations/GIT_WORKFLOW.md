@@ -298,7 +298,7 @@ ready — the merge is a human action.
 **Squash merge, always.**
 
 ```bash
-gh pr merge --squash --delete-branch
+gh pr merge --squash
 ```
 
 Rationale: branch-level commits are working notes; `main` should read as one clean, revertible
@@ -368,6 +368,6 @@ git push -u origin feat/ui-inventory-grid
 gh pr create --fill --base main
 
 # merge (after checks are green)
-gh pr merge --squash --delete-branch
+gh pr merge --squash
 git checkout main && git pull --ff-only origin main
 ```

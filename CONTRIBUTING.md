@@ -88,7 +88,7 @@ Commit messages are validated automatically by the `commit-msg` hook.
    visual change** — this is required, not encouraged.
 6. Merge once `quality-gates`, `engine-boundary`, and `secret-scan` are green:
    ```bash
-   gh pr merge --squash --delete-branch
+   gh pr merge --squash
    ```
 
 ## Codebase Protection

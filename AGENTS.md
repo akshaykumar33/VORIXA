@@ -78,7 +78,7 @@ Research → Define → ADR → DESIGN THE EXPERIENCE → Prototype → Benchmar
 4. Push      git push -u origin <branch>
 5. PR        gh pr create — full template, screenshots for any visual change
 6. Verify    quality-gates, engine-boundary, and secret-scan all green
-7. Merge     squash merge, delete the branch
+7. Merge     squash merge, keep the branch
 ```
 
 * **Enable protection once per clone**: `pnpm hooks:install`
@@ -124,3 +124,23 @@ A task or feature is Done ONLY when **all** of the following hold. No partial cr
 * ❌ **Never commit directly to `main`**: branch and open a PR, every time.
 * ❌ **Never ship dark patterns**: no manipulative retention mechanics, artificial scarcity, or engagement traps.
 * ❌ **Never trust the client**: XP, currency, inventory, damage, and scores are server-authoritative.
+
+---
+
+## 6. Composable Skills & Creative Toolkit (`skills/`)
+
+Every agent operating in this repository has access to 20 structured, composable skills under `skills/` (and `.agents/skills/`). Activate the relevant skill before executing tasks:
+
+| Focus Area | Skill Name | Purpose |
+| :--- | :--- | :--- |
+| **Motion & Animation** | `creative-motion-typography` | GSAP ScrollTrigger, Lenis smooth scroll, kinetic typography, fluid clamp math. |
+| **3D & Shaders** | `creative-webgl-shaders` | Three.js, custom GLSL/WGSL shaders, instanced particles, shader pre-warming. |
+| **Audio & Soundscapes** | `sound-designer` | Web Audio API, procedural UI sound, speed wind synthesis, spatial audio. |
+| **Token Optimization** | `token-optimizer` | CodeGraph symbol exploration, AST interface extraction, surgical diff edits. |
+| **Design Architecture** | `design-system-architect` | Modern CSS (`@container`, `@layer`), OKLCH tokens, fluid responsiveness. |
+| **Low-Level Shaders** | `shader-development` | WGSL / GLSL byte alignment, compute kernels, dual-authored fallback checks. |
+| **Engine Rendering** | `rendering-engine` | Render pass orchestration, shadow frustums, ACESFilmic tone mapping. |
+| **Performance** | `performance-profiling` | Zero-allocation loops, memory profiling, frame-time budgets ($< 16.6\text{ms}$). |
+| **Accessibility** | `accessibility` | WCAG AA/AAA conformance, focus management, screen-reader semantics. |
+| **Architecture** | `architecture-review` | Modular boundaries, ADR creation, decoupled simulation vs UI state. |
+

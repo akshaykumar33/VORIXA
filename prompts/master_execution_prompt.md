@@ -168,7 +168,7 @@ The full ruleset is `docs/operations/GIT_WORKFLOW.md`. The short version:
 4. Push        git push -u origin <branch>
 5. PR          gh pr create  — full template, screenshots for visual work
 6. Verify      all required checks green
-7. Merge       squash merge, then delete the branch
+7. Merge       squash merge; the branch is kept
 ```
 
 Before **every** commit, confirm you are not committing: API keys, tokens, passwords, private

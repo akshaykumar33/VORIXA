@@ -82,3 +82,9 @@ Thumbs.db
 # Raw art-pack downloads (zips, FBX, full-res textures). Only the compressed output in
 # public/ is committed; the sources are large and re-downloadable.
 assets-src/
+
+# Local agent state: the CodeGraph index (rebuilt by `codegraph sync`), personal Claude Code
+# permissions, and the machine-local link Claude Code uses to find skills/.
+.codegraph/
+.claude/settings.local.json
+.claude/skills
