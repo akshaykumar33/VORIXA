@@ -70,33 +70,56 @@ git checkout -b feat/ui-inventory-grid
   ```
 * **Never rebase a branch someone else has based work on.**
 
-### 1.4 `main` is protected
+### 1.4 `main` protection — currently UNAVAILABLE
 
-**Remote branch protection is the authoritative gate.** The local hook is early, friendly feedback
-that fails open; server-side protection fails closed. Do not rely on the hook alone — see §2.6.
+> **⚠️ Status: not enforced server-side.** `akshaykumar33/VORIXA` is a **private repository on the
+> GitHub Free plan**, where both the branch-protection API and the newer rulesets API return:
+>
+> ```text
+> HTTP 403: Upgrade to GitHub Pro or make this repository public to enable this feature.
+> ```
+>
+> Verified 2026-09-20 against both `/branches/main/protection` and `/rulesets`.
+>
+> **Consequence: `main` is directly pushable today, and the CI checks are advisory rather than
+> required.** A red check does not currently stop a merge. The ruleset in
+> `.github/branch-protection.json` is correct and ready — it simply cannot be applied yet.
 
-`main` must be configured with:
+#### Enabling it
+
+Any one of these turns the authoritative gate on. This is the project owner's call:
+
+| Option | Cost | Effect |
+| --- | --- | --- |
+| **Make the repository public** | Free | Full protection *and* rulesets unlock immediately. Natural fit for an open engine project; requires being comfortable developing in the open. |
+| **GitHub Pro** | ~$4/month | Keeps the repository private and unlocks protection. |
+| **Stay as-is** | Free | Hook + CI only. Honest, but `main` is unguarded server-side. |
+
+Once the plan or visibility allows it, apply and verify:
+
+```bash
+gh api -X PUT repos/akshaykumar33/VORIXA/branches/main/protection \
+  --input .github/branch-protection.json
+
+gh api repos/akshaykumar33/VORIXA/branches/main/protection \
+  --jq '.required_status_checks.contexts'
+```
+
+#### What the ruleset configures
 
 * Require a pull request before merging
 * Require status checks to pass: `Quality Gates`, `Engine Boundary`, `Secret Scan`
 * Require branches to be up to date before merging
 * Require conversation resolution before merging
 * Require linear history
-* Block force pushes
-* Block deletions
+* Block force pushes and deletions
 
-Setup — **this has not been applied yet and must be run once**:
+#### Until then
 
-```bash
-gh api -X PUT repos/akshaykumar33/VORIXA/branches/main/protection \
-  --input .github/branch-protection.json
-```
-
-Verify it took:
-
-```bash
-gh api repos/akshaykumar33/VORIXA/branches/main/protection --jq '.required_status_checks.contexts'
-```
+The local pre-commit hook **does** block commits on `main`, and it now works on every branch cut
+from `main` because `.githooks/` is committed. That is real protection against the common mistake —
+but it fails open (§2.5), so treat the PR discipline as a convention you are choosing to keep rather
+than one the server is enforcing for you.
 
 ---
 
@@ -165,14 +188,17 @@ The pre-commit hook **fails open**. It silently does nothing when:
 
 This is a property of git, not a bug to be fixed here. It is why the layering matters:
 
-| Layer | Catches | Fails |
+| Layer | Catches | Status today |
 | --- | --- | --- |
-| Pre-commit hook | Mistakes, instantly, before they enter history | Open — absent hooks are skipped silently |
-| CI `Secret Scan` | Anything that reached a PR, scanning full history | Closed — a red check blocks merge |
-| Branch protection | Direct pushes and force-pushes to `main` | Closed — enforced server-side |
+| Pre-commit hook | Mistakes, instantly, before they enter history | **Active** — but fails open (absent hooks are skipped silently) |
+| CI `Secret Scan` | Anything that reached a PR, scanning full history | **Active** — but advisory: a red check cannot block a merge without branch protection |
+| Branch protection | Direct pushes and force-pushes to `main` | **Unavailable** — free plan + private repo (§1.4) |
 
-**Never treat a green pre-commit as proof of anything.** It is a convenience. The PR checks are the
-gate that actually holds.
+**Never treat a green pre-commit as proof of anything.** It is a convenience.
+
+**And note that no layer currently fails closed.** Until §1.4 is resolved, every control here is
+advisory. The discipline holds because you choose to keep it, not because the server enforces it.
+Read your own diffs.
 
 ### 2.6 If a secret is already committed
 
@@ -273,13 +299,17 @@ gh pr ready    # when it's done
 
 A PR may merge when **all** of these hold:
 
-* [ ] `quality-gates` green — typecheck, tests, build
-* [ ] `secret-scan` green
+* [ ] `Quality Gates` green — typecheck, tests, build
+* [ ] `Engine Boundary` green — engine core imports no UI framework
+* [ ] `Secret Scan` green
 * [ ] PR template fully completed
 * [ ] Screenshot attached for visual changes
 * [ ] All review conversations resolved
 * [ ] Branch up to date with `main`
 * [ ] Definition of Done in `master_execution_prompt.md` §3 satisfied
+
+> These are **your** checklist, not the server's — branch protection is unavailable (§1.4), so
+> GitHub will happily let you merge a PR with red checks. Look at the checks before you click.
 
 ### 5.2 Who may merge
 
