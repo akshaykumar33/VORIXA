@@ -30,6 +30,23 @@ export class InputEngine {
     this.keyMap.set('Space', InputAction.JUMP);
     this.keyMap.set('ShiftLeft', InputAction.DASH);
     this.keyMap.set('ShiftRight', InputAction.DASH);
+    this.keyMap.set('ControlLeft', InputAction.CROUCH);
+    this.keyMap.set('ControlRight', InputAction.CROUCH);
+    this.keyMap.set('KeyC', InputAction.CROUCH);
+    this.keyMap.set('KeyQ', InputAction.ITEM);
+    this.keyMap.set('KeyF', InputAction.ITEM);
+    this.keyMap.set('KeyJ', InputAction.FIRE);
+    this.keyMap.set('KeyK', InputAction.FIRE);
+    this.keyMap.set('KeyT', InputAction.SCHOOL);
+    this.keyMap.set('Enter', InputAction.CONFIRM);
+    this.keyMap.set('KeyU', InputAction.SHOP);
+    this.keyMap.set('KeyO', InputAction.ON_FOOT);
+    this.keyMap.set('KeyV', InputAction.VIEW_TOGGLE);
+    this.keyMap.set('NumpadEnter', InputAction.CONFIRM);
+    this.keyMap.set('KeyR', InputAction.RESTART);
+    this.keyMap.set('KeyG', InputAction.GESTURE_TOGGLE);
+    this.keyMap.set('KeyE', InputAction.GAZE_TOGGLE);
+    this.keyMap.set('KeyM', InputAction.MUTE_TOGGLE);
     this.keyMap.set('Escape', InputAction.PAUSE);
     this.keyMap.set('KeyP', InputAction.PAUSE);
   }
@@ -57,15 +74,55 @@ export class InputEngine {
       }
     });
 
+    // The primary button fires. Held, like the keys, so shooting streams rather than needing a
+    // click per shot.
+    this.element.addEventListener('mousedown', (e: any) => {
+      if (e.button === 2) {
+        const item = this.actions.get(InputAction.ITEM)!;
+        if (item.value === 0) item.justPressed = true;
+        item.value = 1.0;
+        return;
+      }
+      if (e.button !== 0) return;
+      const state = this.actions.get(InputAction.FIRE)!;
+      if (state.value === 0) state.justPressed = true;
+      state.value = 1.0;
+    });
+
+    // The right button is a game control, not a context menu.
+    this.element.addEventListener('contextmenu', (e: any) => e.preventDefault?.());
+
+    this.element.addEventListener('mouseup', (e: any) => {
+      if (e.button === 2) {
+        const item = this.actions.get(InputAction.ITEM)!;
+        item.value = 0.0;
+        item.justReleased = true;
+        return;
+      }
+      if (e.button !== 0) return;
+      const state = this.actions.get(InputAction.FIRE)!;
+      state.value = 0.0;
+      state.justReleased = true;
+    });
+
     this.element.addEventListener('mousemove', (e: any) => {
       if (typeof document !== 'undefined' && document.pointerLockElement) {
-        const stateX = this.actions.get(InputAction.LOOK_X)!;
-        const stateY = this.actions.get(InputAction.LOOK_Y)!;
-        stateX.value = e.movementX;
-        stateY.value = e.movementY;
+        // Accumulate rather than overwrite: a browser can deliver several mousemove events
+        // between two animation frames, and overwriting would silently drop all but the last.
+        this.actions.get(InputAction.LOOK_X)!.value += e.movementX;
+        this.actions.get(InputAction.LOOK_Y)!.value += e.movementY;
       }
     });
   }
+
+  /**
+   * Relative axes report movement *since the last frame*, so they must be cleared once consumed.
+   * Digital buttons are level-triggered and must not be.
+   */
+  private static readonly RELATIVE_AXES: readonly InputAction[] = [
+    InputAction.LOOK_X,
+    InputAction.LOOK_Y
+  ];
 
   public getAction(action: InputAction): ActionState {
     return this.actions.get(action) || { value: 0, justPressed: false, justReleased: false };
@@ -84,6 +141,15 @@ export class InputEngine {
       state.justPressed = false;
       state.justReleased = false;
     }
+    // Without this the last mouse delta persists and the camera spins forever after the mouse stops.
+    for (const axis of InputEngine.RELATIVE_AXES) {
+      this.actions.get(axis)!.value = 0;
+    }
+  }
+
+  /** Reads a raw axis value, including negative deltas that `isPressed` cannot express. */
+  public getAxis(action: InputAction): number {
+    return this.actions.get(action)?.value ?? 0;
   }
 
   public setActionState(action: InputAction, value: number): void {

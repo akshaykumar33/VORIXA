@@ -223,6 +223,14 @@ final           final2          working        wip
 Commits must be **atomic** — one coherent change, independently reviewable, ideally independently
 buildable.
 
+### 3.1 No AI attribution
+
+The owner's rule, for every commit, pull request, tag and release, in this repository and every
+other: **the author is the owner, and nothing says otherwise.** No `Co-Authored-By` trailer naming
+an AI or a bot's address, no session links (`Claude-Session:` or similar), no "Generated with …" or
+"🤖" lines, and no author or committer set to an AI. This holds whatever tool writes the commit and
+whatever that tool's own defaults are. The `commit-msg` hook rejects such lines.
+
 ---
 
 ## 4. Pull Requests

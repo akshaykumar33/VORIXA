@@ -1,6 +1,6 @@
 # ADR-0002: Rendering Strategy: WebGPU Primary with WebGL2 Fallback
 
-* **Status**: Accepted
+* **Status**: Superseded by ADR-0010
 * **Date**: 2026-09-16
 * **Deciders**: Engineering Kernel
 
