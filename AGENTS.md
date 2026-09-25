@@ -78,7 +78,7 @@ Research → Define → ADR → DESIGN THE EXPERIENCE → Prototype → Benchmar
 4. Push      git push -u origin <branch>
 5. PR        gh pr create — full template, screenshots for any visual change
 6. Verify    quality-gates, engine-boundary, and secret-scan all green
-7. Merge     squash merge, delete the branch
+7. Merge     squash merge, keep the branch
 ```
 
 * **Enable protection once per clone**: `pnpm hooks:install`

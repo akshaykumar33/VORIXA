@@ -30,7 +30,7 @@ git checkout -b feat/<scope>-<slug>    # never commit on main
 pnpm verify
 git push -u origin feat/<scope>-<slug>
 gh pr create --fill --base main        # screenshots required for visual changes
-gh pr merge --squash --delete-branch   # after checks are green; a human merges, not the agent
+gh pr merge --squash                   # after checks are green, and only once the owner says yes; the branch is kept
 ```
 
 Always adhere to the Prime Directive: Research → Define → ADR → Design the Experience → Prototype → Benchmark → Implement → Test → Profile → Document → Review → PR → Merge → Continue.
