@@ -176,7 +176,7 @@ export function openWilds(district: District): Wilds {
       if (hash2(gx, gz, 3) > forest * 1.5 - 0.15) continue;
       const y = ground(x, z);
       const pick = hash2(gx, gz, 4);
-      const kind: TreeKind = y > 9 || pick < 0.35 ? 'pine' : pick < 0.8 ? 'common' : pick < 0.93 ? 'twisted' : 'dead';
+      const kind: TreeKind = y > 9 || pick < 0.35 ? 'pine' : pick < 0.9 ? 'common' : pick < 0.93 ? 'twisted' : 'dead';
       const n = 1 + Math.floor(hash2(gx, gz, 6) * 5);
       const piece = kind === 'pine' ? `Pine_${n}` : kind === 'common' ? `CommonTree_${n}` : kind === 'twisted' ? `TwistedTree_${n}` : `DeadTree_${n}`;
       const scale = 0.85 + hash2(gx, gz, 7) * 0.55;
