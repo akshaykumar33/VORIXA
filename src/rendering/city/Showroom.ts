@@ -16,6 +16,9 @@ export class Showroom {
   private spin = 0;
   private sinceShown = 0;
   private waved = false;
+  /** The turntable's coloured backlights: dimmed for portraits, where they would tint the face. */
+  private readonly rims: THREE.SpotLight[] = [];
+  private readonly fill = new THREE.HemisphereLight(0x8090b0, 0x101018, 0.18);
 
   public constructor(private readonly people: People) {
     this.scene.background = new THREE.Color(0x07080d);
@@ -31,8 +34,8 @@ export class Showroom {
     const rimB = new THREE.SpotLight(0xff3fb4, 20, 20, 0.3, 0.5, 1.4);
     rimB.position.set(-2.4, 3.2, -2.8);
     rimB.target.position.set(0, 1.2, 0);
-    const fill = new THREE.HemisphereLight(0x8090b0, 0x101018, 0.18);
-    this.scene.add(key, key.target, rimA, rimA.target, rimB, rimB.target, fill);
+    this.rims.push(rimA, rimB);
+    this.scene.add(key, key.target, rimA, rimA.target, rimB, rimB.target, this.fill);
 
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(6, 64).rotateX(-Math.PI / 2),
@@ -64,7 +67,7 @@ export class Showroom {
   }
 
   private readonly portraits = new Map<string, string>();
-  private readonly portraitCamera = new THREE.PerspectiveCamera(24, 1, 0.1, 20);
+  private readonly portraitCamera = new THREE.PerspectiveCamera(20, 1, 0.1, 20);
 
   /**
    * A head-and-shoulders portrait of a character in the studio's light, as an image URL, for the
@@ -73,7 +76,8 @@ export class Showroom {
   public async portrait(def: CharacterDef, renderer: THREE.WebGLRenderer, environment: THREE.Texture | null): Promise<string> {
     const cached = this.portraits.get(def.id);
     if (cached) return cached;
-    const person = await this.people.make(def, 0.6);
+    // A faint rim only: the turntable's strong one paints a portrait's hair and cheeks violet.
+    const person = await this.people.make(def, 0.12);
     People.play(person, 'Idle', 0);
     person.mixer.update(0.6);
     const hold = new THREE.Group();
@@ -86,15 +90,21 @@ export class Showroom {
     // Framed on their own head: the cast keep their real heights.
     hold.updateMatrixWorld(true);
     const face = person.head ? person.head.getWorldPosition(new THREE.Vector3()).y + 0.08 : 1.6;
-    this.portraitCamera.position.set(0.25, face + 0.1, 1.45);
-    this.portraitCamera.lookAt(0, face - 0.08, 0);
-    const size = 256;
+    // At eye level, a little off axis: a camera above the head makes an adult read as a child.
+    this.portraitCamera.position.set(0.3, face - 0.02, 1.75);
+    this.portraitCamera.lookAt(0, face - 0.1, 0);
+    const size = 512;
     const target = new THREE.WebGLRenderTarget(size, size, { colorSpace: THREE.SRGBColorSpace, samples: 4 });
     const tone = renderer.toneMapping;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene.environment = environment;
+    const rims = this.rims.map((l) => l.intensity);
+    this.rims.forEach((l) => (l.intensity *= 0.15));
+    this.fill.intensity = 0.6;
     renderer.setRenderTarget(target);
     renderer.render(this.scene, this.portraitCamera);
+    this.rims.forEach((l, i) => (l.intensity = rims[i]));
+    this.fill.intensity = 0.18;
     const pixels = new Uint8Array(size * size * 4);
     renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
     renderer.setRenderTarget(null);
