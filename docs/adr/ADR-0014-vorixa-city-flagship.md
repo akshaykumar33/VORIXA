@@ -179,13 +179,3 @@ sight. Drawn with Quaternius' Stylized Nature MegaKit (instanced per 64 m tile, 
 swaying in the wind) and Ultimate Animated Animal Pack. **Honest limit:** the animals are
 flat-coloured low-poly models with a fur grain shaded in; they are stylised next to the realistic
 people. Realistic animated animals would need paid assets.
-
-## Update (2026-09-25): the city is the whole game
-
-On the owner's decision, the older modes are removed: Rush (the lane runner, ADR-0011), On Foot
-(the platformer, ADR-0012), and the original parkour time-attack with webcam gaze and hand control
-(ADR-0008, ADR-0009). Gone with them: about 22,000 lines of code and their tests, the MediaPipe
-dependency and its model downloads, the Kenney, Khronos and mascot assets, five of the six skies,
-and the 13 low-poly outfits the realistic cast replaced. The page now boots straight into the
-city. The generic engine pieces (the typed ECS, vector and matrix maths, device capability
-checks) stay, with their tests.

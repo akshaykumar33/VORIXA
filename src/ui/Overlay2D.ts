@@ -1,0 +1,528 @@
+import type { HandLandmarks } from '../input/GestureMapping';
+import type { GestureIntent } from '../input/GestureMapping';
+import type { TrackerStatus } from '../input/HandTracker';
+import type { FaceTrackerStatus } from '../input/FaceTracker';
+import type { GazeIntent } from '../input/GazeMapping';
+import type { Checkpoint } from '../game/Course';
+import { CoPilot, type CoPilotInput } from './CoPilot';
+import { PilotRoster } from './PilotRoster';
+import type { RivalPose } from '../game/Rivals';
+
+/**
+ * The 2D instrument layer, drawn on a canvas above the 3D world.
+ *
+ * Two jobs, and the second is the important one:
+ *
+ *   1. Show information that is genuinely 2D — a route map, a gauge, a hand skeleton — where a
+ *      flat, precise, always-legible projection beats anything placed in the scene.
+ *   2. **Close the feedback loop on gesture input.** This is what separates camera controls that
+ *      feel magical from ones that feel broken. When the game does not respond to a gesture, the
+ *      player must be able to see *why*: hand not detected, hand off the edge of frame, pinch not
+ *      quite closed. Without that, every tracking failure reads as the game ignoring them, and
+ *      they have no way to learn the gesture. The skeleton and the state chips are not decoration;
+ *      they are the manual.
+ *
+ * Everything is drawn in CSS pixels and scaled by device pixel ratio, so it stays crisp on
+ * high-density displays without the layout maths changing.
+ */
+
+const ACCENT = '#00f0ff';
+const GOOD = '#00f59b';
+const WARN = '#ffb703';
+const BAD = '#ff0055';
+const DIM = '#5d6b7e';
+const MONO = '600 11px ui-monospace, "JetBrains Mono", Menlo, monospace';
+
+/** How far ahead a rival is still worth flagging, in world units. */
+const RIVAL_CARD_RANGE = 90;
+
+/** MediaPipe hand skeleton, as bone pairs. */
+const BONES: readonly [number, number][] = [
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [0, 5], [5, 6], [6, 7], [7, 8],
+  [9, 10], [10, 11], [11, 12],
+  [13, 14], [14, 15], [15, 16],
+  [0, 17], [17, 18], [18, 19], [19, 20],
+  [5, 9], [9, 13], [13, 17]
+];
+
+export interface OverlayState {
+  /** Z at the top of the route map. */
+  routeStartZ: number;
+  /** Z at the bottom. Finite even on an endless course, which has no finish to point at. */
+  routeEndZ: number;
+  checkpoints: readonly Checkpoint[];
+  /** False on an endless course, where drawing a finish line would be a lie. */
+  hasFinish: boolean;
+  playerX: number;
+  playerZ: number;
+  ghostX: number | null;
+  ghostZ: number | null;
+  checkpointIndex: number;
+  speed: number;
+  maxSpeed: number;
+  gestureEnabled: boolean;
+  trackerStatus: TrackerStatus;
+  trackerError: string;
+  intent: GestureIntent | null;
+  landmarks: HandLandmarks | null;
+  video: HTMLVideoElement | null;
+  gazeEnabled: boolean;
+  gazeStatus: FaceTrackerStatus;
+  gazeIntent: GazeIntent | null;
+  coPilot: CoPilotInput;
+  rivals: readonly RivalPose[];
+  /** World seed, so a pilot is always flying the same rival in the same world. */
+  rivalSeed: number;
+}
+
+export class Overlay2D {
+  private canvas: HTMLCanvasElement | null = null;
+  private ctx: CanvasRenderingContext2D | null = null;
+  private readonly coPilot = new CoPilot();
+  private readonly pilots = new PilotRoster();
+  private lastCoPilotFrame = performance.now();
+  private width = 0;
+  private height = 0;
+
+  public attach(canvas: HTMLCanvasElement): void {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    // Fire and forget: the co-pilot is decorative, and the overlay must draw whether or not a
+    // face ever arrives.
+    void this.coPilot.load('/mascots/scout-directions.webp', '/mascots/scout-reactions.webp');
+  }
+
+  public resize(width: number, height: number): void {
+    if (!this.canvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
+    this.width = width;
+    this.height = height;
+    this.ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  public draw(state: OverlayState): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, this.width, this.height);
+
+    this.drawCoPilot(ctx, state);
+    if (state.coPilot.visible) this.drawNextRival(ctx, state);
+    this.drawRouteMap(ctx, state);
+    this.drawSpeedArc(ctx, state);
+    if (state.gestureEnabled) this.drawHandPanel(ctx, state);
+  }
+
+  // ── Next rival ────────────────────────────────────────────────────────────
+  /**
+   * Who you are about to overtake.
+   *
+   * Only the nearest rival *ahead* is shown. A list of every craft in range would be a leaderboard,
+   * and a leaderboard is something you read; this is something you glance at while flying, so it
+   * carries exactly one answer to one question.
+   *
+   * Rivals behind are deliberately excluded — knowing you have passed someone is worth nothing
+   * mid-run, and the card would flicker between craft on either side as they trade places.
+   */
+  private drawNextRival(ctx: CanvasRenderingContext2D, s: OverlayState): void {
+    let nearest: { z: number; index: number } | null = null;
+    for (let i = 0; i < s.rivals.length; i++) {
+      const rival = s.rivals[i];
+      // Ahead means further down the course, and close enough to matter.
+      const gap = s.playerZ - rival.z;
+      if (gap <= 0 || gap > RIVAL_CARD_RANGE) continue;
+      if (rival.opacity < 0.9) continue;
+      if (!nearest || rival.z > nearest.z) nearest = { z: rival.z, index: i };
+    }
+    if (!nearest) return;
+
+    const pilot = this.pilots.pilotFor(s.rivalSeed, nearest.index);
+    const gap = s.playerZ - nearest.z;
+    // Fades with distance so a rival at the edge of range does not demand the same attention as
+    // one you are about to overtake.
+    const emphasis = 1 - gap / RIVAL_CARD_RANGE;
+
+    const x = 26;
+    const y = 44;
+    const portrait = 46;
+
+    ctx.save();
+    ctx.globalAlpha = 0.45 + emphasis * 0.55;
+
+    ctx.fillStyle = 'rgba(8, 12, 20, 0.62)';
+    this.roundRect(ctx, x, y, 186, portrait + 16, 10);
+    ctx.fill();
+
+    this.pilots.drawPortrait(ctx, pilot, x + 8, y + 8, portrait);
+
+    ctx.font = MONO;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = DIM;
+    ctx.fillText('AHEAD', x + portrait + 20, y + 20);
+    ctx.fillStyle = '#e9edf2';
+    ctx.fillText(pilot.callsign, x + portrait + 20, y + 36);
+    ctx.fillStyle = WARN;
+    ctx.fillText(`${gap.toFixed(0)} M`, x + portrait + 20, y + 52);
+    ctx.restore();
+  }
+
+  // ── Co-pilot ──────────────────────────────────────────────────────────────
+  /**
+   * Draws the co-pilot in the lower-left of the cockpit.
+   *
+   * Placed opposite the route map so the two instruments frame the view rather than crowding one
+   * side, and low enough to stay out of the centre third where the player is aiming.
+   *
+   * Sized as a fraction of viewport height with a clamp, so it reads the same on a laptop and an
+   * ultrawide instead of becoming either a postage stamp or a passenger.
+   */
+  private drawCoPilot(ctx: CanvasRenderingContext2D, s: OverlayState): void {
+    if (!this.coPilot.loaded) return;
+
+    const now = performance.now();
+    const dt = Math.min((now - this.lastCoPilotFrame) / 1000, 0.1);
+    this.lastCoPilotFrame = now;
+
+    // Stepped even while hidden, so blink timing and head direction are already settled when it
+    // appears rather than snapping from a stale pose on the first visible frame.
+    this.coPilot.update(dt, s.coPilot);
+    if (!s.coPilot.visible) return;
+
+    const size = Math.max(96, Math.min(this.height * 0.18, 190));
+    this.coPilot.draw(ctx, 26, this.height - size - 22, size);
+  }
+
+  // ── Route map ─────────────────────────────────────────────────────────────
+  /**
+   * A top-down strip of the whole course. In a time-attack game the player is always asking "how
+   * much is left?", and a map answers it without them having to look away from the crosshair.
+   */
+  private drawRouteMap(ctx: CanvasRenderingContext2D, s: OverlayState): void {
+    const panelW = 58;
+    const panelH = Math.min(this.height * 0.52, 420);
+    const x = this.width - panelW - 26;
+    const y = (this.height - panelH) / 2;
+
+    const startZ = s.routeStartZ;
+    const endZ = s.routeEndZ;
+    const toY = (z: number) => y + ((z - startZ) / (endZ - startZ)) * panelH;
+    const toX = (wx: number) => x + panelW / 2 + (wx / 9) * (panelW / 2 - 8);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 12, 20, 0.55)';
+    this.roundRect(ctx, x, y - 14, panelW, panelH + 28, 10);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + panelW / 2, y);
+    ctx.lineTo(x + panelW / 2, y + panelH);
+    ctx.stroke();
+
+    // Checkpoint ticks, filled once banked.
+    for (const cp of s.checkpoints) {
+      if (cp.index === 0) continue;
+      const cy = toY(cp.triggerZ);
+      const passed = cp.index <= s.checkpointIndex;
+      ctx.strokeStyle = passed ? GOOD : 'rgba(0, 240, 255, 0.4)';
+      ctx.lineWidth = passed ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 10, cy);
+      ctx.lineTo(x + panelW - 10, cy);
+      ctx.stroke();
+    }
+
+    // Finish line — only where there is one. On an endless course the strip is a rolling window
+    // around the player, so a line at the bottom would promise an end that never arrives.
+    if (s.hasFinish) {
+      ctx.strokeStyle = GOOD;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + panelH);
+      ctx.lineTo(x + panelW - 6, y + panelH);
+      ctx.stroke();
+    }
+
+    if (s.ghostX !== null && s.ghostZ !== null) {
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.45)';
+      ctx.beginPath();
+      ctx.arc(toX(s.ghostX), toY(s.ghostZ), 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const px = toX(s.playerX);
+    const py = toY(s.playerZ);
+    ctx.fillStyle = '#e8eef5';
+    ctx.shadowColor = ACCENT;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.font = MONO;
+    ctx.fillStyle = DIM;
+    ctx.textAlign = 'center';
+    ctx.fillText('ROUTE', x + panelW / 2, y - 20);
+    ctx.restore();
+  }
+
+  // ── Speed arc ─────────────────────────────────────────────────────────────
+  private drawSpeedArc(ctx: CanvasRenderingContext2D, s: OverlayState): void {
+    const cx = this.width / 2;
+    const cy = this.height - 62;
+    const radius = 74;
+    const start = Math.PI * 0.78;
+    const end = Math.PI * 2.22;
+    const fraction = Math.min(s.speed / s.maxSpeed, 1);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.stroke();
+
+    // Colour shifts toward warning at the top of the range, so peak speed is felt as an event.
+    const colour = fraction > 0.85 ? WARN : ACCENT;
+    ctx.strokeStyle = colour;
+    ctx.shadowColor = colour;
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, start, start + (end - start) * fraction);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── Hand tracking panel ───────────────────────────────────────────────────
+  private drawHandPanel(ctx: CanvasRenderingContext2D, s: OverlayState): void {
+    const w = 190;
+    const h = 143;
+    const x = 26;
+    const y = this.height - h - 26;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 12, 20, 0.72)';
+    this.roundRect(ctx, x, y, w, h, 12);
+    ctx.fill();
+    ctx.strokeStyle = s.intent?.present ? 'rgba(0, 240, 255, 0.45)' : 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const feedY = y + 22;
+    const feedH = h - 46;
+
+    // Mirrored camera feed, so the player sees themselves as in a mirror and the mapping from
+    // "move my hand right" to "the marker goes right" is immediate.
+    if (s.video && s.video.readyState >= 2) {
+      ctx.save();
+      this.roundRect(ctx, x + 10, feedY, w - 20, feedH, 8);
+      ctx.clip();
+      ctx.translate(x + 10 + (w - 20), feedY);
+      ctx.scale(-1, 1);
+      ctx.globalAlpha = 0.5;
+      ctx.drawImage(s.video, 0, 0, w - 20, feedH);
+      ctx.restore();
+    }
+
+    if (s.landmarks && s.landmarks.length >= 21) {
+      this.drawSkeleton(ctx, s.landmarks, x + 10, feedY, w - 20, feedH, s.intent);
+    }
+
+    ctx.font = MONO;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = DIM;
+    ctx.fillText('HAND CONTROL', x + 12, y + 15);
+
+    const status = this.statusLabel(s);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = status.colour;
+    ctx.fillText(status.text, x + w - 12, y + 15);
+
+    // Thrust bar, plus chips for the two discrete gestures.
+    const barY = y + h - 15;
+    const barW = w - 24;
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    this.roundRect(ctx, x + 12, barY, barW, 5, 2.5);
+    ctx.fill();
+    if (s.intent?.present) {
+      ctx.fillStyle = s.intent.thrust > 0.28 ? GOOD : DIM;
+      this.roundRect(ctx, x + 12, barY, barW * s.intent.thrust, 5, 2.5);
+      ctx.fill();
+    }
+
+    if (s.intent?.pinching) this.chip(ctx, x + w - 58, y + h - 36, 'DASH', WARN);
+    if (s.intent?.fist) this.chip(ctx, x + w - 112, y + h - 36, 'JUMP', ACCENT);
+
+    this.drawGazeRow(ctx, s, x, y, w);
+    ctx.restore();
+  }
+
+  /**
+   * Gaze status, shown whether or not gaze is on.
+   *
+   * A control the player cannot discover may as well not exist, so the row advertises the key
+   * even while idle rather than appearing only once the feature is already running.
+   */
+  private drawGazeRow(
+    ctx: CanvasRenderingContext2D,
+    s: OverlayState,
+    x: number,
+    y: number,
+    w: number
+  ): void {
+    const rowY = y - 10;
+    ctx.font = MONO;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = DIM;
+    ctx.fillText('GAZE  [E]', x + 12, rowY);
+
+    const status = this.gazeStatusLabel(s);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = status.colour;
+    ctx.fillText(status.text, x + w - 12, rowY);
+
+    // A small reticle makes the mapping from eye movement to steering legible — without it a
+    // player who is tracking badly has no way to tell that from the game ignoring them.
+    const gaze = s.gazeIntent;
+    if (!gaze?.present) return;
+
+    const cx = x + w / 2;
+    const cy = rowY - 16;
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = gaze.dilating ? WARN : ACCENT;
+    ctx.beginPath();
+    ctx.arc(cx + gaze.gazeX * 8, cy - gaze.gazeY * 8, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (gaze.dilating) this.chip(ctx, x + 12, cy - 8, 'DILATE', WARN);
+  }
+
+  private gazeStatusLabel(s: OverlayState): { text: string; colour: string } {
+    switch (s.gazeStatus) {
+      case 'running':
+        if (!s.gazeIntent?.present) return { text: 'SHOW FACE', colour: WARN };
+        if (s.gazeIntent.quality < 0.4) return { text: 'MOVE CLOSER', colour: WARN };
+        return { text: 'TRACKING', colour: GOOD };
+      case 'loading':
+        return { text: 'LOADING', colour: DIM };
+      case 'requesting-camera':
+        return { text: 'ALLOW CAMERA', colour: WARN };
+      case 'denied':
+        return { text: 'NO PERMISSION', colour: BAD };
+      case 'unsupported':
+        return { text: 'UNSUPPORTED', colour: BAD };
+      case 'error':
+        return { text: 'ERROR', colour: BAD };
+      default:
+        return { text: 'OFF', colour: DIM };
+    }
+  }
+
+  private statusLabel(s: OverlayState): { text: string; colour: string } {
+    switch (s.trackerStatus) {
+      case 'running':
+        if (!s.intent?.present) return { text: 'SHOW HAND', colour: WARN };
+        if (s.intent.quality < 0.4) return { text: 'MOVE CLOSER', colour: WARN };
+        return { text: 'TRACKING', colour: GOOD };
+      case 'loading':
+        return { text: 'LOADING', colour: DIM };
+      case 'requesting-camera':
+        return { text: 'ALLOW CAMERA', colour: WARN };
+      case 'denied':
+        return { text: 'NO PERMISSION', colour: BAD };
+      case 'unsupported':
+        return { text: 'UNSUPPORTED', colour: BAD };
+      case 'error':
+        return { text: 'ERROR', colour: BAD };
+      default:
+        return { text: 'OFF', colour: DIM };
+    }
+  }
+
+  private drawSkeleton(
+    ctx: CanvasRenderingContext2D,
+    hand: HandLandmarks,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    intent: GestureIntent | null
+  ): void {
+    // Mirror x to match the flipped feed.
+    const px = (i: number) => x + (1 - hand[i].x) * w;
+    const py = (i: number) => y + hand[i].y * h;
+
+    ctx.save();
+    ctx.strokeStyle = intent?.present ? ACCENT : DIM;
+    ctx.lineWidth = 1.6;
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    for (const [a, b] of BONES) {
+      ctx.moveTo(px(a), py(a));
+      ctx.lineTo(px(b), py(b));
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = '#e8eef5';
+    for (let i = 0; i < 21; i++) {
+      ctx.beginPath();
+      ctx.arc(px(i), py(i), 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Highlight the pinch pair, because "how close is close enough" is the hardest thing to
+    // learn about a pinch gesture and the only way to teach it is to show it.
+    const pinching = intent?.pinching ?? false;
+    ctx.strokeStyle = pinching ? WARN : 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = pinching ? 2.6 : 1.2;
+    ctx.beginPath();
+    ctx.moveTo(px(4), py(4));
+    ctx.lineTo(px(8), py(8));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private chip(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    label: string,
+    colour: string
+  ): void {
+    ctx.save();
+    ctx.fillStyle = colour;
+    ctx.globalAlpha = 0.18;
+    this.roundRect(ctx, x, y, 48, 16, 4);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colour;
+    ctx.font = MONO;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + 24, y + 11.5);
+    ctx.restore();
+  }
+
+  private roundRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number
+  ): void {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+  }
+}

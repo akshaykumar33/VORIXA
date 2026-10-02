@@ -232,6 +232,11 @@ export class CityGame {
     this.jobUI.setCash(this.cash);
     this.hud.onPlay = () => this.capture();
     this.hud.onRespawn = () => this.respawn();
+    this.hud.onBack = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('mode', 'rush');
+      window.location.href = url.toString();
+    };
     canvas.addEventListener('click', () => {
       if (this.renderer.ready && !this.playing && !this.down && !this.hud.safehouseOpen) this.capture();
     });

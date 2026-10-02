@@ -1,6 +1,6 @@
 # ADR-0008: Gaze Steering, Shared Camera, and Device Arbitration
 
-* **Status**: Superseded by ADR-0014 (the mode it describes was removed on 2026-09-25)
+* **Status**: Accepted
 * **Date**: 2026-09-22
 * **Deciders**: Engineering Kernel
 

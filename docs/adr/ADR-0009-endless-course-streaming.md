@@ -1,6 +1,6 @@
 # ADR-0009: Endless Course Streaming
 
-* **Status**: Superseded by ADR-0014 (the mode it describes was removed on 2026-09-25)
+* **Status**: Accepted
 * **Date**: 2026-09-23
 * **Deciders**: Engineering Kernel
 * **Relates to**: ADR-0005 (procedural world generation), ADR-0004 (action bus)

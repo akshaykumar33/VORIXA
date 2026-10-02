@@ -1,6 +1,6 @@
 # ADR-0012: "On Foot" — a Side-Scrolling Platformer Mode
 
-* **Status**: Superseded by ADR-0014 (the mode it describes was removed on 2026-09-25)
+* **Status**: Accepted
 * **Date**: 2026-09-24
 * **Deciders**: Project owner, working session
 

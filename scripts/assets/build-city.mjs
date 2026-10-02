@@ -1,6 +1,7 @@
 // Builds VORIXA City's runtime assets (ADR-0014) from the CC0 Quaternius packs in assets-src/.
 //
 //   public/city/district/    every Downtown City MegaKit piece (.gltf, .bin, .webp), one named root node per piece
+//   public/city/people/*.glb clothed people (Ultimate Modular Characters and Women), with their clips
 //   public/city/people/mh-*   the realistic cast (MakeHuman, from scripts/assets/blender/make-cast.py)
 //   public/city/wilds/        the wild country: nature kit pieces (.gltf, split per mesh) and four animals
 //
@@ -66,6 +67,24 @@ if (process.argv.includes('--force') || !fs.existsSync(path.join(OUT, 'district'
   // textures also download in parallel.
   fs.mkdirSync(path.join(OUT, 'district'), { recursive: true });
   await finish(doc, path.join(OUT, 'district', 'city.gltf'), 1024);
+}
+
+// ─── Clothed people (Ultimate Modular Characters / Women) ────────────────────────────────────
+// Modern outfits with their own rig and 24 clips (idle, walk, run, strafe, gun idle and shoot,
+// hits, death, punches), which the Universal Animation Library cannot drive (different skeleton).
+{
+  const people = path.join(OUT, 'people');
+  fs.mkdirSync(people, { recursive: true });
+  for (const [folder, prefix] of [['modular-men', 'm'], ['modular-women', 'f']]) {
+    const dir = path.join(SRC, folder);
+    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.gltf'))) {
+      const out = path.join(people, `${prefix}-${path.basename(file, '.gltf').toLowerCase()}.glb`);
+      if (fs.existsSync(out) && !process.argv.includes('--force')) continue;
+      const doc = await io.read(path.join(dir, file));
+      await doc.transform(resample());
+      await finish(doc, out, 512);
+    }
+  }
 }
 
 // ─── The realistic cast (MakeHuman + Universal Animation Library) ─────────────────────────────
