@@ -274,6 +274,8 @@ export class CityGame {
       const i = LOADOUT.indexOf(this.arsenal.current);
       this.select(LOADOUT[(i + (e.deltaY > 0 ? 1 : -1) + LOADOUT.length) % LOADOUT.length]);
     });
+    // Development only: a handle for play-testing from the console, where pointer lock may be refused.
+    if (import.meta.env.DEV) (window as unknown as { vorixa: CityGame }).vorixa = this;
     const unlock = () => void this.audio.unlock();
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
