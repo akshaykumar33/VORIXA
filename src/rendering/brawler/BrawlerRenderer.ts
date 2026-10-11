@@ -25,7 +25,7 @@ export const NEON: Record<Kind, string> = {
   boss: '#ffd23d'
 };
 export const NAMES: Record<Kind, string> = { kai: 'KAI', vex: 'VEX', thug: 'Choir thug', blade: 'Blade', brute: 'Brute', boss: 'CANTOR' };
-const SIZE: Record<Kind, number> = { kai: 1, vex: 1.06, thug: 1, blade: 0.96, brute: 1.28, boss: 1.32 };
+const SIZE: Record<Kind, number> = { kai: 1.06, vex: 1, thug: 1, blade: 0.96, brute: 1.28, boss: 1.32 };
 const BODY = '#0b0814';
 
 type P = { x: number; y: number };
@@ -63,6 +63,21 @@ function strip(width: number, height: number, draw: (g: CanvasRenderingContext2D
   return c;
 }
 
+/** The painted art (ADR-0015 batch 1), as web-sized WebP made from the delivered JPEGs. */
+const ART = '/assets/brawler/';
+const PORTRAIT: Partial<Record<Kind, string>> = {
+  kai: 'hero_kai_portrait', vex: 'hero_vex_portrait', boss: 'boss_cantor_portrait',
+  thug: 'enemy_thug_portrait', blade: 'enemy_blade_portrait', brute: 'enemy_brute_portrait'
+};
+
+function image(name: string): HTMLImageElement {
+  const img = new Image();
+  img.src = `${ART}${name}.webp`;
+  return img;
+}
+
+const ready = (img: HTMLImageElement) => img.complete && img.naturalWidth > 0;
+
 const SIGNS = ['NOODLE', 'MOTEL', '24H', 'BAR', 'PAWN', 'KARAOKE', 'HOTEL', 'ARCADE', 'TATTOO', 'LIQUOR', 'DINER', 'CLUB'];
 const SIGN_COLOURS = ['#ff3dd2', '#3de1ff', '#ffd23d', '#ff3d5a', '#3dffb0', '#a46bff'];
 
@@ -80,6 +95,13 @@ export class BrawlerRenderer {
   private clock = 0;
   private banner: { text: string; sub: string; life: number } | null = null;
   private go = 0;
+  private readonly backdrop = image('stage1_street_backdrop');
+  private readonly cover = image('title_cover');
+  private readonly portraits = new Map<Kind, HTMLImageElement>();
+  /** Round face crops of the portraits, made once each loads. */
+  private readonly faces = new Map<Kind, HTMLCanvasElement>();
+  /** The boss's entrance: his portrait slides in beside the banner. */
+  private intro: { kind: Kind; life: number } | null = null;
 
   public constructor(private readonly canvas: HTMLCanvasElement) {
     this.g = canvas.getContext('2d')!;
@@ -101,8 +123,26 @@ export class BrawlerRenderer {
     this.far = this.skyline(2048, 7, 0.55, '#160a2c', 120, 300);
     this.mid = this.skyline(2048, 11, 0.85, '#0e0620', 170, 330, true);
     this.front = this.shopfronts(2048, 23);
+    for (const [kind, name] of Object.entries(PORTRAIT) as [Kind, string][]) {
+      const img = image(name);
+      img.onload = () => this.faces.set(kind, this.face(img));
+      this.portraits.set(kind, img);
+    }
     const r = rng(5);
     for (let i = 0; i < 220; i++) this.rain.push({ x: r() * W, y: r() * H, speed: 700 + r() * 500, length: 8 + r() * 16 });
+  }
+
+  /** A circular crop around the face: the portraits frame the head in their upper middle. */
+  private face(img: HTMLImageElement): HTMLCanvasElement {
+    const size = 128;
+    return strip(size, size, (g) => {
+      const w = img.naturalWidth;
+      const side = w * 0.5;
+      g.beginPath();
+      g.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      g.clip();
+      g.drawImage(img, w * 0.25, img.naturalHeight * 0.07, side, side, 0, 0, size, size);
+    });
   }
 
   public resize(width: number, height: number): void {
@@ -217,7 +257,16 @@ export class BrawlerRenderer {
         const p = this.toScreen(brawl, e.x, e.z, 30);
         this.pops.push({ x: p.x, y: p.y, text: '+HEALTH', color: '#3dffb0', life: 1, size: 18 });
       } else if (e.type === 'go') this.go = 3;
-      else if (e.type === 'wave' && brawl.stage.waves[e.index].foes.includes('boss')) this.banner = { text: 'CANTOR', sub: 'Boss of the Choir', life: 2.4 };
+      else if (e.type === 'wave') {
+        const foes = brawl.stage.waves[e.index].foes;
+        if (foes.includes('boss')) {
+          this.banner = { text: 'CANTOR', sub: 'Boss of the Choir', life: 2.6 };
+          this.intro = { kind: 'boss', life: 2.6 };
+        } else if (foes.includes('brute') && !this.seenBrute) {
+          this.seenBrute = true;
+          this.intro = { kind: 'brute', life: 1.8 };
+        }
+      }
     }
   }
 
@@ -286,6 +335,24 @@ export class BrawlerRenderer {
       g.drawImage(img, -off, y);
       g.drawImage(img, img.width - off, y);
     };
+    if (ready(this.backdrop)) {
+      // The painted street, scaled to the view's height above the kerb and scrolled slower than
+      // the fighters for depth. Copies repeat side by side; mirroring them would flip the signs.
+      const b = this.backdrop;
+      const h = STREET_FAR + 40;
+      const w = (b.naturalWidth * h) / b.naturalHeight;
+      const off = (((brawl.camera * SCALE * 0.7) % w) + w) % w;
+      for (let i = 0; i < Math.ceil(W / w) + 1; i++) g.drawImage(b, i * w - off, 0, w, h);
+      this.reflection = (gg) => {
+        for (let i = -1; i < Math.ceil(W / w) + 2; i++) {
+          const x = i * w - off;
+          if (x > W || x + w < 0) continue;
+          gg.drawImage(b, 0, 0, b.naturalWidth, b.naturalHeight * 0.75, x, 0, w, h * 0.75);
+        }
+      };
+      return;
+    }
+    this.reflection = null;
     layer(this.far, 0.15, 20);
     layer(this.mid, 0.4, 40);
     // Haze between the skyline and the street.
@@ -296,6 +363,10 @@ export class BrawlerRenderer {
     g.fillRect(0, 200, W, STREET_FAR - 200);
     layer(this.front, 1);
   }
+
+  /** Draws whatever the street should mirror; set by the scenery each frame. */
+  private seenBrute = false;
+  private reflection: ((g: CanvasRenderingContext2D) => void) | null = null;
 
   private drawStreet(brawl: Brawl): void {
     const g = this.g;
@@ -309,9 +380,12 @@ export class BrawlerRenderer {
     g.globalAlpha = 0.22;
     g.translate(0, STREET_FAR * 2 + 4);
     g.scale(1, -1);
-    const off = (((brawl.camera * SCALE) % this.front.width) + this.front.width) % this.front.width;
-    g.drawImage(this.front, -off, 0);
-    g.drawImage(this.front, this.front.width - off, 0);
+    if (this.reflection) this.reflection(g);
+    else {
+      const off = (((brawl.camera * SCALE) % this.front.width) + this.front.width) % this.front.width;
+      g.drawImage(this.front, -off, 0);
+      g.drawImage(this.front, this.front.width - off, 0);
+    }
     g.restore();
     // Puddle ripples and lane paint, moving with the street.
     g.strokeStyle = 'rgba(255,255,255,0.05)';
@@ -545,7 +619,7 @@ export class BrawlerRenderer {
       g.arc(b.x, b.y, w2 / 2, 0, Math.PI * 2);
       g.fill();
     };
-    const female = f.kind === 'kai' || f.kind === 'blade';
+    const female = f.kind === 'vex';
     const heavy = f.kind === 'brute' || f.kind === 'boss';
     const foot = (knee: P, ankle: P, e: number) => {
       // A boot: heel under the ankle, toe forward.
@@ -694,14 +768,14 @@ export class BrawlerRenderer {
     const g = this.g;
     const sway = Math.sin(this.clock * 6 + f.id) * 0.03 * h - (f.state === 'walk' ? 0.04 * h : 0);
     g.beginPath();
-    if (f.kind === 'kai') {
-      // A long high ponytail that streams behind.
+    if (f.kind === 'vex') {
+      // A swept, chin-length cut that streams behind.
       g.moveTo(head.x - 0.02 * h, head.y - 0.1 * h);
       g.quadraticCurveTo(head.x - 0.2 * h, head.y - 0.12 * h + sway, head.x - 0.24 * h + sway, head.y + 0.1 * h);
       g.quadraticCurveTo(head.x - 0.12 * h, head.y - 0.02 * h, head.x - 0.06 * h, head.y - 0.04 * h);
       g.fill();
       if (extra > 0) g.stroke();
-    } else if (f.kind === 'vex') {
+    } else if (f.kind === 'kai') {
       // Swept-back spikes.
       for (let i = 0; i < 4; i++) {
         g.moveTo(head.x + 0.04 * h - i * 0.035 * h, head.y - 0.09 * h);
@@ -802,10 +876,11 @@ export class BrawlerRenderer {
     g.save();
     brawl.players.forEach((p, slot) => {
       const right = slot === 1;
-      const x = right ? W - 24 : 24;
-      g.textAlign = right ? 'right' : 'left';
       const kind: Kind = slot === 0 ? 'kai' : 'vex';
       const colour = NEON[kind];
+      this.avatar(kind, right ? W - 58 : 58, 52, 34, p.joined);
+      const x = right ? W - 104 : 104;
+      g.textAlign = right ? 'right' : 'left';
       if (!p.joined) {
         g.globalAlpha = 0.55 + Math.sin(this.clock * 4) * 0.3;
         g.font = '700 14px "Space Grotesk Variable", system-ui, sans-serif';
@@ -864,13 +939,15 @@ export class BrawlerRenderer {
       g.textAlign = 'center';
       g.font = '900 16px "Space Grotesk Variable", system-ui, sans-serif';
       g.fillStyle = NEON.boss;
-      g.fillText('CANTOR', W / 2, H - 46);
+      g.fillText('CANTOR', W / 2 + 18, H - 46);
+      this.avatar('boss', W / 2 - 50, H - 52, 18, true);
       g.fillStyle = 'rgba(255,255,255,0.12)';
       g.fillRect(W / 2 - w / 2, H - 38, w, 10);
       g.fillStyle = NEON.boss;
       g.fillRect(W / 2 - w / 2, H - 38, (w * Math.max(0, boss.hp)) / STATS.boss.hp, 10);
     }
 
+    if (this.intro) this.drawIntro(dt);
     if (this.go > 0) {
       this.go -= dt;
       if (Math.floor(this.go * 3) % 2 === 0) {
@@ -905,24 +982,116 @@ export class BrawlerRenderer {
     g.restore();
   }
 
-  /** Full-screen panels: title, pause, game over, stage clear. */
+  /** A round portrait with a neon ring, dimmed while that player is not in. */
+  private avatar(kind: Kind, x: number, y: number, r: number, lit: boolean): void {
+    const g = this.g;
+    const face = this.faces.get(kind);
+    g.save();
+    g.globalAlpha = lit ? 1 : 0.35;
+    if (face) g.drawImage(face, x - r, y - r, r * 2, r * 2);
+    else {
+      g.fillStyle = BODY;
+      g.beginPath();
+      g.arc(x, y, r, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.strokeStyle = NEON[kind];
+    g.lineWidth = 3;
+    g.shadowColor = NEON[kind];
+    g.shadowBlur = 14;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.stroke();
+    g.restore();
+  }
+
+  /** A painted portrait sliding in from the right as a fighter of note arrives. */
+  private drawIntro(dt: number): void {
+    const intro = this.intro!;
+    intro.life -= dt;
+    if (intro.life <= 0) {
+      this.intro = null;
+      return;
+    }
+    const img = this.portraits.get(intro.kind);
+    if (!img || !ready(img)) return;
+    const g = this.g;
+    const total = intro.kind === 'boss' ? 2.6 : 1.8;
+    const t = total - intro.life;
+    const enter = Math.min(1, t / 0.35);
+    const leave = Math.min(1, intro.life / 0.35);
+    const ease = (k: number) => 1 - Math.pow(1 - k, 3);
+    const h = H * 0.9;
+    const w = (img.naturalWidth * h) / img.naturalHeight;
+    const x = W - w * ease(enter) * ease(leave) + 20;
+    g.save();
+    g.globalAlpha = Math.min(enter, leave);
+    // Slanted panel, comic-style.
+    g.beginPath();
+    g.moveTo(x + 60, H * 0.05);
+    g.lineTo(W, H * 0.05);
+    g.lineTo(W, H * 0.95);
+    g.lineTo(x, H * 0.95);
+    g.closePath();
+    g.clip();
+    g.drawImage(img, x, H * 0.05, w, h);
+    g.restore();
+    g.save();
+    g.globalAlpha = Math.min(enter, leave);
+    g.strokeStyle = NEON[intro.kind];
+    g.lineWidth = 4;
+    g.shadowColor = NEON[intro.kind];
+    g.shadowBlur = 18;
+    g.beginPath();
+    g.moveTo(x + 60, H * 0.05);
+    g.lineTo(x, H * 0.95);
+    g.stroke();
+    if (intro.kind !== 'boss') {
+      g.textAlign = 'right';
+      g.font = '900 36px "Space Grotesk Variable", system-ui, sans-serif';
+      g.fillStyle = '#fff';
+      g.fillText(NAMES[intro.kind].toUpperCase(), W - 30, H * 0.88);
+    }
+    g.restore();
+  }
+
+  /** Full-screen panels: title, pause, game over, stage clear, over the painted cover art. */
   public panel(title: string, lines: string[], accent = '#ff3dd2'): void {
+    // The cover art carries the logo; the title screen shows it rather than a second title.
+    const logo = title === 'NEON KNUCKLES' && ready(this.cover);
     const g = this.g;
     g.save();
-    g.fillStyle = 'rgba(5,2,12,0.78)';
-    g.fillRect(0, 0, W, H);
+    if (ready(this.cover)) {
+      const c = this.cover;
+      const k = Math.max(W / c.naturalWidth, H / c.naturalHeight);
+      g.drawImage(c, (W - c.naturalWidth * k) / 2, (H - c.naturalHeight * k) / 2, c.naturalWidth * k, c.naturalHeight * k);
+      // Dark at the centre, where the text sits, and scanlines for the arcade cabinet.
+      const veil = g.createLinearGradient(0, 0, 0, H);
+      veil.addColorStop(0, 'rgba(5,2,12,0.35)');
+      veil.addColorStop(0.3, 'rgba(5,2,12,0.72)');
+      veil.addColorStop(0.75, 'rgba(5,2,12,0.72)');
+      veil.addColorStop(1, 'rgba(5,2,12,0.4)');
+      g.fillStyle = veil;
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = 'rgba(0,0,0,0.18)';
+      for (let y = 0; y < H; y += 3) g.fillRect(0, y, W, 1);
+    } else {
+      g.fillStyle = 'rgba(5,2,12,0.78)';
+      g.fillRect(0, 0, W, H);
+    }
     g.textAlign = 'center';
     g.font = '900 72px "Space Grotesk Variable", system-ui, sans-serif';
     g.fillStyle = '#fff';
     g.shadowColor = accent;
     g.shadowBlur = 34;
-    g.fillText(title, W / 2, 170);
+    if (!logo) g.fillText(title, W / 2, 170);
     g.shadowBlur = 0;
+    const top = logo ? 300 : 230;
     lines.forEach((line, i) => {
       const heading = i === 0;
       g.font = heading ? '700 20px "Space Grotesk Variable", system-ui, sans-serif' : '500 16px "Space Grotesk Variable", system-ui, sans-serif';
       g.fillStyle = heading ? accent : '#d9cfe8';
-      g.fillText(line, W / 2, 230 + i * 30);
+      g.fillText(line, W / 2, top + i * 30);
     });
     g.restore();
   }
