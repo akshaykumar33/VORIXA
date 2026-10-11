@@ -1,3 +1,4 @@
+import { BASELINE, CELL, ROWS, SPRITE_HEIGHT, cellFor } from '../../brawler/Animation';
 import { DEPTH, MOVES, STATS, VIEW, type Brawl, type BrawlEvent, type Fighter, type Kind } from '../../brawler/Brawler';
 
 /**
@@ -98,6 +99,8 @@ export class BrawlerRenderer {
   private readonly backdrop = image('stage1_street_backdrop');
   private readonly cover = image('title_cover');
   private readonly portraits = new Map<Kind, HTMLImageElement>();
+  /** Animated sprite sheets, used for a fighter as soon as its sheet exists; silhouettes until then. */
+  private readonly sheets = new Map<Kind, HTMLImageElement>();
   /** Round face crops of the portraits, made once each loads. */
   private readonly faces = new Map<Kind, HTMLCanvasElement>();
   /** The boss's entrance: his portrait slides in beside the banner. */
@@ -127,6 +130,13 @@ export class BrawlerRenderer {
       const img = image(name);
       img.onload = () => this.faces.set(kind, this.face(img));
       this.portraits.set(kind, img);
+    }
+    for (const kind of Object.keys(NEON) as Kind[]) {
+      const sheet = new Image();
+      sheet.onload = () => this.sheets.set(kind, sheet);
+      // A missing sheet is expected until the art is delivered: the silhouette stays.
+      sheet.onerror = () => undefined;
+      sheet.src = `${ART}sprites/${kind === 'boss' ? 'cantor' : kind}.png`;
     }
     const r = rng(5);
     for (let i = 0; i < 220; i++) this.rain.push({ x: r() * W, y: r() * H, speed: 700 + r() * 500, length: 8 + r() * 16 });
@@ -592,6 +602,21 @@ export class BrawlerRenderer {
     const colour = NEON[f.kind];
     const blink = f.safe > 0 && Math.floor(this.clock * 16) % 2 === 0;
     if (blink && f.state !== 'down') return;
+    const sheet = this.sheets.get(f.kind);
+    if (sheet) {
+      // The painted fighter: its cell, feet on the ground point, a soft neon halo behind it.
+      const cell = cellFor(f, this.clock);
+      const k = (h * SCALE) / SPRITE_HEIGHT;
+      g.save();
+      g.translate(base.x, base.y);
+      g.scale(k * f.facing, k);
+      g.shadowColor = colour;
+      g.shadowBlur = f.state === 'attack' ? 20 : 10;
+      g.drawImage(sheet, cell.frame * CELL, ROWS.indexOf(cell.row) * CELL, CELL, CELL, -CELL / 2, -BASELINE, CELL, CELL);
+      g.restore();
+      this.drawHealth(f, base, h, colour);
+      return;
+    }
 
     g.save();
     g.translate(base.x, base.y);
@@ -753,7 +778,12 @@ export class BrawlerRenderer {
     }
     g.restore();
 
-    // Foes' health over their heads once hurt; the boss has a bar of his own in the HUD.
+    this.drawHealth(f, base, h, colour);
+  }
+
+  /** Foes' health over their heads once hurt; the boss has a bar of his own in the HUD. */
+  private drawHealth(f: Fighter, base: P, h: number, colour: string): void {
+    const g = this.g;
     if (f.team === 'foe' && f.kind !== 'boss' && f.hp < STATS[f.kind].hp && f.hp > 0) {
       const w = 40;
       const top = base.y - h * SCALE - 14;
