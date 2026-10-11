@@ -40,7 +40,7 @@
     "@types/three": "^0.186.0",
     "@webgpu/types": "^0.1.54",
     "meshoptimizer": "^1.2.0",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
     "vitest": "^3.0.7"
@@ -54,5 +54,11 @@
     "n8ao": "^2.0.1",
     "postprocessing": "^6.39.5",
     "three": "^0.186.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "tinypool": ">=2.1.2",
+      "source-map-js": ">=1.2.2"
+    }
   }
 }
