@@ -90,3 +90,6 @@ assets-src/
 .codegraph/
 .claude/settings.local.json
 .claude/skills
+
+# Neon Knuckles source art: the game ships the .webp copies made from these.
+public/assets/brawler/*.jpg
