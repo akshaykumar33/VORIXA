@@ -287,7 +287,7 @@ export class PlatformRenderer {
     this.buildEnemies(sim);
     this.buildShots(sim);
 
-    this.cam.set(level.start.x + LOOK_AHEAD, level.start.y + 2.4, CAMERA_DISTANCE);
+    this.cam.set(level.start.x, level.start.y + 2.4, CAMERA_DISTANCE);
     this.look.set(level.start.x + LOOK_AHEAD, level.start.y + 1.2, 0);
   }
 
@@ -757,9 +757,13 @@ export class PlatformRenderer {
 
   private placeCamera(sim: PlatformSim, dt: number): void {
     const level = this.level;
-    const lead = sim.facing * LOOK_AHEAD;
+    // Half the view's width where the hero stands. On a narrow or portrait screen it is only a few
+    // tiles, so the look-ahead and the edge clamp shrink with it and the hero stays in frame.
+    const half = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * CAMERA_DISTANCE * this.camera.aspect;
+    const lead = sim.facing * Math.min(LOOK_AHEAD, half * 0.45);
     let tx = sim.x + lead;
-    if (level) tx = Math.max(8, Math.min(level.width - 8, tx));
+    const edge = Math.min(8, half);
+    if (level) tx = Math.max(edge, Math.min(level.width - edge, tx));
     // Vertical follow is lazier than horizontal: jumping should not bounce the whole screen.
     const ty = Math.max(GROUND_DEPTH + 3.4, sim.y + 3);
     this.cam.x += (tx - this.cam.x) * (1 - Math.exp(-4 * dt));

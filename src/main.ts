@@ -22,6 +22,7 @@ async function bootstrap(): Promise<void> {
   if (mode === 'parkour') await bootstrapParkour();
   else if (mode === 'onfoot') await bootstrapOnFoot();
   else if (mode === 'rush') await bootstrapRush(params);
+  else if (mode === 'brawler') await bootstrapBrawler();
   // VORIXA City: HEAT is the game (ADR-0014); Rush and On Foot are its arcade modes.
   else await bootstrapCity();
 }
@@ -81,6 +82,23 @@ async function bootstrapCity(): Promise<void> {
 }
 
 /** On Foot (ADR-0012): the driver's side-scrolling adventure, entered from the Rush title. */
+/** Neon Knuckles (ADR-0015): a Canvas 2D brawler with its own canvas over the page. */
+async function bootstrapBrawler(): Promise<void> {
+  const { BrawlerGame } = await import('./game/BrawlerGame');
+  document.title = 'Neon Knuckles — VORIXA';
+  const viewport = document.getElementById('viewport') ?? document.body;
+  for (const child of Array.from(viewport.children)) (child as HTMLElement).style.display = 'none';
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'display:block;width:100%;height:100%;background:#000';
+  viewport.appendChild(canvas);
+  const game = new BrawlerGame(canvas);
+  const fit = () => game.resize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
+  new ResizeObserver(fit).observe(canvas);
+  fit();
+  game.start();
+  if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__brawler = game;
+}
+
 async function bootstrapOnFoot(): Promise<void> {
   const [{ PlatformRenderer }, { OnFootGame }] = await Promise.all([import('./rendering/platformer/PlatformRenderer'), import('./game/OnFootGame')]);
   const canvas = document.getElementById('render-canvas') as HTMLCanvasElement | null;
