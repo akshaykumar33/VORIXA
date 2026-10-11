@@ -1,4 +1,4 @@
-// Fetches the city's sky from Poly Haven (CC0) and prepares it for the web.
+// Fetches each world's sky from Poly Haven (CC0) and prepares it for the web.
 //
 //   node scripts/assets/fetch-skies.mjs
 //
@@ -10,8 +10,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 
-// The city's sky (the noon sky it is lit by).
 const SKIES = {
+  meadow: 'kloofendal_48d_partly_cloudy_puresky',
+  desert: 'qwantani_sunset_puresky',
+  snow: 'kloofendal_misty_morning_puresky',
+  candy: 'belfast_sunset_puresky',
+  neon: 'qwantani_night_puresky',
   beach: 'qwantani_noon_puresky'
 };
 

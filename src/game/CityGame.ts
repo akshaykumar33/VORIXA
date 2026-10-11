@@ -232,6 +232,11 @@ export class CityGame {
     this.jobUI.setCash(this.cash);
     this.hud.onPlay = () => this.capture();
     this.hud.onRespawn = () => this.respawn();
+    this.hud.onBack = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('mode', 'rush');
+      window.location.href = url.toString();
+    };
     canvas.addEventListener('click', () => {
       if (this.renderer.ready && !this.playing && !this.down && !this.hud.safehouseOpen) this.capture();
     });
@@ -269,6 +274,8 @@ export class CityGame {
       const i = LOADOUT.indexOf(this.arsenal.current);
       this.select(LOADOUT[(i + (e.deltaY > 0 ? 1 : -1) + LOADOUT.length) % LOADOUT.length]);
     });
+    // Development only: a handle for play-testing from the console, where pointer lock may be refused.
+    if (import.meta.env.DEV) (window as unknown as { vorixa: CityGame }).vorixa = this;
     const unlock = () => void this.audio.unlock();
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);

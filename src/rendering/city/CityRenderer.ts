@@ -55,6 +55,12 @@ type Clip =
 /** The run clip frozen here is a full stride: it reads as a leap, and the rig's IK feet stay put. */
 const LEAP_PHASE = 0.3;
 
+/**
+ * Toward the sun in the city's sky (Kloofendal 48d Partly Cloudy): about 48 degrees up, where the
+ * photograph has it, so shadows fall the way the clouds are lit.
+ */
+const SUN_DIR = new THREE.Vector3(0.54, 0.74, 0.39).normalize();
+
 export class CityRenderer {
   public readonly scene = new THREE.Scene();
   public readonly camera = new THREE.PerspectiveCamera(62, 16 / 9, 0.08, 1200);
@@ -134,8 +140,10 @@ export class CityRenderer {
   public ready = false;
 
   public constructor() {
-    this.scene.fog = new THREE.Fog(0xbfd0e0, 120, 420);
-    this.scene.background = new THREE.Color(0xa9c6e6);
+    // Haze the colour of the sky at the horizon, thickening with distance: far blocks and hills
+    // fade into the sky instead of ending at a line.
+    this.scene.fog = new THREE.FogExp2(0xb6bcca, 0.0024);
+    this.scene.background = new THREE.Color(0xb6bcca);
     this.chaosView = new ChaosView(this.camera);
     this.scene.add(this.hemi, this.sun, this.sun.target, this.jobView.group, this.chaosView.group);
     this.sun.castShadow = true;
@@ -163,13 +171,12 @@ export class CityRenderer {
     this.renderer.shadowMap.enabled = !low;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.skies = new SkyLibrary(this.renderer);
-    void this.skies.load('beach').then((sky) => {
+    void this.skies.load('meadow').then((sky) => {
       if (!sky) return;
       this.scene.background = sky.backdrop;
       this.scene.environment = sky.environment;
       this.scene.backgroundIntensity = 1.05;
-      // The noon sky is strong; at full strength it washes the asphalt out to grey-white.
-      this.scene.environmentIntensity = 0.6;
+      this.scene.environmentIntensity = 0.55;
     });
     if (low) this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     else this.post = new PostFX(this.renderer, this.scene, this.camera);
@@ -432,7 +439,7 @@ export class CityRenderer {
       this.combatView.update(combat, dt, performance.now() / 1000, this.view === 'first', this.aiming, Math.min(1, hero.speed / 4.6));
     }
 
-    this.sun.position.set(hero.x - 40, 70, hero.z + 25);
+    this.sun.position.set(hero.x + SUN_DIR.x * 90, SUN_DIR.y * 90, hero.z + SUN_DIR.z * 90);
     this.sun.position.y += hero.y;
     this.sun.target.position.set(hero.x, hero.y, hero.z);
     if (this.post) this.post.render(dt);

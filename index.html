@@ -2,30 +2,569 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <!-- Pinch zoom stays enabled: disabling it is an accessibility failure. -->
+  <!-- Pinch zoom stays enabled. Disabling it is an accessibility failure, and the canvas handles
+       its own gestures without needing the page to forbid the browser's. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="VORIXA City: HEAT. Take a city back from the Choir, one job, one outpost at a time." />
-  <title>VORIXA City: HEAT</title>
+  <title>VORIXA</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+
+    /*
+     * Design tokens.
+     *
+     * Every value below is on a system. The previous palette was a pure-cyan accent on dark navy
+     * with a system font stack — the default look of every WebGL demo on the web, and the exact
+     * combination that reads as unfinished. The identity here is instrumentation: cold neutrals
+     * doing the structural work, one hot signal colour used sparingly, and real type.
+     */
+    :root {
+      /* Neutrals: cool-cast, never pure black or white — both look cheap and strain the eye. */
+      --n-900: #07080b;
+      --n-850: #0b0d13;
+      --n-800: #11141c;
+      --n-700: #1b202b;
+      --n-600: #2b323f;
+      --n-500: #4a5361;
+      --n-400: #6f7987;
+      --n-300: #98a2b0;
+      --n-200: #c2cad4;
+      --n-100: #e9edf2;
+
+      /*
+       * Signature: electric lime. Deliberately not cyan and not violet — those are the two
+       * defaults every generated interface reaches for. Lime on cold neutrals reads as telemetry
+       * and hazard marking rather than sci-fi, and it is genuinely uncommon.
+       */
+      --accent: #d6ff45;
+      --accent-dim: #93b02b;
+      --accent-glow: rgba(214, 255, 69, 0.45);
+      --warn: #ffab1f;
+      --bad: #ff4d5e;
+      --good: #d6ff45;
+
+      /* Two families, both self-hosted variable fonts. Display for voice, mono for numbers. */
+      --display: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
+      --mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+      /* Type scale, ratio 1.25 from a 16px base. Nothing off-scale. */
+      --t-2xs: 0.64rem;
+      --t-xs: 0.8rem;
+      --t-sm: 1rem;
+      --t-md: 1.25rem;
+      --t-lg: 1.563rem;
+      --t-xl: 1.953rem;
+      --t-2xl: 2.441rem;
+      --t-3xl: 3.052rem;
+      --t-4xl: 3.815rem;
+
+      /* Space, 4px base. */
+      --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+      --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+
+      /* Motion. Ease-out to enter, and a crisp confident standard curve. */
+      --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+      --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+      --dur-fast: 140ms;
+      --dur-mid: 240ms;
+      --dur-slow: 420ms;
+    }
+
     html, body {
       width: 100%;
       height: 100%;
       overflow: hidden;
-      /* Never pure black: the page shows through for a moment while the city loads. */
-      background: #07080b;
-      color: #e9edf2;
-      font-family: 'Space Grotesk Variable', 'Segoe UI', system-ui, sans-serif;
+      background: var(--n-900);
+      color: var(--n-100);
+      font-family: var(--display);
+      /* Optical sizing and tabular figures are why the numerals stop jittering as they count. */
+      font-variant-numeric: tabular-nums;
       -webkit-font-smoothing: antialiased;
+      cursor: default;
     }
+
     #viewport { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
     canvas#render-canvas { display: block; width: 100%; height: 100%; }
+    canvas#overlay-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    #hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* ── Speed streaks ─────────────────────────────────────────────────────── */
+    /* Masked to the periphery so they never obscure the platform you are aiming at. */
+    #speed-lines {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 120ms linear;
+      background: repeating-conic-gradient(
+        from 0deg at 50% 50%,
+        transparent 0deg 1.4deg,
+        rgba(214, 255, 69, 0.14) 1.4deg 1.9deg
+      );
+      -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 26%, #000 78%);
+      mask-image: radial-gradient(circle at 50% 50%, transparent 26%, #000 78%);
+    }
+
+    #vignette {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.55) 100%);
+    }
+
+    /* ── Timer ─────────────────────────────────────────────────────────────── */
+    .timer-block {
+      position: absolute;
+      top: 26px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+    #hud-timer {
+      font-family: var(--mono);
+      font-size: 54px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      /* Dark contact shadow first: over a bright sky, a glow alone leaves white digits on pale blue. */
+      text-shadow: 0 2px 10px rgba(8, 12, 30, 0.55), 0 0 24px var(--accent-glow);
+      font-variant-numeric: tabular-nums;
+    }
+    .timer-meta {
+      margin-top: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: var(--n-400);
+      display: flex;
+      gap: 18px;
+      justify-content: center;
+    }
+    .timer-meta b { color: var(--accent); font-weight: 600; }
+
+    .delta {
+      margin-top: 10px;
+      font-family: var(--mono);
+      font-size: 26px;
+      font-weight: 700;
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 160ms ease, transform 160ms ease;
+      font-variant-numeric: tabular-nums;
+    }
+    .delta.show { opacity: 1; transform: translateY(0); }
+    .delta.ahead { color: var(--good); text-shadow: 0 0 18px var(--accent-glow); }
+    .delta.behind { color: var(--bad); text-shadow: 0 0 18px rgba(255, 77, 94, 0.45); }
+
+    /* ── Speed ─────────────────────────────────────────────────────────────── */
+    .speed-block {
+      position: absolute;
+      bottom: 38px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      font-family: var(--mono);
+    }
+    #hud-speed {
+      font-size: 40px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--n-100);
+      font-variant-numeric: tabular-nums;
+    }
+    .speed-unit { font-size: 11px; letter-spacing: 0.22em; color: var(--n-400); margin-top: 4px; }
+
+    /* ── Dash charge ───────────────────────────────────────────────────────── */
+    #hud-dash {
+      position: absolute;
+      bottom: 34px;
+      left: 50%;
+      transform: translateX(calc(-50% + 132px));
+      width: 92px;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      overflow: hidden;
+    }
+    #hud-dash::after {
+      content: '';
+      display: block;
+      height: 100%;
+      width: var(--charge, 0%);
+      background: var(--warn);
+      transition: width 70ms linear;
+    }
+    #hud-dash.ready::after { background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+    #hud-dash.refused { animation: refuse 260ms ease; }
+    @keyframes refuse {
+      0%, 100% { transform: translateX(calc(-50% + 132px)); }
+      25% { transform: translateX(calc(-50% + 126px)); }
+      75% { transform: translateX(calc(-50% + 138px)); }
+    }
+    .dash-label {
+      position: absolute;
+      bottom: 46px;
+      left: 50%;
+      transform: translateX(calc(-50% + 132px));
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      color: var(--n-400);
+    }
+
+    #hud-muted {
+      position: absolute;
+      top: var(--s-4);
+      right: var(--s-5);
+      font-family: var(--mono);
+      font-size: var(--t-2xs);
+      letter-spacing: 0.18em;
+      color: var(--warn);
+      border: 1px solid var(--warn);
+      border-radius: 4px;
+      padding: 3px var(--s-2);
+      opacity: 0.85;
+    }
+    #hud-muted[hidden] { display: none; }
+
+    /* ── State chip ────────────────────────────────────────────────────────── */
+    #hud-state {
+      position: absolute;
+      bottom: 104px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.24em;
+      color: var(--accent);
+      opacity: 0;
+      transition: opacity 120ms ease;
+      text-shadow: 0 0 16px var(--accent-glow);
+    }
+    #hud-state.show { opacity: 1; }
+
+    /* ── Reticle ───────────────────────────────────────────────────────────── */
+    #reticle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: rgba(232, 238, 245, 0.28);
+      transform: translate(-50%, -50%);
+      transition: background 160ms ease, box-shadow 160ms ease;
+    }
+    #reticle.is-active {
+      background: var(--n-100);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    /* ── Start prompt ──────────────────────────────────────────────────────── */
+    /*
+     * Anchored bottom-left rather than centred in a translucent card.
+     *
+     * A centred modal covers the one thing that sells the game — the world behind it — and the
+     * rounded-rect-over-blur treatment is the single most generic shape on the web. Moving the
+     * type into a corner leaves the scene open, and reads as a title sequence instead of a dialog.
+     *
+     * Contrast comes from a soft corner scrim, not a panel: it guarantees legibility over a
+     * moving 3D scene without ever announcing itself as a box.
+     */
+    #lock-prompt {
+      position: absolute;
+      left: clamp(var(--s-5), 5vw, var(--s-8));
+      bottom: clamp(var(--s-6), 7vh, 84px);
+      max-width: min(34rem, 60vw);
+      text-align: left;
+      pointer-events: none;
+      /* Own stacking context, so the ::before panel sits behind the text but above the canvas.
+         Without it, z-index: -1 dropped the panel behind the WebGL view entirely. */
+      isolation: isolate;
+      transition:
+        opacity var(--dur-mid) var(--ease-in),
+        transform var(--dur-mid) var(--ease-in),
+        filter var(--dur-mid) linear;
+    }
+    #lock-prompt.is-hidden {
+      opacity: 0;
+      transform: translateY(12px);
+      filter: blur(6px);
+    }
+
+    /* The scrim. Large, soft, and anchored to the corner the type occupies. */
+    /*
+     * A frosted panel rather than a soft corner scrim. The scrim only worked while the world was
+     * dark; over a bright daylight scene it left grey text on pale stone, well under WCAG contrast.
+     * The panel guarantees a dark ground for the type whatever the camera is looking at.
+     */
+    #lock-prompt::before {
+      content: '';
+      position: absolute;
+      inset: -28px -34px;
+      z-index: -1;
+      background: rgba(12, 16, 32, 0.74);
+      backdrop-filter: blur(14px) saturate(1.2);
+      -webkit-backdrop-filter: blur(14px) saturate(1.2);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      pointer-events: none;
+    }
+
+    .prompt-eyebrow {
+      font-family: var(--mono);
+      font-size: var(--t-2xs);
+      letter-spacing: 0.34em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: var(--s-3);
+    }
+
+    #lock-prompt h1 {
+      font-family: var(--display);
+      /* Fluid, with a rem in the middle term so browser zoom still works. */
+      font-size: clamp(var(--t-2xl), 1.6rem + 3.6vw, 5.2rem);
+      font-weight: 700;
+      /* Display type carries too much apparent space by default; negative tracking closes it. */
+      letter-spacing: -0.045em;
+      line-height: 0.92;
+      color: var(--n-100);
+      text-wrap: balance;
+      margin-bottom: var(--s-2);
+    }
+    #lock-prompt h1 em {
+      font-style: normal;
+      color: var(--accent);
+      /* A restrained glow — the accent is the only thing on screen allowed to emit light. */
+      text-shadow: 0 0 38px var(--accent-glow);
+    }
+
+    .prompt-lede {
+      font-size: var(--t-sm);
+      line-height: 1.55;
+      color: var(--n-300);
+      max-width: 34ch;
+      margin-bottom: var(--s-5);
+      text-wrap: pretty;
+    }
+
+    .prompt-rule {
+      width: 100%;
+      max-width: 22rem;
+      height: 1px;
+      background: linear-gradient(90deg, var(--n-600), transparent);
+      margin-bottom: var(--s-4);
+    }
+
+    .keys {
+      display: grid;
+      grid-template-columns: max-content max-content;
+      gap: var(--s-2) var(--s-5);
+      font-size: var(--t-xs);
+      align-items: center;
+      margin-bottom: var(--s-5);
+    }
+    .keys span { color: var(--n-400); text-align: left; }
+    .keys kbd {
+      font-family: var(--mono);
+      font-size: var(--t-2xs);
+      font-weight: 500;
+      background: var(--n-800);
+      border: 1px solid var(--n-700);
+      border-radius: 5px;
+      padding: 3px var(--s-2);
+      color: var(--n-200);
+      justify-self: start;
+      white-space: nowrap;
+    }
+    /* The two vision modes are the point of the game, so their keys carry the signal colour. */
+    .keys kbd.is-vision {
+      color: var(--accent);
+      border-color: var(--accent-dim);
+      background: rgba(214, 255, 69, 0.07);
+    }
+
+    .prompt-foot {
+      font-size: var(--t-xs);
+      color: var(--n-300);
+      letter-spacing: 0.02em;
+    }
+    .prompt-foot b { color: var(--n-100); font-weight: 600; }
+
+    .prompt-gesture {
+      margin-top: var(--s-3);
+      font-size: var(--t-2xs);
+      line-height: 1.65;
+      color: var(--n-500);
+      max-width: 42ch;
+      text-wrap: pretty;
+    }
+    .prompt-gesture b { color: var(--n-300); font-weight: 500; }
+
+    /*
+     * Entrance choreography.
+     *
+     * Staggered 55ms apart so the block reads as a sequence with intent rather than one flashing
+     * card. Total stagger is capped under 350ms — past that it stops feeling composed and starts
+     * feeling like waiting.
+     */
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: none; }
+    }
+    #lock-prompt > * {
+      animation: rise var(--dur-slow) var(--ease-out) backwards;
+    }
+    #lock-prompt > *:nth-child(1) { animation-delay: 60ms; }
+    #lock-prompt > *:nth-child(2) { animation-delay: 115ms; }
+    #lock-prompt > *:nth-child(3) { animation-delay: 170ms; }
+    #lock-prompt > *:nth-child(4) { animation-delay: 225ms; }
+    #lock-prompt > *:nth-child(5) { animation-delay: 280ms; }
+    #lock-prompt > *:nth-child(6) { animation-delay: 320ms; }
+    #lock-prompt > *:nth-child(7) { animation-delay: 355ms; }
+
+    /*
+     * Reduced motion swaps movement for a fade rather than removing feedback entirely — the
+     * player still needs to see the interface arrive, they just should not be moved by it.
+     */
+    @media (prefers-reduced-motion: reduce) {
+      @keyframes rise {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+      }
+      #lock-prompt > * { animation-duration: var(--dur-fast); animation-delay: 0ms !important; }
+      #lock-prompt.is-hidden { transform: none; filter: none; }
+      #speed-lines { transition: none; }
+    }
+
+    /* ── Finish panel ──────────────────────────────────────────────────────── */
+    #finish-panel {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.96);
+      background: rgba(8, 12, 20, 0.92);
+      border: 1px solid rgba(0, 245, 155, 0.4);
+      border-radius: 16px;
+      padding: 32px 56px;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      backdrop-filter: blur(16px);
+      transition: opacity 200ms ease, transform 200ms ease;
+    }
+    #finish-panel.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    .finish-label {
+      font-size: 12px;
+      letter-spacing: 0.34em;
+      color: var(--good);
+      margin-bottom: 12px;
+    }
+    #finish-time {
+      font-family: var(--mono);
+      font-size: 62px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .finish-note { margin-top: 14px; font-size: 13px; color: var(--n-300); }
+    .finish-note.record {
+      color: var(--good);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-shadow: 0 0 18px rgba(0, 245, 155, 0.5);
+    }
+    .finish-again { margin-top: 22px; font-size: 12px; color: var(--n-400); letter-spacing: 0.08em; }
+    .finish-again b { color: var(--n-100); }
+
+    .corner {
+      position: absolute;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      color: #5d6b7e;
+    }
+    .corner.tl { top: 22px; left: 24px; }
+    .corner.br { bottom: 22px; right: 24px; }
   </style>
 </head>
 <body>
-  <!-- The city draws here; its HUD (src/ui/CityHUD.ts) mounts itself inside #viewport. -->
   <div id="viewport">
     <canvas id="render-canvas"></canvas>
+    <!-- 2D instrument layer: route map, speed arc, hand tracking. Drawn above the 3D world. -->
+    <canvas id="overlay-canvas"></canvas>
+
+    <div id="hud">
+      <div id="speed-lines"></div>
+      <div id="vignette"></div>
+
+      <div class="corner tl">VORIXA · COURSE 01</div>
+      <div class="corner br"><b>R</b> RESTART</div>
+
+      <div class="timer-block">
+        <div id="hud-timer">0:00.00</div>
+        <div class="timer-meta">
+          <span>BEST <b id="hud-best">—</b></span>
+          <span>CP <b id="hud-checkpoint">0 / 4</b></span>
+        </div>
+        <div id="hud-delta" class="delta"></div>
+      </div>
+
+      <div id="reticle"></div>
+      <div id="hud-state"></div>
+      <!-- Muted state has to be visible, or a player who muted by accident concludes the audio
+           is broken. Announced politely so a screen reader reports the change without interrupting. -->
+      <div id="hud-muted" role="status" aria-live="polite" hidden>MUTED · M</div>
+
+      <div class="speed-block">
+        <div id="hud-speed">0</div>
+        <div class="speed-unit">KM / H</div>
+      </div>
+      <div class="dash-label">DASH</div>
+      <div id="hud-dash" class="ready"></div>
+
+      <div id="lock-prompt">
+        <div class="prompt-eyebrow">Course 01 · Time Attack</div>
+        <h1>Look where you want to <em>go</em></h1>
+        <p class="prompt-lede">
+          Steer with your eyes. Your hands bank, brake and boost. Keyboard and mouse work too.
+        </p>
+        <div class="prompt-rule"></div>
+        <div class="keys">
+          <span>Gaze control · webcam</span><kbd class="is-vision">E</kbd>
+          <span>Hand control · webcam</span><kbd class="is-vision">G</kbd>
+          <span>Move</span><kbd>W A S D</kbd>
+          <span>Jump / Wall-jump</span><kbd>Space</kbd>
+          <span>Dash</span><kbd>Shift</kbd>
+          <span>Slide</span><kbd>Ctrl</kbd>
+          <span>Restart</span><kbd>R</kbd>
+          <span>Mute</span><kbd>M</kbd>
+        </div>
+        <div class="prompt-foot">
+          Click to play — the clock starts when you <b>move</b>
+        </div>
+        <div class="prompt-gesture">
+          <b>E</b> look to steer, hard blink to slow time · <b>G</b> open palm to run, pinch to
+          dash, fist to jump. With both on, your eyes steer and your hand banks, brakes and boosts.
+        </div>
+      </div>
+
+      <div id="finish-panel">
+        <div class="finish-label">COURSE CLEAR</div>
+        <div id="finish-time">0:00.00</div>
+        <div id="finish-note" class="finish-note"></div>
+        <div class="finish-again"><b>R</b> to run it again</div>
+      </div>
+    </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

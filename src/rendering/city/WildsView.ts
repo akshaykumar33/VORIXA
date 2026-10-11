@@ -65,12 +65,26 @@ function rippleNormals(): THREE.CanvasTexture {
   });
 }
 
-/** Adds wind to a material: vertices sway with their height above the instance's base. */
-function addWind(m: THREE.Material, time: { value: number }, strength: number): void {
+/**
+ * Adds wind to a material: vertices sway with their height above the instance's base. Leaf cards
+ * also get foliage lighting: normals bent toward the sky and both faces lit alike, so a canopy
+ * reads as one soft mass instead of black where a card faces away from the sun.
+ */
+function addWind(m: THREE.Material, time: { value: number }, strength: number, leaf: boolean): void {
   const prev = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
     prev.call(m, shader, renderer);
     shader.uniforms.uWindTime = time;
+    if (leaf) {
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <beginnormal_vertex>',
+        '#include <beginnormal_vertex>\nobjectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), 0.65));'
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        '#include <normal_fragment_begin>\n#ifdef DOUBLE_SIDED\nnormal *= faceDirection;\n#endif'
+      );
+    }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uWindTime;')
       .replace(
@@ -85,7 +99,7 @@ function addWind(m: THREE.Material, time: { value: number }, strength: number): 
         #endif`
       );
   };
-  m.customProgramCacheKey = () => `wind-${strength}`;
+  m.customProgramCacheKey = () => `wind-${strength}-${leaf}`;
 }
 
 interface Tile {
@@ -134,9 +148,14 @@ export class WildsView {
           }
           const leafy = /leaf|leaves|grass|flower|fern|bush|clover|plant/i.test(m.name);
           if (leafy) m.side = THREE.DoubleSide;
+          // The kit's twisted trees are candy red; deepen them to a maple in autumn.
+          if (m.name === 'Leaves_TwistedTree' && !m.userData.toned) {
+            m.userData.toned = true;
+            m.color.setRGB(0.55, 0.42, 0.36);
+          }
           if (!m.userData.windy && (leafy || /Grass|Flower|Fern|Bush|Plant|Clover/.test(root.name))) {
             m.userData.windy = true;
-            addWind(m, this.wind, /Grass|Flower|Fern|Clover/.test(root.name) ? 0.08 : 0.018);
+            addWind(m, this.wind, /Grass|Flower|Fern|Clover/.test(root.name) ? 0.08 : 0.018, /leaf|leaves/i.test(m.name));
           }
           const geometry = materials.length > 1 && mesh.geometry.groups.length ? subset(mesh.geometry, i) : mesh.geometry;
           list.push({ geometry, material: m, local });

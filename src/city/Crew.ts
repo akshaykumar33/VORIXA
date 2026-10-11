@@ -147,7 +147,9 @@ export const CITIZEN_MODELS = Array.from({ length: 12 }, (_, i) => `mh-citizen-$
 const CLOTH = [0x3b5b8c, 0x8c3b3b, 0x3b8c5a, 0xc9a13a, 0x6a6a72, 0x2c2c34, 0xd9d4c7, 0x7a4a8c, 0x1f8a8a, 0xb35a2c];
 
 /** Plain, light garments: the ones a tint reads well on. */
-const CLOTH_MATERIALS = ['elvs_crude_t-shirt_male', 'namuhekam_male_polo_shirt', 'toigo_wool_pants'];
+const CLOTH_MATERIALS = ['elvs_crude_t-shirt_male', 'namuhekam_male_polo_shirt', 'toigo_wool_pants', 'male_casualsuit01', 'male_casualsuit03', 'male_casualsuit06'];
+/** The hero's own suit: a citizen wearing it is always recoloured, so nobody walks past as the hero's twin. */
+const HERO_SUIT = 'male_casualsuit05';
 
 function hash(n: number, salt: number): number {
   let h = (n * 374761393 + salt * 668265263) | 0;
@@ -163,6 +165,7 @@ export function citizen(n: number): CharacterDef {
   CLOTH_MATERIALS.forEach((m, i) => {
     if (hash(n, 10 + i) < 0.6) palette[m] = CLOTH[Math.floor(hash(n, 30 + i) * CLOTH.length)];
   });
+  palette[HERO_SUIT] = CLOTH[Math.floor(hash(n, 40) * CLOTH.length)];
   return { id: `citizen-${n}`, name: 'Citizen', alias: '', role: 'Citizen', bio: '', faction: 'citizen', model, palette };
 }
 
