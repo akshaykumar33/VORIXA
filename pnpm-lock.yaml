@@ -4,10 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  tinypool: '>=2.1.2'
-  source-map-js: '>=1.2.2'
-
 importers:
 
   .:
@@ -38,8 +34,8 @@ importers:
         version: 0.186.0
     devDependencies:
       '@gltf-transform/core':
-        specifier: ^4.5.0
-        version: 4.5.0
+        specifier: ^4.5.1
+        version: 4.5.1
       '@gltf-transform/extensions':
         specifier: ^4.5.0
         version: 4.5.0
@@ -247,8 +243,8 @@ packages:
   '@fontsource/lilita-one@5.3.0':
     resolution: {integrity: sha512-bNW3tD+m5pOsAQpW/NvtRbFthFe+B73hDJK2DLLCFCtF+1p+UMBgo7ibxdcb9Sftr06LKAVbt080wiMdSqGbOg==}
 
-  '@gltf-transform/core@4.5.0':
-    resolution: {integrity: sha512-JlvShvnB4AtfGZqjnESS/wfPJbpVnyHhTwJBbWN4qXqkB3C5HIoxxpu/orwGBge6Pc0zObeWj70lVf+4gbuu0A==}
+  '@gltf-transform/core@4.5.1':
+    resolution: {integrity: sha512-OWgBYssKHKoXMIrMb2N20jXqWRnMP9HdtcTFQBEAJtz4P+OOxx5fozl5eAeK7nktIs5uDE/lu4NbkE5VCZaR9g==}
 
   '@gltf-transform/extensions@4.5.0':
     resolution: {integrity: sha512-J4cKzrmEr75YkrtdI4cKosBg2vDC4rT56aq/QoijW7GT1Y9gSEMJbqyFO9xcFO3FNpZaZiDrHWUqE5Okrl5nOQ==}
@@ -820,9 +816,9 @@ packages:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
     engines: {node: '>=12.0.0'}
 
-  tinypool@2.2.0:
-    resolution: {integrity: sha512-jBrmx4lYmaC9k/mgPbylxs7kBUxHtD8256up+HjLaDFfXScKJQyil+SWXSvhAtT7XHo+yTVlpB81PGmHP8oLSQ==}
-    engines: {node: ^20.0.0 || >=22.0.0}
+  tinypool@1.1.1:
+    resolution: {integrity: sha512-Zba82s87IFq9A9XmjiX5uZA/ARWDrB03OHlq+Vw1fSdt0I+4/Kutwy8BP4Y/y/aORMo61FQ0vIb5j44vSo5Pkg==}
+    engines: {node: ^18.0.0 || >=20.0.0}
 
   tinyrainbow@2.0.0:
     resolution: {integrity: sha512-op4nsTR47R6p0vMUUoYl/a+ljLFVtlfaXkLQmqfLR1qHma1h/ysYk4hEXZ880bf2CYgTskvTa/e196Vd5dDQXw==}
@@ -1019,18 +1015,18 @@ snapshots:
 
   '@fontsource/lilita-one@5.3.0': {}
 
-  '@gltf-transform/core@4.5.0':
+  '@gltf-transform/core@4.5.1':
     dependencies:
       property-graph: 4.1.0
 
   '@gltf-transform/extensions@4.5.0':
     dependencies:
-      '@gltf-transform/core': 4.5.0
+      '@gltf-transform/core': 4.5.1
       ktx-parse: 1.1.0
 
   '@gltf-transform/functions@4.5.0(@types/node@22.20.3)':
     dependencies:
-      '@gltf-transform/core': 4.5.0
+      '@gltf-transform/core': 4.5.1
       '@gltf-transform/extensions': 4.5.0
       ktx-parse: 1.1.0
       ndarray: 1.1.1
@@ -1533,7 +1529,7 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
 
-  tinypool@2.2.0: {}
+  tinypool@1.1.1: {}
 
   tinyrainbow@2.0.0: {}
 
@@ -1601,7 +1597,7 @@ snapshots:
       tinybench: 2.9.0
       tinyexec: 0.3.2
       tinyglobby: 0.2.17
-      tinypool: 2.2.0
+      tinypool: 1.1.1
       tinyrainbow: 2.0.0
       vite: 6.4.3(@types/node@22.20.3)
       vite-node: 3.2.4(@types/node@22.20.3)
