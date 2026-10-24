@@ -1,5 +1,6 @@
 import { MAX_HP, ROUNDS_TO_WIN, type Fight } from '../fighter/Fight';
 import type { Contender } from '../fighter/Roster';
+import type { StageDef } from '../rendering/fighter/Stages';
 
 /**
  * Akhada's HUD and menus (ADR-0016), in the DOM over the canvas: health bars with a trailing red
@@ -47,7 +48,7 @@ const CSS = `
 .ak-roster { display:flex; gap:16px; margin:10px 0 22px; }
 .ak-card { width:170px; padding:14px 12px; border:2px solid rgba(255,210,150,.35); background:rgba(20,8,2,.6); text-align:center; transform:skewX(-6deg); transition:transform .15s,border-color .15s,box-shadow .15s; }
 .ak-card.p1 { border-color:#ffb21f; box-shadow:0 0 22px rgba(255,178,31,.6); transform:skewX(-6deg) translateY(-6px); }
-.ak-card .nm { font-size:30px; font-weight:900; text-transform:uppercase; }
+.ak-card .nm { font-size:clamp(15px, 1.5vw, 24px); font-weight:900; text-transform:uppercase; white-space:nowrap; }
 .ak-card .tt { font-size:14px; opacity:.8; letter-spacing:.08em; min-height:34px; }
 .ak-card .sw { height:6px; margin:8px auto 0; width:60%; }
 .ak-opts { display:flex; gap:10px; margin-bottom:18px; }
@@ -55,6 +56,10 @@ const CSS = `
 .ak-opt.on { border-color:#ffb21f; background:rgba(255,178,31,.18); }
 .ak-help { font-size:16px; opacity:.8; letter-spacing:.06em; line-height:1.7; text-align:center; max-width:880px; }
 .ak-help kbd { display:inline-block; padding:0 6px; border:1px solid rgba(255,255,255,.5); border-radius:3px; font-family:inherit; }
+.ak-arena { display:flex; align-items:center; gap:18px; margin-bottom:16px; font-size:20px; letter-spacing:.06em; }
+.ak-arena > div { text-align:center; min-width:420px; padding:8px 16px; border:2px solid rgba(255,178,31,.6); background:rgba(40,16,4,.6); }
+.ak-arena small { display:block; font-size:14px; opacity:.8; letter-spacing:.02em; font-family:'Space Grotesk Variable',system-ui,sans-serif; margin-top:4px; }
+.ak-arena span { opacity:.7; font-weight:700; }
 .ak-bio { max-width:640px; text-align:center; font-size:18px; opacity:.9; min-height:48px; margin-bottom:14px; font-family:'Space Grotesk Variable',system-ui,sans-serif; }
 .ak-loading { position:absolute; bottom:40px; left:50%; transform:translateX(-50%); width:320px; height:4px; background:rgba(255,255,255,.15); }
 .ak-loading i { display:block; height:100%; background:#ffb21f; width:0; transition:width .2s; }
@@ -171,16 +176,17 @@ export class AkhadaHud {
     (this.screen.querySelector('.ak-loading i') as HTMLElement).style.width = `${share * 100}%`;
   }
 
-  public select(roster: Contender[], pick: number, modes: string[], mode: number): void {
+  public select(roster: Contender[], pick: number, modes: string[], mode: number, arena: StageDef): void {
     this.screen.style.display = 'flex';
     const c = roster[pick];
     this.screen.innerHTML = `
-      <h2>AKHADA</h2><div class="sub">THE GHATS OF KASHI · अखाड़ा</div>
+      <h2>AKHADA</h2><div class="sub">ASURAS OF THE EPICS · अखाड़ा</div>
       <div class="ak-roster">${roster.map((r, i) => `<div class="ak-card ${i === pick ? 'p1' : ''}"><div class="nm">${r.name}</div><div class="tt">${r.title}</div><div class="sw" style="background:${hex(r.colour)}"></div></div>`).join('')}</div>
-      <div class="ak-bio">${c.bio}</div>
+      <div class="ak-bio"><b>${c.name}</b> · ${c.source}<br>${c.bio}</div>
+      <div class="ak-arena"><span>◀ Q</span><div><b>${arena.name}</b> · ${arena.state}<small>${arena.legend}</small></div><span>E ▶</span></div>
       <div class="ak-opts">${modes.map((m, i) => `<div class="ak-opt ${i === mode ? 'on' : ''}">${m}</div>`).join('')}</div>
       <div class="ak-help">
-        <kbd>A</kbd><kbd>D</kbd> fighter · <kbd>W</kbd><kbd>S</kbd> mode · <kbd>ENTER</kbd> fight<br>
+        <kbd>A</kbd><kbd>D</kbd> fighter · <kbd>Q</kbd><kbd>E</kbd> arena · <kbd>W</kbd><kbd>S</kbd> mode · <kbd>ENTER</kbd> fight<br>
         P1: <kbd>W A S D</kbd> move, jump, crouch · <kbd>U</kbd> <kbd>I</kbd> punch · <kbd>J</kbd> <kbd>K</kbd> kick · hold back to block<br>
         ↓↘→ + punch: blast (<kbd>O</kbd>) · ↓↙← + kick: dash strike (<kbd>L</kbd>) · ↓↘→↓↘→ + punch with a full bar: super (<kbd>;</kbd>)<br>
         P2: arrows · numpad <kbd>4</kbd> <kbd>5</kbd> punch, <kbd>1</kbd> <kbd>2</kbd> kick, <kbd>6</kbd> blast, <kbd>3</kbd> dash, <kbd>0</kbd> super · gamepads work too
