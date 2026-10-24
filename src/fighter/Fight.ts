@@ -170,6 +170,7 @@ export class Fight {
   /** Recent directions per player, in numpad notation relative to facing, with timestamps. */
   private readonly history: { dir: number; t: number }[][] = [[], []];
   private time = 0;
+  private roundPending = false;
 
   public constructor(a: FighterDef, b: FighterDef) {
     this.fighters = [this.make(0, a), this.make(1, b)];
@@ -193,12 +194,17 @@ export class Fight {
     this.clock = ROUND_TIME;
     this.phase = 'intro';
     this.phaseT = 0;
-    this.events.push({ type: 'round', round: this.round });
+    // Raised on the next step, so it is not cleared before anyone reads it.
+    this.roundPending = true;
   }
 
   public step(inputs: readonly FightInput[]): void {
     this.events.length = 0;
     if (this.phase === 'over') return;
+    if (this.roundPending) {
+      this.roundPending = false;
+      this.events.push({ type: 'round', round: this.round });
+    }
     this.time += STEP;
     this.phaseT += STEP;
     // The intro holds the fighters still; FIGHT! after two seconds.
