@@ -41,6 +41,9 @@ CLIPS = [
     # Universal Animation Library 2
     'Idle_TalkingPhone_Loop', 'Idle_FoldArms_Loop', 'Idle_No_Loop', 'Yes', 'Hit_Knockback', 'ClimbUp_1m',
     'Slide_Start', 'Slide_Loop', 'Slide_Exit', 'Walk_Carry_Loop', 'Idle_Rail_Call', 'OverhandThrow',
+    # The fighter (ADR-0016): stance, guard, hooks, the energy blast, ninja jumps, getting up.
+    'Melee_Hook', 'Melee_Hook_Rec', 'Idle_Shield_Loop', 'Idle_Shield_Break', 'Sword_Block', 'LayToIdle',
+    'Spell_Simple_Enter', 'Spell_Simple_Shoot', 'NinjaJump_Start', 'NinjaJump_Idle_Loop', 'NinjaJump_Land', 'Shield_Dash',
 ]
 
 # Source bone name → target bone name, where they differ.

@@ -59,6 +59,15 @@ export class PostFX {
     this.composer.setSize(width, height);
   }
 
+  /**
+   * Ambient occlusion's reach and strength. The default suits streets and buildings; a scene of
+   * small props against open sky wants a tighter radius, or thin things go black.
+   */
+  public setOcclusion(radius: number, intensity: number): void {
+    this.ao.configuration.aoRadius = radius;
+    this.ao.configuration.intensity = intensity;
+  }
+
   /** Lower-cost settings for weaker GPUs: AO at lower quality. */
   public setLowQuality(low: boolean): void {
     this.ao.setQualityMode(low ? 'Performance' : 'Medium');
