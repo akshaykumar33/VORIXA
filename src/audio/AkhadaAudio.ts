@@ -1,17 +1,16 @@
 import type { FightEvent } from '../fighter/Fight';
+import { Raga, type RagaDef } from './Raga';
 
 /**
- * Akhada's sound (ADR-0016), all synthesised: a dhol rhythm under the fight (the deep "dha" and
- * the sharp "na"), punches, kicks, blocks, blasts, thunder and the storm's rain.
+ * Akhada's sound (ADR-0016, ADR-0017), all synthesised: the arena's raga under the fight, the
+ * shankh and temple bells, punches, kicks, blocks, blasts, thunder and the storm's rain.
  */
 export class AkhadaAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private drums: GainNode | null = null;
   private rain: GainNode | null = null;
-  private nextBeat = 0;
-  private step = 0;
-  private tempo = 100;
+  private raga: Raga | null = null;
   public muted = false;
 
   public unlock(): void {
@@ -21,7 +20,7 @@ export class AkhadaAudio {
       this.master.gain.value = 0.8;
       this.master.connect(this.ctx.destination);
       this.drums = this.ctx.createGain();
-      this.drums.gain.value = 0.35;
+      this.drums.gain.value = 0.55;
       this.drums.connect(this.master);
     }
     void this.ctx.resume();
@@ -69,28 +68,31 @@ export class AkhadaAudio {
     o.stop(at + seconds + 0.02);
   }
 
-  /** Keeps the dhol going: schedules beats a little ahead of time. `intensity` 0..1 speeds it up. */
+  /** The arena's raga under the fight; it quickens as health drops. Silent outside the fight. */
   public update(fighting: boolean, intensity: number): void {
-    const ctx = this.ctx;
-    if (!ctx || !fighting) return;
-    this.tempo = 96 + intensity * 40;
-    const sixteenth = 60 / this.tempo / 4;
-    if (this.nextBeat < ctx.currentTime) this.nextBeat = ctx.currentTime + 0.05;
-    // Keherwa-like: dha . . na | dha . na . | dha . . na | dha na dha na
-    const pattern = 'D..ND.N.D..NDNDN';
-    while (this.nextBeat < ctx.currentTime + 0.2) {
-      const hit = pattern[this.step % pattern.length];
-      const at = this.nextBeat;
-      if (hit === 'D') {
-        this.tone(at, 95, 48, 0.32, 0.9, 'sine', this.drums!);
-        this.burst(at, 0.05, 'lowpass', 600, 0.5, this.drums!);
-      } else if (hit === 'N') {
-        this.burst(at, 0.07, 'bandpass', 2600, 0.7, this.drums!);
-        this.tone(at, 420, 380, 0.08, 0.25, 'triangle', this.drums!);
-      }
-      this.step++;
-      this.nextBeat += sixteenth;
-    }
+    if (!this.raga) return;
+    this.raga.intensity = intensity;
+    if (fighting) this.raga.update();
+  }
+
+  /** Starts an arena's raga (the drone begins at once, the tala on the next update). */
+  public music(def: RagaDef): void {
+    this.unlock();
+    this.raga ??= new Raga(this.ctx!, this.drums!);
+    this.raga.play(def);
+  }
+
+  public stopMusic(): void {
+    this.raga?.stop();
+  }
+
+  /** The shankh at FIGHT!, the temple bell at a round and a KO. */
+  public conch(): void {
+    this.raga?.conch();
+  }
+
+  public bell(): void {
+    this.raga?.bell();
   }
 
   public play(events: readonly FightEvent[]): void {
@@ -123,9 +125,13 @@ export class AkhadaAudio {
           break;
         case 'ko':
           this.tone(t, 220, 55, 1.2, 0.5, 'sawtooth');
+          this.bell();
           break;
         case 'fight':
-          [0, 0.09, 0.18].forEach((d) => this.tone(t + d, 95, 48, 0.3, 1, 'sine', this.drums!));
+          this.conch();
+          break;
+        case 'round':
+          this.bell();
           break;
       }
     }
