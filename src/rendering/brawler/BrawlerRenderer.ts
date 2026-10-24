@@ -1085,6 +1085,78 @@ export class BrawlerRenderer {
     g.restore();
   }
 
+  /**
+   * A story face-off: the two portraits large on either side, the speaker lit and the listener
+   * dimmed, and the line typing out in a box below. Heroes stand on the left, the Choir on the right.
+   */
+  public story(speaker: Kind, facing: Kind, text: string, shown: number): void {
+    const g = this.g;
+    const hero = (k: Kind) => k === 'kai' || k === 'vex';
+    const left = hero(speaker) ? speaker : facing;
+    const right = left === speaker ? facing : speaker;
+    g.save();
+    g.fillStyle = 'rgba(5,2,12,0.72)';
+    g.fillRect(0, 0, W, H);
+    const draw = (kind: Kind, side: 'left' | 'right') => {
+      const img = this.portraits.get(kind);
+      if (!img || !ready(img)) return;
+      const lit = kind === speaker;
+      const h = H * 0.86;
+      const w = (img.naturalWidth * h) / img.naturalHeight;
+      const x = side === 'left' ? 30 : W - w - 30;
+      g.save();
+      g.globalAlpha = lit ? 1 : 0.32;
+      if (!lit) g.filter = 'grayscale(0.7) brightness(0.7)';
+      g.drawImage(img, x, H - h - 4 + (lit ? 0 : 10), w, h);
+      g.restore();
+      if (lit) {
+        g.save();
+        g.strokeStyle = NEON[kind];
+        g.lineWidth = 3;
+        g.shadowColor = NEON[kind];
+        g.shadowBlur = 20;
+        g.strokeRect(x, H - h - 4, w, h);
+        g.restore();
+      }
+    };
+    draw(left, 'left');
+    draw(right, 'right');
+    // The dialogue box.
+    const bx = 150;
+    const by = H - 150;
+    const bw = W - 300;
+    g.fillStyle = 'rgba(8,4,18,0.92)';
+    g.fillRect(bx, by, bw, 120);
+    g.strokeStyle = NEON[speaker];
+    g.lineWidth = 2;
+    g.strokeRect(bx, by, bw, 120);
+    g.font = '900 20px "Space Grotesk Variable", system-ui, sans-serif';
+    g.fillStyle = NEON[speaker];
+    g.textAlign = 'left';
+    g.fillText(NAMES[speaker].toUpperCase(), bx + 20, by + 32);
+    g.font = '500 18px "Space Grotesk Variable", system-ui, sans-serif';
+    g.fillStyle = '#f2ecff';
+    const visible = text.slice(0, Math.floor(shown));
+    let line = '';
+    let y = by + 62;
+    for (const word of visible.split(' ')) {
+      const next = line ? line + ' ' + word : word;
+      if (g.measureText(next).width > bw - 40) {
+        g.fillText(line, bx + 20, y);
+        line = word;
+        y += 26;
+      } else line = next;
+    }
+    g.fillText(line, bx + 20, y);
+    if (shown >= text.length && Math.floor(this.clock * 2.5) % 2 === 0) {
+      g.textAlign = 'right';
+      g.font = '700 13px "Space Grotesk Variable", system-ui, sans-serif';
+      g.fillStyle = NEON[speaker];
+      g.fillText('ENTER / J  ▶', bx + bw - 16, by + 110);
+    }
+    g.restore();
+  }
+
   /** Full-screen panels: title, pause, game over, stage clear, over the painted cover art. */
   public panel(title: string, lines: string[], accent = '#ff3dd2'): void {
     // The cover art carries the logo; the title screen shows it rather than a second title.

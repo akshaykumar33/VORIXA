@@ -59,3 +59,19 @@ describe('sprite cells', () => {
     expect(cellFor(f, 0).frame).toBe(2);
   });
 });
+
+import { STAGE_ONE } from '../src/brawler/Brawler';
+import { STAGE_ONE_STORY, momentForWave } from '../src/brawler/Story';
+
+describe('story moments', () => {
+  it('opens a scene at the first brute and at the boss, and nowhere else', () => {
+    const moments = STAGE_ONE.waves.map((_, i) => momentForWave(STAGE_ONE, i));
+    expect(moments.filter((m) => m === 'brute')).toHaveLength(1);
+    expect(moments[STAGE_ONE.waves.length - 1]).toBe('boss');
+    expect(moments.filter((m) => m === null).length).toBe(STAGE_ONE.waves.length - 2);
+  });
+
+  it('has lines for every moment', () => {
+    for (const lines of Object.values(STAGE_ONE_STORY)) expect(lines.length).toBeGreaterThan(0);
+  });
+});
