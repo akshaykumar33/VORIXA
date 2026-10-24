@@ -209,6 +209,15 @@ image. Fetched and prepared by `scripts/assets/fetch-skies.mjs`.
 
 ---
 
+## Neon Knuckles (ADR-0015)
+
+Key art, the Stage 1 backdrop and the six character portraits in `public/assets/brawler/` were
+made for this project at the owner's direction (generated images; delivery notes and requests in
+`AI_ASSET_COORDINATION.md`). They are the project's own, with no third-party licence. The game
+loads the `.webp` copies, resized and compressed from the delivered `.jpg` files.
+
+---
+
 ## Adding an asset
 
 Every third-party asset needs an entry here **before** it ships, recording the author, the licence,
