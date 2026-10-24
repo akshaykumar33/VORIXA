@@ -218,6 +218,28 @@ loads the `.webp` copies, resized and compressed from the delivered `.jpg` files
 
 ---
 
+## Akhada (ADR-0016)
+
+From [Poly Haven](https://polyhaven.com), all [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode).
+Fetched and prepared by `scripts/assets/fetch-akhada.mjs` into `public/akhada/`: 1k HDRs and 2048-wide
+tone-mapped backdrops for the skies, 1k PBR maps as WebP, and models with 512 px WebP textures.
+
+| Asset | Kind | Authors |
+|---|---|---|
+| Qwantani Dusk 2 | Sky (dusk round) | Greg Zaal, Jarod Guest |
+| Approaching Storm | Sky (monsoon round) | Greg Zaal |
+| Large Sandstone Blocks | Ghat steps | Rob Tuytel |
+| Mossy Sandstone | Wet lower steps | Dimitrios Savva |
+| Red Sandstone Wall | Temples | Amal Kumar |
+| Patterned Clay Plaster | Houses | Amal Kumar |
+| Brass Diya Lantern | Lamps on the steps | Bhargav Kubal |
+| Brass Pot 01, Brass Pot 02 | Props | Rico Cilliers |
+| Ceramic Pot | Props | Aron Łyczek |
+
+The night round reuses Qwantani Night (above, under Skies).
+
+---
+
 ## Adding an asset
 
 Every third-party asset needs an entry here **before** it ships, recording the author, the licence,
