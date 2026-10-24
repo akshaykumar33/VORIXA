@@ -239,6 +239,11 @@ tone-mapped backdrops for the skies, 1k PBR maps as WebP, and models with 512 px
 | Brass Diya Lantern | Lamps on the steps | Bhargav Kubal |
 | Brass Pot 01, Brass Pot 02 | Props | Rico Cilliers |
 | Ceramic Pot | Props | Aron Łyczek |
+| Mud Cracked Dry 03 | Kurukshetra's field | Dario Barresi, Dimitrios Savva |
+| Aerial Beach 01 | Rameswaram's shore, Jaisalmer's dunes | Rob Tuytel |
+| White Sandstone Bricks | Rameswaram's gopurams | Rob Tuytel |
+| Sandstone Blocks 08 | Jaisalmer's fort | Rob Tuytel |
+| Rock Wall 08 | Rameswaram's granite pillars | Amal Kumar |
 
 The night round reuses Qwantani Night (above, under Skies).
 
