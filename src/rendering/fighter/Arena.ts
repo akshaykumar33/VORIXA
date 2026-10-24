@@ -3,58 +3,19 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Particles } from './Particles';
+import { STAGES, type ArenaKit, type Preset, type StageId, type Weather } from './Stages';
+
+export { WEATHER_BY_ROUND, type Weather } from './Stages';
 
 /**
- * Akhada's arena (ADR-0016): a ghat on the Ganga at Varanasi.
+ * Akhada's arena (ADR-0016, ADR-0017): the sky, light, weather and life of whichever place the
+ * fight is in. The places themselves (Varanasi, Kurukshetra, Rameswaram, Jaisalmer) are built by
+ * their stage definitions in Stages.ts from the parts this class offers (`ArenaKit`).
  *
- * The fight is on a sandstone landing (y = 0, x along the stage, the camera on +z). Behind the
- * fighters the steps run down to the river, with boats on it and the far bank in the haze; temple
- * spires flying saffron flags stand at both ends; chhatri umbrellas, diyas, brass and clay pots and
- * marigold garlands line the back of the landing.
- *
- * Weather changes by round: golden dusk, a monsoon storm (rain, lightning, wet stone), then night
- * lit by the diyas. Incense smoke rises from the temples in all of them.
+ * Each place has three rounds of weather: its first look, a dramatic one (a monsoon storm, a dust
+ * storm, the smoke of war) and night. Smoke rises from its incense, pyres and camps in all of them.
  */
 
-export type Weather = 'dusk' | 'storm' | 'night';
-export const WEATHER_BY_ROUND: Weather[] = ['dusk', 'storm', 'night'];
-
-interface Preset {
-  sky: string;
-  sun: number;
-  sunIntensity: number;
-  sunDir: THREE.Vector3;
-  hemiSky: number;
-  hemiGround: number;
-  hemi: number;
-  fog: number;
-  fogDensity: number;
-  env: number;
-  background: number;
-  wet: number;
-  diya: number;
-  rain: boolean;
-}
-
-const PRESETS: Record<Weather, Preset> = {
-  dusk: {
-    sky: '/akhada/sky/qwantani_dusk_2_puresky', sun: 0xffa660, sunIntensity: 2.6, sunDir: new THREE.Vector3(-0.7, 0.32, -0.6),
-    hemiSky: 0xffc8a0, hemiGround: 0x3a2618, hemi: 0.45, fog: 0xc48f6e, fogDensity: 0.011, env: 0.75, background: 1, wet: 0, diya: 1, rain: false
-  },
-  storm: {
-    sky: '/akhada/sky/kloofendal_overcast_puresky', sun: 0xa9bcd8, sunIntensity: 1.1, sunDir: new THREE.Vector3(0.3, 0.8, -0.4),
-    hemiSky: 0x8a9bb0, hemiGround: 0x22262c, hemi: 0.4, fog: 0x5b6573, fogDensity: 0.022, env: 0.55, background: 0.8, wet: 1, diya: 0.8, rain: true
-  },
-  night: {
-    sky: '/sky/neon', sun: 0x8fa6ff, sunIntensity: 0.55, sunDir: new THREE.Vector3(0.5, 0.6, -0.6),
-    hemiSky: 0x404a80, hemiGround: 0x120c18, hemi: 0.22, fog: 0x1b1a30, fogDensity: 0.016, env: 0.35, background: 0.7, wet: 0.3, diya: 2.2, rain: false
-  }
-};
-
-const STEP_RISE = 0.32;
-const STEP_RUN = 0.75;
-const STEPS = 8;
-const WATER_Y = -STEP_RISE * STEPS - 0.1;
 
 function canvasTexture(size: number, draw: (g: CanvasRenderingContext2D, s: number) => void, srgb = true): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -98,34 +59,18 @@ function flameTexture(): THREE.CanvasTexture {
   });
 }
 
-/** Striped canvas for the chhatri umbrellas: faded cotton in panels. */
-function umbrellaTexture(): THREE.CanvasTexture {
-  return canvasTexture(256, (g, s) => {
-    const colours = ['#d9b98a', '#c9a676', '#e2c79c'];
-    for (let i = 0; i < 16; i++) {
-      g.fillStyle = colours[i % colours.length];
-      g.beginPath();
-      g.moveTo(s / 2, s / 2);
-      g.arc(s / 2, s / 2, s / 2, (i / 16) * Math.PI * 2, ((i + 1) / 16) * Math.PI * 2);
-      g.fill();
-    }
-    g.strokeStyle = 'rgba(80,40,20,0.35)';
-    g.lineWidth = 3;
-    for (let r = 30; r < s / 2; r += 34) {
-      g.beginPath();
-      g.arc(s / 2, s / 2, r, 0, Math.PI * 2);
-      g.stroke();
-    }
-  });
-}
-
-export class Arena {
+export class Arena implements ArenaKit {
   public readonly group = new THREE.Group();
   public readonly smoke = new Particles(500, false);
   public readonly glow = new Particles(700, true);
   public readonly sun = new THREE.DirectionalLight(0xffffff, 2);
   public readonly hemi = new THREE.HemisphereLight(0xffffff, 0x222222, 0.4);
   public weather: Weather = 'dusk';
+  public stageId: StageId = 'varanasi';
+  public models!: ArenaKit['models'];
+  /** Everything belonging to the current place, cleared when the place changes. */
+  private readonly stage = new THREE.Group();
+  private waterY: number | null = null;
   /** Called with a 0..1 loudness when lightning strikes (for thunder). */
   public onLightning: (loudness: number) => void = () => {};
 
@@ -133,9 +78,9 @@ export class Arena {
   private readonly textures = new THREE.TextureLoader();
   private readonly hdr = new HDRLoader();
   private pmrem: THREE.PMREMGenerator | null = null;
-  private readonly skies = new Map<Weather, { env: THREE.Texture; backdrop: THREE.Texture }>();
+  private readonly skies = new Map<string, { env: THREE.Texture; backdrop: THREE.Texture }>();
   private readonly stone: THREE.MeshStandardMaterial[] = [];
-  private readonly water: THREE.MeshStandardMaterial;
+  private readonly waterMaterial: THREE.MeshStandardMaterial;
   private readonly flames: { sprite: THREE.Sprite; base: number; phase: number }[] = [];
   private readonly lamps: THREE.PointLight[] = [];
   private readonly flags: THREE.Mesh[] = [];
@@ -151,11 +96,11 @@ export class Arena {
   private emitT = 0;
 
   public constructor(private readonly scene: THREE.Scene) {
-    this.water = new THREE.MeshStandardMaterial({
+    this.waterMaterial = new THREE.MeshStandardMaterial({
       // Dark, glassy river water: what you see on it is the sky, not the water's own colour.
       color: 0x08181c, roughness: 0.03, metalness: 0.6, normalMap: rippleNormals(), normalScale: new THREE.Vector2(0.25, 0.25), envMapIntensity: 1.6
     });
-    this.water.normalMap!.repeat.set(90, 60);
+    this.waterMaterial.normalMap!.repeat.set(90, 60);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
@@ -167,13 +112,13 @@ export class Arena {
     sc.far = 60;
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.03;
-    this.group.add(this.sun, this.sun.target, this.hemi, this.smoke.points, this.glow.points);
+    this.group.add(this.sun, this.sun.target, this.hemi, this.smoke.points, this.glow.points, this.stage);
     scene.add(this.group);
   }
 
   // ─── Building ───────────────────────────────────────────────────────────────────────────────
 
-  private pbr(name: string, repeat: [number, number], tint = 0xffffff): THREE.MeshStandardMaterial {
+  public pbr(name: string, repeat: [number, number], tint = 0xffffff): THREE.MeshStandardMaterial {
     const load = (map: string, srgb: boolean) => {
       const t = this.textures.load(`/akhada/tex/${name}_${map}.webp`);
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -192,84 +137,63 @@ export class Arena {
     const [diya, pot1, pot2, clay] = await Promise.all(
       ['brass_diya_lantern', 'brass_pot_01', 'brass_pot_02', 'ceramic_pot'].map((m) => this.loader.loadAsync(`/akhada/models/${m}.glb`))
     );
-    await this.loadSky('dusk');
-
-    const landing = this.pbr('large_sandstone_blocks', [10, 3]);
-    const lower = this.pbr('mossy_sandstone', [8, 1]);
-    const red = this.pbr('red_sandstone_wall', [2, 4]);
-    const plaster = this.pbr('patterned_clay_plaster', [3, 3], 0xf0d7b0);
-
-    // The landing the fight is on, and the ground running back toward the town.
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(40, 1, 9), landing);
-    floor.position.set(0, -0.5, 1.5);
-    floor.receiveShadow = true;
-    this.group.add(floor);
-    // The steps down to the river, the lowest ones green with moss.
-    for (let i = 0; i < STEPS; i++) {
-      const step = new THREE.Mesh(new THREE.BoxGeometry(40, STEP_RISE, STEP_RUN + 0.02), i > 4 ? lower : landing);
-      step.position.set(0, -STEP_RISE * (i + 0.5), -3 - STEP_RUN * (i + 0.5));
-      step.receiveShadow = true;
-      this.group.add(step);
-    }
-    // The river, and the far bank in the haze.
-    const river = new THREE.Mesh(new THREE.PlaneGeometry(400, 260).rotateX(-Math.PI / 2), this.water);
-    river.position.set(0, WATER_Y, -9 - 130);
-    this.group.add(river);
-    const bank = new THREE.Mesh(new THREE.BoxGeometry(500, 3, 20), new THREE.MeshStandardMaterial({ color: 0x3b3a30, roughness: 1 }));
-    bank.position.set(0, WATER_Y + 0.6, -175);
-    this.group.add(bank);
-
-    // Temples standing on the steps either side of the fight, framing the river; more further out.
-    this.temple(red, plaster, pot1, -7.6, -7.2, 0.72, -1.75);
-    this.temple(red, plaster, pot1, 8.2, -7.6, 0.8, -1.95);
-    this.temple(red, plaster, pot1, -14, -3, 1.3);
-    this.temple(red, plaster, pot1, 15, -3.4, 1.2);
-    // Houses of the old city behind the temples, stacked up the bank.
-    for (const [x, w, h] of [[-15, 4, 7], [15.5, 3.6, 8.5], [19, 4, 6], [-23, 5, 9]] as const) {
-      const house = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), plaster);
-      house.position.set(x, h / 2, 1.5);
-      house.castShadow = true;
-      house.receiveShadow = true;
-      this.group.add(house);
-    }
-
-    // Chhatris along the back of the landing, with pots and garlands between them.
-    const cloth = new THREE.MeshStandardMaterial({ map: umbrellaTexture(), roughness: 0.9, side: THREE.DoubleSide });
-    const bamboo = new THREE.MeshStandardMaterial({ color: 0x8a6a3e, roughness: 0.8 });
-    const poles: THREE.Vector3[] = [];
-    for (let x = -8; x <= 8; x += 4) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 3.1, 8), bamboo);
-      pole.position.set(x, 1.55, -2.6);
-      pole.castShadow = true;
-      const shade = new THREE.Mesh(new THREE.ConeGeometry(1.7, 0.55, 24, 1, true), cloth);
-      shade.position.set(x, 3.05, -2.6);
-      shade.rotation.y = x;
-      shade.castShadow = true;
-      this.group.add(pole, shade);
-      poles.push(new THREE.Vector3(x, 2.6, -2.6));
-      this.place(x % 8 === 0 ? pot1 : pot2, x + 0.7, 0, -2.4, 0.9);
-      this.place(clay, x - 0.8, 0, -2.5, 0.8);
-    }
-    this.garlands(poles);
-    // Diyas along the edge of the top step and on the temple plinths.
-    for (let x = -9; x <= 9; x += 1.5) this.diya(diya, x, 0, -2.95);
-    for (const x of [-10.5, 11]) {
-      this.diya(diya, x - 1.4, 0.6, 0.4);
-      this.diya(diya, x + 1.4, 0.6, 0.4);
-    }
-    // Four flickering lights carry the diyas' glow onto the fighters and the stone.
-    for (const x of [-7, -2.5, 2.5, 7]) {
-      const lamp = new THREE.PointLight(0xffa040, 0, 9, 1.6);
-      lamp.position.set(x, 0.6, -2.8);
-      this.lamps.push(lamp);
-      this.group.add(lamp);
-    }
-    // Boats on the river, lanterns in their bows.
-    for (const [x, z, r] of [[-9, -16, 0.2], [6, -22, -0.3], [16, -14, 0.1], [-20, -28, 0.4]] as const) this.boat(x, z, r);
-    this.setWeather('dusk');
+    this.models = { diya, pot1, pot2, clay };
+    await this.setStage('varanasi');
   }
 
-  private place(gltf: GLTF, x: number, y: number, z: number, scale: number): void {
+  /** Builds a place (clearing the last one) and sets its first weather. */
+  public async setStage(id: StageId): Promise<void> {
+    this.stageId = id;
+    this.stage.clear();
+    this.stone.length = 0;
+    this.flames.length = 0;
+    this.lamps.length = 0;
+    this.flags.length = 0;
+    this.boats.length = 0;
+    this.incense.length = 0;
+    const def = STAGES[id];
+    this.waterY = def.waterY;
+    def.build(this);
+    await this.setWeather('dusk');
+  }
+
+  public add(...objects: THREE.Object3D[]): void {
+    this.stage.add(...objects);
+  }
+
+  public flame(x: number, y: number, z: number, size: number): void {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: flameTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    sprite.position.set(x, y, z);
+    sprite.scale.setScalar(size);
+    this.flames.push({ sprite, base: size, phase: x * 3.1 + z });
+    this.stage.add(sprite);
+  }
+
+  public lamp(x: number, y: number, z: number, colour = 0xffa040): void {
+    const lamp = new THREE.PointLight(colour, 0, 9, 1.6);
+    lamp.position.set(x, y, z);
+    this.lamps.push(lamp);
+    this.stage.add(lamp);
+  }
+
+  /** The river or the sea: dark glassy water with ripples, at height `y`. */
+  public water(y: number, colour: number): void {
+    this.waterMaterial.color.setHex(colour);
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(400, 260).rotateX(-Math.PI / 2), this.waterMaterial);
+    plane.position.set(0, y, -9 - 130);
+    this.stage.add(plane);
+  }
+
+  public smokeSource(at: THREE.Vector3): void {
+    this.incense.push(at.clone());
+  }
+
+  /** The current place's look for a round. */
+  private preset(weather: Weather): Preset {
+    return STAGES[this.stageId].weather[weather];
+  }
+
+  public place(gltf: GLTF, x: number, y: number, z: number, scale: number): void {
     const o = gltf.scene.clone(true);
     o.position.set(x, y, z);
     o.scale.setScalar(scale);
@@ -280,20 +204,20 @@ export class Arena {
         c.receiveShadow = true;
       }
     });
-    this.group.add(o);
+    this.stage.add(o);
   }
 
-  private diya(gltf: GLTF, x: number, y: number, z: number): void {
+  public diya(gltf: GLTF, x: number, y: number, z: number): void {
     this.place(gltf, x, y, z, 1.4);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: flameTexture(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
     sprite.position.set(x, y + 0.2, z);
     sprite.scale.setScalar(0.22);
     this.flames.push({ sprite, base: 0.22, phase: x * 3.1 + z });
-    this.group.add(sprite);
+    this.stage.add(sprite);
   }
 
   /** A nagara spire: a plinth and shrine, a curved tower faceted in sandstone, rings, a brass kalash and a flag. */
-  private temple(red: THREE.Material, plaster: THREE.Material, kalash: GLTF, x: number, z: number, scale: number, y = 0): void {
+  public temple(red: THREE.Material, plaster: THREE.Material, kalash: GLTF, x: number, z: number, scale: number, y = 0): void {
     const t = new THREE.Group();
     const plinth = new THREE.Mesh(new THREE.BoxGeometry(5, 0.6, 5), red);
     plinth.position.y = 0.3;
@@ -346,12 +270,12 @@ export class Arena {
     }
     t.position.set(x, 0, z);
     t.scale.setScalar(scale);
-    this.group.add(t);
+    this.stage.add(t);
     this.incense.push(new THREE.Vector3(x - 1.5 * scale, 0.7 * scale, z + 2.2 * scale), new THREE.Vector3(x + 1.5 * scale, 0.7 * scale, z + 2.2 * scale));
   }
 
   /** Cloth that ripples more the further it is from its staff. */
-  private windCloth(m: THREE.MeshStandardMaterial): void {
+  public windCloth(m: THREE.MeshStandardMaterial): void {
     m.onBeforeCompile = (shader) => {
       shader.uniforms.uWind = this.wind;
       shader.vertexShader = shader.vertexShader
@@ -367,7 +291,7 @@ export class Arena {
   }
 
   /** Marigold strings sagging between the umbrella poles: orange and yellow flowers. */
-  private garlands(poles: THREE.Vector3[]): void {
+  public garlands(poles: THREE.Vector3[]): void {
     const flowers: THREE.Vector3[] = [];
     for (let i = 0; i < poles.length - 1; i++) {
       const a = poles[i];
@@ -391,11 +315,11 @@ export class Arena {
     const merged = mergeGeometries(parts, false)!;
     const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, emissive: 0xff6a00, emissiveIntensity: 0.15 }));
     mesh.castShadow = true;
-    this.group.add(mesh);
+    this.stage.add(mesh);
   }
 
   /** A wooden river boat: a hull tapered and raised at both ends, a lantern in the bow. */
-  private boat(x: number, z: number, rot: number): void {
+  public boat(x: number, z: number, rot: number): void {
     const g = new THREE.BoxGeometry(5, 0.7, 1.5, 12, 1, 2);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
@@ -413,33 +337,34 @@ export class Arena {
     sprite.scale.setScalar(0.5);
     this.flames.push({ sprite, base: 0.5, phase: x });
     boat.add(sprite);
-    boat.position.set(x, WATER_Y + 0.15, z);
+    const y = (this.waterY ?? 0) + 0.15;
+    boat.position.set(x, y, z);
     boat.rotation.y = rot;
-    this.boats.push({ mesh: boat, phase: x * 0.7, y: WATER_Y + 0.15 });
-    this.group.add(boat);
+    this.boats.push({ mesh: boat, phase: x * 0.7, y });
+    this.stage.add(boat);
   }
 
   // ─── Weather ────────────────────────────────────────────────────────────────────────────────
 
-  private async loadSky(weather: Weather): Promise<void> {
-    if (this.skies.has(weather) || !this.pmrem) return;
-    const base = PRESETS[weather].sky;
+  private async loadSky(base: string): Promise<void> {
+    if (this.skies.has(base) || !this.pmrem) return;
     const [hdr, backdrop] = await Promise.all([this.hdr.loadAsync(`${base}.hdr`), this.textures.loadAsync(`${base}.jpg`)]);
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     const env = this.pmrem.fromEquirectangular(hdr).texture;
     hdr.dispose();
     backdrop.mapping = THREE.EquirectangularReflectionMapping;
     backdrop.colorSpace = THREE.SRGBColorSpace;
-    this.skies.set(weather, { env, backdrop });
+    this.skies.set(base, { env, backdrop });
   }
 
   /** Switches the sky, light, fog, wetness and rain to a round's weather. */
   public async setWeather(weather: Weather): Promise<void> {
     this.weather = weather;
-    await this.loadSky(weather);
-    if (this.weather !== weather) return;
-    const p = PRESETS[weather];
-    const sky = this.skies.get(weather)!;
+    const stage = this.stageId;
+    const p = this.preset(weather);
+    await this.loadSky(p.sky);
+    if (this.weather !== weather || this.stageId !== stage) return;
+    const sky = this.skies.get(p.sky)!;
     this.scene.background = sky.backdrop;
     this.scene.environment = sky.env;
     this.scene.backgroundIntensity = p.background;
@@ -494,11 +419,11 @@ export class Arena {
   public update(dt: number, focusX: number): void {
     this.time += dt;
     this.wind.value = this.time;
-    const p = PRESETS[this.weather];
+    const p = this.preset(this.weather);
     // The sun follows the fight so its shadow map covers it.
     this.sun.position.set(focusX + p.sunDir.x * 30, p.sunDir.y * 30, p.sunDir.z * 30);
     this.sun.target.position.set(focusX, 0, 0);
-    this.water.normalMap!.offset.set(this.time * 0.01, this.time * 0.02);
+    this.waterMaterial.normalMap!.offset.set(this.time * 0.01, this.time * 0.02);
 
     // Diyas flicker; the lamps carry it.
     for (const f of this.flames) {
@@ -528,13 +453,24 @@ export class Arena {
           vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.2, size: 0.07, life: 3, color: 0xd8ff6a, alpha: 0.9
         });
       }
-      // Mist off the river in the storm and at dusk.
-      if (this.weather !== 'night' && Math.random() < 0.3) {
+      // Mist off the water in the day and the storm.
+      if (this.waterY !== null && this.weather !== 'night' && Math.random() < 0.3) {
         this.smoke.emit({
-          x: focusX + (Math.random() - 0.5) * 30, y: WATER_Y + 0.4, z: -10 - Math.random() * 20, vx: 0.2, size: 4, grow: 8, life: 9,
+          x: focusX + (Math.random() - 0.5) * 30, y: this.waterY + 0.4, z: -10 - Math.random() * 20, vx: 0.2, size: 4, grow: 8, life: 9,
           color: p.fog, alpha: 0.18
         });
       }
+    }
+
+    // A dust storm: sand driven across the arena on the wind.
+    if (p.dust) {
+      for (let i = 0; i < 6; i++) {
+        this.smoke.emit({
+          x: focusX + 16 + Math.random() * 4, y: Math.random() * 6, z: -8 + Math.random() * 12, vx: -9 - Math.random() * 5, vy: (Math.random() - 0.5) * 0.6,
+          size: 1.2, grow: 3, life: 3.2, color: Math.random() < 0.5 ? 0xc89a60 : 0xa87a48, alpha: 0.28, drag: 0.95
+        });
+      }
+      if (Math.random() < 0.6) this.glow.emit({ x: focusX + 15, y: Math.random() * 3, z: -2 + Math.random() * 4, vx: -14, size: 0.03, life: 2.2, color: 0xffd8a0, alpha: 0.6 });
     }
 
     if (this.rain?.visible && this.rainPos) {
@@ -545,7 +481,7 @@ export class Arena {
         pos[i * 6 + 4] -= fall;
         pos[i * 6] -= 2 * dt;
         pos[i * 6 + 3] -= 2 * dt;
-        const ground = pos[i * 6 + 2] < -3 ? WATER_Y : 0;
+        const ground = pos[i * 6 + 2] < -3 && this.waterY !== null ? this.waterY : 0;
         if (pos[i * 6 + 1] < ground) {
           // A splash where it lands, now and then.
           if (Math.random() < 0.08) this.glow.emit({ x: pos[i * 6], y: ground + 0.02, z: pos[i * 6 + 2], vy: 0.6, size: 0.06, life: 0.18, color: 0x9fb2c8, alpha: 0.5, lift: -6 });
@@ -577,7 +513,7 @@ export class Arena {
       this.flash = 1;
       const pts: THREE.Vector3[] = [];
       let x = focusX + (Math.random() - 0.5) * 50;
-      for (let y = 60; y > WATER_Y; y -= 4 + Math.random() * 4) {
+      for (let y = 60; y > (this.waterY ?? 0); y -= 4 + Math.random() * 4) {
         pts.push(new THREE.Vector3(x, y, -90));
         x += (Math.random() - 0.5) * 6;
       }
@@ -595,6 +531,6 @@ export class Arena {
       this.bolt.visible = this.flash > 0.4 && Math.floor(this.flash * 20) % 3 !== 0;
       (this.bolt.material as THREE.LineBasicMaterial).opacity = this.flash;
     }
-    this.hemi.intensity = PRESETS.storm.hemi + this.flash * 2.2;
+    this.hemi.intensity = this.preset('storm').hemi + this.flash * 2.2;
   }
 }

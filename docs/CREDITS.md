@@ -167,6 +167,10 @@ Build steps, for the record: bodies at no subdivision, game-engine materials, te
 1024 px WebP (512 px for the two outfits that would otherwise pass the repo's 2 MB file cap),
 meshes meshopt-compressed.
 
+The Akhada asuras (`mh-asura-*.glb`, ADR-0017) are built the same way from the same CC0 assets:
+bare-chested bodies, `toigo_harem_pants`, `toigo_keyhole_tank_top` and `toigo_halter_dress_midi`,
+hair `long01` and `braid01`. Horns, crowns, jewellery and the gada are modelled in code.
+
 ### VORIXA City sounds
 
 Recorded, [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode), from OpenGameArt.
@@ -235,6 +239,11 @@ tone-mapped backdrops for the skies, 1k PBR maps as WebP, and models with 512 px
 | Brass Diya Lantern | Lamps on the steps | Bhargav Kubal |
 | Brass Pot 01, Brass Pot 02 | Props | Rico Cilliers |
 | Ceramic Pot | Props | Aron Łyczek |
+| Mud Cracked Dry 03 | Kurukshetra's field | Dario Barresi, Dimitrios Savva |
+| Aerial Beach 01 | Rameswaram's shore, Jaisalmer's dunes | Rob Tuytel |
+| White Sandstone Bricks | Rameswaram's gopurams | Rob Tuytel |
+| Sandstone Blocks 08 | Jaisalmer's fort | Rob Tuytel |
+| Rock Wall 08 | Rameswaram's granite pillars | Amal Kumar |
 
 The night round reuses Qwantani Night (above, under Skies).
 

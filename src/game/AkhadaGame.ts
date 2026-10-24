@@ -4,6 +4,8 @@ import { Fight, MAX_HP, STEP, blank, type FightEvent, type FightInput } from '..
 import { ROSTER, type Contender } from '../fighter/Roster';
 import { FightRenderer } from '../rendering/fighter/FightRenderer';
 import { AkhadaHud } from '../ui/AkhadaHud';
+import { RAGAS } from '../audio/Raga';
+import { STAGES, STAGE_ORDER } from '../rendering/fighter/Stages';
 
 /**
  * Akhada (ADR-0016): fighter select, the fight loop, input from keyboards and gamepads, the
@@ -39,6 +41,7 @@ export class AkhadaGame {
   private screen: Screen = 'loading';
   private pick = 0;
   private mode = 1;
+  private arena = 0;
   private fight: Fight | null = null;
   private cpu: Cpu | null = null;
   private fighters: [Contender, Contender] = [ROSTER[0], ROSTER[1]];
@@ -86,7 +89,8 @@ export class AkhadaGame {
 
   private showSelect(): void {
     this.screen = 'select';
-    this.hud.select(ROSTER, this.pick, MODES.map((m) => MODE_LABEL[m]), this.mode);
+    this.audio.stopMusic();
+    this.hud.select(ROSTER, this.pick, MODES.map((m) => MODE_LABEL[m]), this.mode, STAGES[STAGE_ORDER[this.arena]]);
   }
 
   private command(code: string): void {
@@ -95,8 +99,10 @@ export class AkhadaGame {
       else if (code === 'KeyD' || code === 'ArrowRight') this.pick = (this.pick + 1) % ROSTER.length;
       else if (code === 'KeyW' || code === 'ArrowUp') this.mode = (this.mode + MODES.length - 1) % MODES.length;
       else if (code === 'KeyS' || code === 'ArrowDown') this.mode = (this.mode + 1) % MODES.length;
+      else if (code === 'KeyQ') this.arena = (this.arena + STAGE_ORDER.length - 1) % STAGE_ORDER.length;
+      else if (code === 'KeyE') this.arena = (this.arena + 1) % STAGE_ORDER.length;
       else if (code === 'Enter' || code === 'Space') return void this.begin();
-      this.hud.select(ROSTER, this.pick, MODES.map((m) => MODE_LABEL[m]), this.mode);
+      this.hud.select(ROSTER, this.pick, MODES.map((m) => MODE_LABEL[m]), this.mode, STAGES[STAGE_ORDER[this.arena]]);
     } else if (this.screen === 'fight') {
       if (code === 'Escape') this.pause();
       if (code === 'KeyM') this.audio.toggleMute();
@@ -123,8 +129,11 @@ export class AkhadaGame {
     const theirs = others[Math.floor(Math.random() * others.length)];
     this.fighters = [mine, theirs];
     this.hud.loading(0.9);
+    const stage = STAGE_ORDER[this.arena];
+    if (this.renderer.arena.stageId !== stage) await this.renderer.arena.setStage(stage);
     await this.renderer.cast(mine, theirs);
     this.fight = new Fight(mine, theirs);
+    this.audio.music(RAGAS[STAGES[stage].raga]);
     const mode = MODES[this.mode];
     this.cpu = mode === 'versus' ? null : new Cpu(1, DIFFICULTY[mode], Date.now() % 100000);
     this.hud.setFighters(mine, theirs);
@@ -197,7 +206,7 @@ export class AkhadaGame {
       if (e.type === 'round') {
         this.hud.call(`ROUND ${e.round}`, `राउंड ${e.round}`, 1.6);
         this.say(`Round ${e.round}`);
-        this.audio.setRain(e.round === 2);
+        this.audio.setRain(!!STAGES[this.renderer.arena.stageId].weather[e.round === 2 ? 'storm' : e.round === 3 ? 'night' : 'dusk'].rain);
       } else if (e.type === 'fight') {
         this.hud.call(CALLS.fight[0], CALLS.fight[1], 0.9);
         this.say('Fight!');
@@ -222,6 +231,7 @@ export class AkhadaGame {
     const w = fight.winner ?? 0;
     this.hud.results(this.fighters[w], this.fighters[1 - w].name);
     this.audio.setRain(false);
+    this.audio.stopMusic();
   }
 
   /** The announcer's voice, in an Indian English voice where the browser has one. */

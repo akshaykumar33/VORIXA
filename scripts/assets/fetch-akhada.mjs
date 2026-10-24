@@ -17,7 +17,11 @@ import { textureCompress } from '@gltf-transform/functions';
 
 // Sky-only versions: the full panoramas have land in them, which shows behind the river.
 const SKIES = ['qwantani_dusk_2_puresky', 'kloofendal_overcast_puresky'];
-const TEXTURES = ['large_sandstone_blocks', 'mossy_sandstone', 'red_sandstone_wall', 'patterned_clay_plaster'];
+const TEXTURES = [
+  'large_sandstone_blocks', 'mossy_sandstone', 'red_sandstone_wall', 'patterned_clay_plaster',
+  // Kurukshetra, Rameswaram, Jaisalmer (ADR-0017).
+  'mud_cracked_dry_03', 'aerial_beach_01', 'white_sandstone_bricks', 'sandstone_blocks_08', 'rock_wall_08'
+];
 const MODELS = ['brass_diya_lantern', 'brass_pot_01', 'brass_pot_02', 'ceramic_pot'];
 
 const SRC = path.resolve('assets-src/akhada');
