@@ -88,7 +88,7 @@ describe('The cast', () => {
       const names = new Set((await io.read(`${DIR}/${model}.glb`)).getRoot().listNodes().map((n) => n.getName()));
       for (const b of bones) expect(names.has(b), `${model} ${b}`).toBe(true);
     }
-  });
+  }, 30_000); // Parses every cast file; under a parallel full run that can pass the 5 s default.
 
   it('has every clip the game asks for, under the game’s names', () => {
     const names = new Set(castClips(anims, 1).map((c) => c.name));
