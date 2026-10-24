@@ -1,4 +1,5 @@
 import { Brawl, STAGE_ONE, STEP, rankFor, type BrawlEvent, type PlayerInput } from '../brawler/Brawler';
+import { STAGE_ONE_STORY, momentForWave, type Line } from '../brawler/Story';
 import { BrawlerRenderer } from '../rendering/brawler/BrawlerRenderer';
 
 /**
@@ -17,7 +18,7 @@ const KEYS = [
   }
 ];
 
-type Screen = 'title' | 'play' | 'paused' | 'over' | 'clear';
+type Screen = 'title' | 'play' | 'paused' | 'over' | 'clear' | 'story';
 
 /** Short synthesised hits: a punch should be heard as much as seen. */
 class Sfx {
@@ -88,6 +89,8 @@ export class BrawlerGame {
   private last = 0;
   private acc = 0;
   private hiscore = 0;
+  /** The scene being read: its remaining lines, how much of the current one has typed out, and where to go after. */
+  private scene: { lines: Line[]; shown: number; then: Screen } | null = null;
 
   public constructor(canvas: HTMLCanvasElement) {
     this.renderer = new BrawlerRenderer(canvas);
@@ -110,6 +113,10 @@ export class BrawlerGame {
   }
 
   private command(code: string): void {
+    if (this.screen === 'story' && (code === 'Enter' || code === 'KeyJ' || code === 'Space' || code === 'Comma')) {
+      this.advance();
+      return;
+    }
     if (code === 'Enter') {
       if (this.screen === 'title' || this.screen === 'over' || this.screen === 'clear') this.begin();
       else if (this.screen === 'paused') this.screen = 'play';
@@ -123,6 +130,31 @@ export class BrawlerGame {
     this.brawl = new Brawl(STAGE_ONE, Date.now() % 100000);
     this.screen = 'play';
     this.renderer.title('NEON KNUCKLES', STAGE_ONE.name);
+    this.tell(STAGE_ONE_STORY.intro, 'play');
+  }
+
+  /** Pauses the fight for a scene, then goes on to `then`. */
+  private tell(lines: Line[], then: Screen): void {
+    this.scene = { lines: [...lines], shown: 0, then };
+    this.screen = 'story';
+  }
+
+  /** A press finishes the line typing out, or moves to the next; after the last, play resumes. */
+  private advance(): void {
+    const scene = this.scene;
+    if (!scene) return;
+    if (scene.shown < scene.lines[0].text.length) {
+      scene.shown = scene.lines[0].text.length;
+      return;
+    }
+    scene.lines.shift();
+    scene.shown = 0;
+    if (scene.lines.length === 0) {
+      this.screen = scene.then;
+      this.scene = null;
+      // Held keys from reading must not throw a punch on return.
+      this.held.clear();
+    }
   }
 
   private input(slot: number): PlayerInput {
@@ -163,10 +195,16 @@ export class BrawlerGame {
         if (b.events.length) {
           this.renderer.react(b, b.events);
           this.sfx.play(b.events);
+          for (const e of b.events) {
+            const moment = e.type === 'wave' ? momentForWave(b.stage, e.index) : null;
+            if (moment) this.tell(STAGE_ONE_STORY[moment], 'play');
+          }
+          if ((this.screen as Screen) === 'story') break;
         }
       }
-      if (b.outcome !== 'playing') {
+      if (b.outcome !== 'playing' && this.screen === 'play') {
         this.screen = b.outcome;
+        if (b.outcome === 'clear') this.tell(STAGE_ONE_STORY.clear, 'clear');
         const total = b.players.reduce((s, p) => s + p.score, 0);
         if (total > this.hiscore) {
           this.hiscore = total;
@@ -189,6 +227,10 @@ export class BrawlerGame {
         `HIGH SCORE  ${String(this.hiscore).padStart(7, '0')}`,
         'PRESS ENTER TO FIGHT'
       ]);
+    } else if (this.screen === 'story' && this.scene) {
+      const line = this.scene.lines[0];
+      this.scene.shown = Math.min(line.text.length, this.scene.shown + dt * 45);
+      this.renderer.story(line.speaker, line.facing, line.text, this.scene.shown);
     } else if (this.screen === 'paused') {
       this.renderer.panel('PAUSED', ['Press ENTER or P to keep fighting']);
     } else if (this.screen === 'over') {
