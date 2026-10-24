@@ -14,6 +14,43 @@ import { FighterView } from './FighterView';
  * knockdowns raise dust, and heavy blows shake the view.
  */
 
+/** A starburst for impacts: a hot core and sharp rays, like a fighting game's hit spark. */
+function burstTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  g.translate(128, 128);
+  const rays = 14;
+  for (let i = 0; i < rays; i++) {
+    const a = (i / rays) * Math.PI * 2 + (i % 2) * 0.12;
+    const len = i % 2 ? 70 : 124;
+    g.beginPath();
+    g.moveTo(Math.cos(a - 0.07) * 18, Math.sin(a - 0.07) * 18);
+    g.lineTo(Math.cos(a) * len, Math.sin(a) * len);
+    g.lineTo(Math.cos(a + 0.07) * 18, Math.sin(a + 0.07) * 18);
+    g.closePath();
+    g.fillStyle = 'rgba(255,255,255,0.95)';
+    g.fill();
+  }
+  const core = g.createRadialGradient(0, 0, 0, 0, 0, 48);
+  core.addColorStop(0, 'rgba(255,255,255,1)');
+  core.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = core;
+  g.beginPath();
+  g.arc(0, 0, 48, 0, Math.PI * 2);
+  g.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+interface Spark {
+  sprite: THREE.Sprite;
+  life: number;
+  max: number;
+  size: number;
+}
+
 interface BlastView {
   id: number;
   core: THREE.Mesh;
@@ -38,6 +75,8 @@ export class FightRenderer {
   private focus: { x: number; time: number } | null = null;
   private readonly tmp = new THREE.Vector3();
   private roundShown = 0;
+  private readonly sparks: Spark[] = [];
+  private readonly burst = burstTexture();
   public ready = false;
 
   public initialize(canvas: HTMLCanvasElement): void {
@@ -101,6 +140,7 @@ export class FightRenderer {
           glow.emit({ x: e.x, y: e.y, z: 0.25, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: (Math.random() - 0.5) * 2, size: 0.06 + Math.random() * 0.05, life: 0.25 + Math.random() * 0.2, color: i % 3 ? colour : 0xffffff, lift: -9, drag: 0.2 });
         }
         glow.emit({ x: e.x, y: e.y, z: 0.3, size: 0.2, grow: e.type === 'hit' && e.heavy ? 1.6 : 0.9, life: 0.16, color: 0xffffff, alpha: 1 });
+        this.spark(e.x, e.y, colour, e.type === 'hit' ? (e.heavy ? 2.1 : 1.35) : 1.1, e.type === 'block');
         this.shake = Math.max(this.shake, e.type === 'hit' ? (e.heavy ? 0.16 : 0.07) : 0.04);
       } else if (e.type === 'knockdown') {
         const f = fight.fighters[e.slot];
@@ -129,15 +169,48 @@ export class FightRenderer {
     }
   }
 
+  /** A starburst at an impact: it pops to full size in a few frames and fades. */
+  private spark(x: number, y: number, colour: number, size: number, block: boolean): void {
+    const material = new THREE.SpriteMaterial({
+      map: this.burst, color: block ? 0x8fd0ff : new THREE.Color(colour).lerp(new THREE.Color(0xffffff), 0.35),
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, rotation: Math.random() * Math.PI
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.position.set(x, y, 0.5);
+    sprite.renderOrder = 10;
+    this.scene.add(sprite);
+    this.sparks.push({ sprite, life: 0.22, max: 0.22, size });
+  }
+
+  private updateSparks(dt: number): void {
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        s.sprite.removeFromParent();
+        s.sprite.material.dispose();
+        this.sparks.splice(i, 1);
+        continue;
+      }
+      const k = 1 - s.life / s.max;
+      // Snap open, then shrink a little as it fades.
+      s.sprite.scale.setScalar(s.size * (k < 0.25 ? 0.4 + k * 2.4 : 1 - (k - 0.25) * 0.3));
+      s.sprite.material.opacity = k < 0.25 ? 1 : 1 - (k - 0.25) / 0.75;
+    }
+  }
+
   public render(fight: Fight, dt: number, held: readonly number[]): void {
     if (!this.ready || this.views.length < 2) return;
     fight.fighters.forEach((f, i) => {
       const back = Math.sign(held[i] ?? 0) === -f.facing;
-      const step = fight.slowmo > 0 ? dt * 0.35 : dt;
+      // Hit-stop: on impact the bodies freeze with the fight, which is what makes a blow land.
+      const step = fight.hitstop > 0 ? 0 : fight.slowmo > 0 ? dt * 0.35 : dt;
       this.views[i].update(f, step, back);
       this.views[i].power(step, f.facing, this.arena.glow, this.arena.smoke, f.state === 'attack');
     });
     this.drawBlasts(fight, dt);
+    // Sparks keep moving through hit-stop: the freeze is the bodies, not the flash.
+    this.updateSparks(dt);
     const [a, b] = fight.fighters;
     const mid = (a.x + b.x) / 2;
     this.arena.update(dt, mid);
@@ -183,9 +256,10 @@ export class FightRenderer {
 
   private placeCamera(mid: number, gap: number, dt: number): void {
     let x = mid;
-    // Far enough back to frame the temples and the river, closer as the fighters close in.
-    let dist = 7.4 + Math.max(0, gap - 2) * 0.8;
-    let height = 2.0;
+    // A fighting game's camera: low and close, the fighters filling most of the screen's height,
+    // pulling back only as far as it must to keep both in frame.
+    let dist = 4.9 + Math.max(0, gap - 1.6) * 0.62;
+    let height = 1.3;
     if (this.focus) {
       this.focus.time -= dt;
       x = this.focus.x;
@@ -197,7 +271,7 @@ export class FightRenderer {
     this.camPos.x += (x - this.camPos.x) * ease;
     this.camPos.y += (height - this.camPos.y) * ease;
     this.camPos.z += (dist - this.camPos.z) * ease;
-    this.look.set(this.camPos.x, 1.05, 0);
+    this.look.set(this.camPos.x, 1.08, 0);
     this.shake = Math.max(0, this.shake - dt * 0.6);
     const s = this.shake;
     this.camera.position.set(this.camPos.x + (Math.random() - 0.5) * s, this.camPos.y + (Math.random() - 0.5) * s, this.camPos.z);
