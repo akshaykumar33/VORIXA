@@ -45,6 +45,8 @@ export class FightRenderer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
+    // Ravana's extra heads are his body clipped above the neck.
+    this.renderer.localClippingEnabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.post = new PostFX(this.renderer, this.scene, this.camera);
     // Garlands, diyas and umbrella ribs are thin against the sky: a tight occlusion radius.
@@ -76,7 +78,10 @@ export class FightRenderer {
     const [ga, gb] = await Promise.all([this.people.load(a.model), this.people.load(b.model)]);
     // The same fighter twice: the second wears another colour.
     const second = a.id === b.id ? { ...b, palette: Object.fromEntries(Object.keys(b.palette).map((k) => [k, 0x2a3a8c])) } : b;
-    this.views = [new FighterView(this.people, ga, castDef(a), a.colour), new FighterView(this.people, gb, castDef(second), second.colour)];
+    this.views = [
+      new FighterView(this.people, ga, castDef(a), a.colour, a.look, this.scene),
+      new FighterView(this.people, gb, castDef(second), second.colour, second.look, this.scene)
+    ];
     for (const v of this.views) this.scene.add(v.root);
     this.roundShown = 0;
   }
@@ -128,7 +133,9 @@ export class FightRenderer {
     if (!this.ready || this.views.length < 2) return;
     fight.fighters.forEach((f, i) => {
       const back = Math.sign(held[i] ?? 0) === -f.facing;
-      this.views[i].update(f, fight.slowmo > 0 ? dt * 0.35 : dt, back);
+      const step = fight.slowmo > 0 ? dt * 0.35 : dt;
+      this.views[i].update(f, step, back);
+      this.views[i].power(step, f.facing, this.arena.glow, this.arena.smoke, f.state === 'attack');
     });
     this.drawBlasts(fight, dt);
     const [a, b] = fight.fighters;

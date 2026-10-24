@@ -1,35 +1,79 @@
 import type { CharacterDef } from '../city/Crew';
+import type { AsuraLookSpec } from '../rendering/fighter/AsuraLook';
 import type { FighterDef } from './Fight';
 
 /**
- * Akhada's fighters (ADR-0016): the realistic cast, renamed and dressed in the colours of the
- * ghats. `palette` recolours their garments; `colour` is their energy (blasts, the super, the UI).
+ * Akhada's fighters (ADR-0017): asuras and rakshasas of the epics and Puranas, each with the look
+ * and the powers their story gives them. The cast's realistic bodies carry them; `look` makes the
+ * asura (skin, eyes, horns, crown, heads, aura) and `kit` sets their powers in the fight.
+ *
+ * The gods are not fighters here. These are the epics' great adversaries, told with respect for the
+ * stories they come from.
  */
 export interface Contender extends FighterDef {
   bio: string;
+  /** The text they come from. */
+  source: string;
   palette: Record<string, number>;
+  look: AsuraLookSpec;
 }
 
 export const ROSTER: Contender[] = [
   {
-    id: 'veer', name: 'Veer', title: 'The Lion of Kashi', model: 'mh-dex', colour: 0xff8a1f,
-    bio: 'Wrestled on these ghats before he could read. Fights like the river: slow, then all at once.',
-    palette: { male_casualsuit06: 0xd9661a }
+    id: 'ravana', name: 'Ravana', title: 'Dashanan, King of Lanka', source: 'Ramayana', model: 'mh-asura-ravana', colour: 0xff5a1f,
+    bio: 'Ten heads, twenty arms, and the learning of all the Vedas. He offered his heads to Shiva one by one, and each grew back.',
+    palette: { toigo_harem_pants: 0x7a0f18 },
+    look: { skin: 0x9a6a4a, eyes: 0xff3d10, crown: 'tall', heads: 9, aura: 'fire' },
+    kit: { power: 1.12, blast: { speed: 5.2, size: 0.55, damage: 125, chip: 18, style: 'fire' } }
   },
   {
-    id: 'arjun', name: 'Arjun', title: 'The Monsoon Blade', model: 'mh-kai', colour: 0x3de1c0,
-    bio: 'Quick hands, quicker feet. Says the rain tells him where you will step.',
-    palette: { namuhekam_male_polo_shirt: 0x1f6b4a, toigo_wool_pants: 0x1a1d24 }
+    id: 'mahishasura', name: 'Mahishasura', title: 'The Buffalo Demon', source: 'Devi Mahatmya', model: 'mh-asura-mahisha', colour: 0x8a5cff,
+    bio: 'No man or god could kill him, by the boon he won. He took the heavens, and lowered his horns at anyone who stood in the way.',
+    palette: { toigo_harem_pants: 0x1c1418 },
+    look: { skin: 0x4a3c46, eyes: 0xb07aff, horns: 'buffalo', crown: 'band', aura: 'smoke', scale: 1.08 },
+    kit: { power: 1.15, defense: 0.95, dash: 1.6, blast: { speed: 6, size: 0.4, damage: 95, chip: 14, style: 'shadow' } }
   },
   {
-    id: 'meera', name: 'Meera', title: 'The Storm Dancer', model: 'mh-juno', colour: 0xff3d9a,
-    bio: 'Trained in kathak, then in everything else. Every kick lands on the beat.',
-    palette: { female_sportsuit01: 0xc2185b }
+    id: 'kumbhakarna', name: 'Kumbhakarna', title: 'The Sleeping Giant', source: 'Ramayana', model: 'mh-asura-kumbha', colour: 0xd8a040,
+    bio: 'Asked for the throne of Indra; his tongue slipped, and he was granted endless sleep. Woken, he shakes the earth.',
+    palette: { toigo_harem_pants: 0x8a5a1a },
+    look: { skin: 0x6a5244, eyes: 0xffc040, crown: 'band', weapon: 'gada', aura: 'dust', scale: 1.18 },
+    kit: { power: 1.3, defense: 0.72, speed: 0.75, armour: 95, blast: { speed: 3.6, size: 0.6, damage: 115, chip: 16, style: 'quake', low: true } }
   },
   {
-    id: 'rani', name: 'Rani', title: 'The Iron Bangle', model: 'mh-mara', colour: 0xff4040,
-    bio: 'Runs the boatmen of Dashashwamedh. Nobody crosses the river without her say.',
-    palette: { male_worksuit01: 0x8e1b22 }
+    id: 'hiranyakashipu', name: 'Hiranyakashipu', title: 'The Golden Tyrant', source: 'Bhagavata Purana', model: 'mh-asura-hiranya', colour: 0xffd23d,
+    bio: 'Not by man nor beast, not by day nor night, not inside nor out. His boon made him all but invulnerable.',
+    palette: { toigo_harem_pants: 0xe8c860 },
+    look: { skin: 0xc9a24a, eyes: 0xfff2a0, crown: 'tall', aura: 'gold' },
+    kit: { defense: 0.82, armour: 75, blast: { speed: 6.2, size: 0.4, damage: 100, chip: 15, style: 'gold' } }
+  },
+  {
+    id: 'raktabija', name: 'Raktabija', title: 'Seed of Blood', source: 'Devi Mahatmya', model: 'mh-asura-rakta', colour: 0xe0102a,
+    bio: 'Every drop of his blood that touched the ground rose as another of him. Wound him and he only grows stronger.',
+    palette: { toigo_harem_pants: 0x2a0608 },
+    look: { skin: 0x9e2a2a, eyes: 0xffffff, horns: 'small', aura: 'blood' },
+    kit: { lifesteal: 0.3, speed: 1.08, blast: { speed: 8, size: 0.3, damage: 80, chip: 12, style: 'blood' } }
+  },
+  {
+    id: 'tataka', name: 'Tataka', title: 'Terror of the Forest', source: 'Ramayana', model: 'mh-asura-tataka', colour: 0x7acc3a,
+    bio: 'A yakshi cursed into a rakshasi, she laid waste to the forest by the Sarayu and hurled boulders at all who came near.',
+    palette: { toigo_harem_pants: 0x3a4a1a, toigo_keyhole_tank_top: 0x2a3014 },
+    look: { skin: 0x5a6a44, eyes: 0xd8ff40, horns: 'ram', aura: 'dust', scale: 1.05 },
+    kit: { power: 1.1, blast: { speed: 4.6, size: 0.5, damage: 130, chip: 18, style: 'boulder', arc: true } }
+  },
+  {
+    id: 'holika', name: 'Holika', title: 'Who Walked into Fire', source: 'Bhagavata Purana', model: 'mh-asura-holika', colour: 0xff8a1f,
+    bio: 'Her shawl made her proof against fire. She carried Prahlada into the flames, and the shawl flew from her to him.',
+    palette: { toigo_halter_dress_midi: 0xd8501a },
+    look: { skin: 0xb07a5a, eyes: 0xffa020, crown: 'band', aura: 'fire' },
+    kit: { defense: 0.9, speed: 1.05, blast: { speed: 7.4, size: 0.42, damage: 105, chip: 15, style: 'fire' } }
+  },
+  {
+    id: 'bakasura', name: 'Bakasura', title: 'The Crane Demon', source: 'Mahabharata', model: 'mh-asura-baka', colour: 0x9fe0ff,
+    bio: 'He took a cartload of food and a villager every day from Ekachakra, until Bhima came with the cart and ate it himself.',
+    palette: { toigo_harem_pants: 0xe8e4d8 },
+    look: { skin: 0x7a8494, eyes: 0xfff040, crest: true, aura: 'feathers' },
+    kit: { speed: 1.25, dash: 1.4, defense: 1.08, blast: { speed: 9, size: 0.32, damage: 85, chip: 12, style: 'wind' } }
   }
 ];
 

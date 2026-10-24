@@ -3,6 +3,8 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MOVES, type Fighter, type MoveId } from '../../fighter/Fight';
 import { People, type Person } from '../city/People';
 import type { CharacterDef } from '../../city/Crew';
+import { AsuraLook, type AsuraLookSpec } from './AsuraLook';
+import type { Particles } from './Particles';
 
 /**
  * A fighter drawn (ADR-0016): a cast person playing the clip for their state, turned to face
@@ -48,7 +50,9 @@ export class FighterView {
   private readonly q = new THREE.Quaternion();
   private readonly pq = new THREE.Quaternion();
 
-  public constructor(people: People, gltf: GLTF, def: CharacterDef, private readonly colour: number) {
+  private readonly look: AsuraLook | null;
+
+  public constructor(people: People, gltf: GLTF, def: CharacterDef, private readonly colour: number, look?: AsuraLookSpec, scene?: THREE.Scene) {
     this.person = people.makeFrom(gltf, def, 0.3);
     this.root.add(this.person.root);
     this.person.root.traverse((o) => {
@@ -66,6 +70,12 @@ export class FighterView {
     this.aura.position.set(0, 1.2, 0.4);
     this.root.add(this.aura);
     People.play(this.person, 'Idle_Shield_Loop', 0);
+    this.look = look && scene ? new AsuraLook(this.person, look, scene) : null;
+  }
+
+  /** Their asura's aura and Ravana's heads, each frame. */
+  public power(dt: number, facing: 1 | -1, glow: Particles, smoke: Particles, charging: boolean): void {
+    this.look?.update(dt, facing, glow, smoke, charging);
   }
 
   /** Plays the clip for the fighter's state, places and turns them, and poses kicks. */
@@ -184,6 +194,7 @@ export class FighterView {
   }
 
   public dispose(): void {
+    this.look?.dispose();
     this.root.removeFromParent();
   }
 
