@@ -41,6 +41,10 @@ export class FighterView {
   private readonly thigh: THREE.Object3D | null;
   private readonly calf: THREE.Object3D | null;
   private readonly foot: THREE.Object3D | null;
+  /** The arms, for the guard: upper arm, forearm and hand, both sides. */
+  private readonly arms: { upper: THREE.Object3D; fore: THREE.Object3D; hand: THREE.Object3D; side: 1 | -1 }[] = [];
+  private guard = 0;
+  private bounce = 0;
   private readonly aura: THREE.PointLight;
   private hitAlt = false;
   private lastState = '';
@@ -65,6 +69,12 @@ export class FighterView {
     this.thigh = m.getObjectByName('thigh_r') ?? null;
     this.calf = m.getObjectByName('calf_r') ?? null;
     this.foot = m.getObjectByName('foot_r') ?? null;
+    for (const [side, sign] of [['r', 1], ['l', -1]] as const) {
+      const upper = m.getObjectByName(`upperarm_${side}`);
+      const fore = m.getObjectByName(`lowerarm_${side}`);
+      const hand = m.getObjectByName(`hand_${side}`);
+      if (upper && fore && hand) this.arms.push({ upper, fore, hand, side: sign });
+    }
     // Their energy glows on them while they charge a blast or a super.
     this.aura = new THREE.PointLight(colour, 0, 4, 2);
     this.aura.position.set(0, 1.2, 0.4);
@@ -92,10 +102,10 @@ export class FighterView {
     let lower = 0;
     switch (f.state) {
       case 'stand':
-        People.play(p, f.blocking ? 'Sword_Block' : 'Idle_Shield_Loop', 0.15);
+        People.play(p, f.blocking ? 'Sword_Block' : 'Idle_Loop', 0.15);
         break;
       case 'walk':
-        People.play(p, f.blocking && walkingBack ? 'Sword_Block' : 'Walk_Loop', 0.15, false, walkingBack ? -0.8 : 1.1);
+        People.play(p, f.blocking && walkingBack ? 'Sword_Block' : 'Walk_Loop', 0.15, false, walkingBack ? -0.75 : 0.9);
         break;
       case 'crouch':
         People.play(p, 'Crouch_Idle_Loop', 0.12);
@@ -130,8 +140,16 @@ export class FighterView {
         People.play(p, f.t < 1.4 ? 'Yes' : 'Idle_FoldArms_Loop', 0.3, f.t < 1.4);
         break;
     }
-    this.person.root.position.y = -lower;
+    // A fighter's bounce: always light on the feet, a little up and down in the stance.
+    this.bounce += dt;
+    const bob = f.state === 'stand' || f.state === 'walk' ? Math.abs(Math.sin(this.bounce * 5.2)) * 0.035 : 0;
+    this.person.root.position.y = -lower + bob;
     p.mixer.update(dt);
+    // The guard: fists up by the chin over idle, walking and crouching; it eases in and out.
+    const guarded = (f.state === 'stand' || f.state === 'walk' || f.state === 'crouch' || (f.state === 'jump' && !f.move)) && !f.blocking;
+    // In, it eases; out, it snaps, so a punch leaves the guard at once (even in hit-stop).
+    this.guard = guarded ? this.guard + (1 - this.guard) * Math.min(1, dt * 14) : 0;
+    if (this.guard > 0.01) this.guardPose(f.facing, this.guard);
 
     // Kicks: turn the leg to its target, blended over the move's frames.
     const plan = f.move ? MOVE_CLIP[f.move].kick : undefined;
@@ -168,6 +186,23 @@ export class FighterView {
     People.play(p, name, fade, once, speed);
     const next = p.actions.get(name);
     if (previous && previous !== next) previous.fadeOut(fade);
+  }
+
+  /**
+   * Fists up: each upper arm angles forward and down from the shoulder, each forearm points back
+   * up so the fist sits in front of the chin. The lead arm (nearer the opponent) reaches further.
+   */
+  private guardPose(facing: 1 | -1, weight: number): void {
+    for (const arm of this.arms) {
+      // Toward the camera is +z; the arm on the camera side is the lead when facing right.
+      const lead = arm.side === facing;
+      const out = arm.side * 0.28;
+      const upper = new THREE.Vector3(facing * (lead ? 0.55 : 0.32), -0.78, out).normalize();
+      const fore = new THREE.Vector3(facing * (lead ? 0.42 : 0.28), 0.9, -out * 0.8).normalize();
+      this.aim(arm.upper, arm.fore, upper, weight);
+      this.aim(arm.fore, arm.hand, fore, weight);
+    }
+    this.person.model.updateMatrixWorld(true);
   }
 
   /** Points `bone` so its child lies along `dir` (world space), by `weight`. */
