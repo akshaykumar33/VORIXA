@@ -15,7 +15,8 @@ import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { textureCompress } from '@gltf-transform/functions';
 
-const SKIES = ['qwantani_dusk_2', 'approaching_storm'];
+// Sky-only versions: the full panoramas have land in them, which shows behind the river.
+const SKIES = ['qwantani_dusk_2_puresky', 'kloofendal_overcast_puresky'];
 const TEXTURES = ['large_sandstone_blocks', 'mossy_sandstone', 'red_sandstone_wall', 'patterned_clay_plaster'];
 const MODELS = ['brass_diya_lantern', 'brass_pot_01', 'brass_pot_02', 'ceramic_pot'];
 

@@ -226,8 +226,8 @@ tone-mapped backdrops for the skies, 1k PBR maps as WebP, and models with 512 px
 
 | Asset | Kind | Authors |
 |---|---|---|
-| Qwantani Dusk 2 | Sky (dusk round) | Greg Zaal, Jarod Guest |
-| Approaching Storm | Sky (monsoon round) | Greg Zaal |
+| Qwantani Dusk 2 (Pure Sky) | Sky (dusk round) | Greg Zaal, Jarod Guest |
+| Kloofendal Overcast (Pure Sky) | Sky (monsoon round) | Greg Zaal |
 | Large Sandstone Blocks | Ghat steps | Rob Tuytel |
 | Mossy Sandstone | Wet lower steps | Dimitrios Savva |
 | Red Sandstone Wall | Temples | Amal Kumar |
