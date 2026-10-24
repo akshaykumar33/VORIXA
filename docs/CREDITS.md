@@ -167,6 +167,10 @@ Build steps, for the record: bodies at no subdivision, game-engine materials, te
 1024 px WebP (512 px for the two outfits that would otherwise pass the repo's 2 MB file cap),
 meshes meshopt-compressed.
 
+The Akhada asuras (`mh-asura-*.glb`, ADR-0017) are built the same way from the same CC0 assets:
+bare-chested bodies, `toigo_harem_pants`, `toigo_keyhole_tank_top` and `toigo_halter_dress_midi`,
+hair `long01` and `braid01`. Horns, crowns, jewellery and the gada are modelled in code.
+
 ### VORIXA City sounds
 
 Recorded, [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode), from OpenGameArt.
