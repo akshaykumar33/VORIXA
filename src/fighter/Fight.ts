@@ -71,6 +71,30 @@ export const MOVES: Record<MoveId, Move> = {
   super: { startup: 0.45, active: 0.05, recover: 0.6, damage: 0, reach: 0, height: 'mid', hitstun: 0.8, blockstun: 0.4, push: 4, knockdown: true, projectile: { speed: 9, damage: 320, chip: 60, size: 0.7 }, meterCost: 100 }
 };
 
+/** How a fighter's blast looks and flies. */
+export type BlastStyle = 'fire' | 'quake' | 'boulder' | 'blood' | 'gold' | 'shadow' | 'wind';
+
+/**
+ * A fighter's powers (ADR-0017): multipliers on the shared moves, and their own blast. Every field
+ * is optional; a fighter without a kit plays the shared moves as they are.
+ */
+export interface Kit {
+  /** Damage dealt, x. */
+  power?: number;
+  /** Damage taken, x (below 1 is tougher). */
+  defense?: number;
+  /** Walking speed, x. */
+  speed?: number;
+  /** Reach of the dash strike's lunge, x. */
+  dash?: number;
+  /** Hits dealing less than this do not interrupt their attacks (super armour). */
+  armour?: number;
+  /** Share of damage dealt that heals them. */
+  lifesteal?: number;
+  /** Their blast: speed (m/s), size (m), damage, chip, how it flies, and its look. */
+  blast?: { speed: number; size: number; damage: number; chip: number; style: BlastStyle; low?: boolean; arc?: boolean };
+}
+
 export interface FighterDef {
   id: string;
   name: string;
@@ -79,6 +103,7 @@ export interface FighterDef {
   /** Their energy colour (blasts, super, UI). */
   colour: number;
   title: string;
+  kit?: Kit;
 }
 
 export interface FightInput {
@@ -130,6 +155,11 @@ export interface Projectile {
   chip: number;
   size: number;
   super: boolean;
+  style: BlastStyle;
+  /** Low blasts travel along the ground and must be blocked crouching. */
+  low: boolean;
+  /** Arcing blasts are thrown up and fall; `vy` is their upward speed. */
+  vy: number;
 }
 
 export type FightEvent =
@@ -310,7 +340,7 @@ export class Fight {
       f.t = 0;
     }
     const away = Math.sign(input.x) === -fwd(f);
-    f.vx = crouching ? 0 : input.x * (away ? BACK_WALK : WALK);
+    f.vx = crouching ? 0 : input.x * (away ? BACK_WALK : WALK) * (f.def.kit?.speed ?? 1);
     // Holding away is a block, standing or crouching.
     f.blocking = away || (crouching && Math.sign(input.x) === -fwd(f));
   }
@@ -343,7 +373,7 @@ export class Fight {
       case 'attack': {
         const m = MOVES[f.move!];
         const active = f.t >= m.startup && f.t < m.startup + m.active;
-        f.vx = active && m.lunge ? fwd(f) * m.lunge : f.vx * 0.8;
+        f.vx = active && m.lunge ? fwd(f) * m.lunge * (f.def.kit?.dash ?? 1) : f.vx * 0.8;
         if (m.projectile && f.t >= m.startup && !f.landed) {
           f.landed = true;
           this.fire(f, m);
@@ -464,8 +494,15 @@ export class Fight {
     // Combos scale down: full damage for two hits, then less each hit, to a floor of 30%.
     o.comboTaken += 1;
     const scale = Math.max(0.3, 1 - Math.max(0, o.comboTaken - 2) * 0.1);
-    const dealt = Math.round(damage * scale);
+    const dealt = Math.round(damage * scale * (by.def.kit?.power ?? 1) * (o.def.kit?.defense ?? 1));
     o.hp = Math.max(0, o.hp - dealt);
+    if (by.def.kit?.lifesteal) by.hp = Math.min(MAX_HP, by.hp + Math.round(dealt * by.def.kit.lifesteal));
+    // Super armour: a light blow lands but does not stop a heavy fighter's attack.
+    if (o.state === 'attack' && o.hp > 0 && !m.knockdown && dealt < (o.def.kit?.armour ?? 0)) {
+      this.hitstop = 0.05;
+      this.events.push({ type: 'hit', slot: o.slot, x, y, damage: dealt, heavy: false, combo: o.comboTaken });
+      return;
+    }
     by.meter = Math.min(100, by.meter + dealt * 0.06);
     o.meter = Math.min(100, o.meter + dealt * 0.04);
     o.move = null;
@@ -489,10 +526,24 @@ export class Fight {
   }
 
   private fire(f: Fighter, m: Move): void {
-    const p = m.projectile!;
+    const isSuper = f.move === 'super';
+    // A fighter's own blast replaces the shared one; their super is it, bigger and stronger.
+    const own = f.def.kit?.blast;
+    const p = own ? (isSuper ? { ...own, speed: own.speed * 1.3, size: own.size * 1.9, damage: m.projectile!.damage, chip: m.projectile!.chip } : own) : m.projectile!;
+    const style = own?.style ?? 'fire';
+    const low = !!own?.low && !isSuper;
+    const arc = !!own?.arc && !isSuper;
+    const x0 = f.x + fwd(f) * 0.8;
+    // A thrown boulder is aimed: its arc comes down on where the opponent stands now.
+    let vy = 0;
+    if (arc) {
+      const target = this.fighters[1 - f.slot];
+      const flight = Math.max(0.45, Math.abs(target.x - x0) / p.speed);
+      vy = (GRAVITY * 0.55 * flight) / 2 - (1.8 - 1.0) / flight;
+    }
     this.projectiles.push({
-      id: this.nextId++, owner: f.slot, x: f.x + fwd(f) * 0.8, y: 1.25, vx: fwd(f) * p.speed,
-      damage: p.damage, chip: p.chip, size: p.size, super: f.move === 'super'
+      id: this.nextId++, owner: f.slot, x: x0, y: low ? 0.3 : arc ? 1.8 : 1.25, vx: fwd(f) * p.speed,
+      damage: p.damage, chip: p.chip, size: p.size, super: isSuper, style, low, vy
     });
     this.events.push({ type: 'projectile', slot: f.slot, super: f.move === 'super' });
   }
@@ -501,6 +552,16 @@ export class Fight {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.x += p.vx * dt;
+      if (p.vy !== 0 || p.y > 1.81) {
+        // Thrown: up, then down; it breaks on the ground.
+        p.vy -= GRAVITY * 0.55 * dt;
+        p.y += p.vy * dt;
+        if (p.y <= 0.15) {
+          this.events.push({ type: 'clash', x: p.x, y: 0.2 });
+          this.projectiles.splice(i, 1);
+          continue;
+        }
+      }
       // Two blasts meeting cancel; a super eats a blast and keeps going.
       const other = this.projectiles.find((q) => q.owner !== p.owner && Math.abs(q.x - p.x) < (q.size + p.size) / 2);
       if (other) {
@@ -519,10 +580,13 @@ export class Fight {
         continue;
       }
       const o = this.fighters[1 - p.owner];
-      const hits = Math.abs(o.x - p.x) < BODY / 2 + p.size / 2 && o.y < 1.6 && !['knockdown', 'getup', 'ko'].includes(o.state);
+      // Low blasts pass under a jump; everything else reaches up to about head height.
+      const reachY = p.low ? o.y < 0.3 : o.y < 1.6 && Math.abs(p.y - (o.y + 1)) < 1.2 + p.size;
+      const hits = Math.abs(o.x - p.x) < BODY / 2 + p.size / 2 && reachY && !['knockdown', 'getup', 'ko'].includes(o.state);
       if (hits) {
         const by = this.fighters[p.owner];
-        this.connect(by, o, p.super ? MOVES.super : MOVES.blast, p.x, p.y, p.damage, p.chip);
+        const move = p.super ? MOVES.super : p.low ? { ...MOVES.blast, height: 'low' as const } : MOVES.blast;
+        this.connect(by, o, move, p.x, p.y, p.damage, p.chip);
         this.projectiles.splice(i, 1);
       } else if (Math.abs(p.x) > STAGE_HALF + 3) this.projectiles.splice(i, 1);
     }

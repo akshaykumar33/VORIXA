@@ -118,4 +118,58 @@ describe('Fight', () => {
     expect(a.fighters.map((x) => x.hp)).toEqual(b.fighters.map((x) => x.hp));
     expect(a.fighters[0].hp).toBeLessThan(MAX_HP);
   });
+
+  describe('asura kits', () => {
+    const withKit = (kit: FighterDef['kit']): FighterDef => ({ ...A, kit });
+    const ready2 = (a: FighterDef, b: FighterDef, gap: number) => {
+      const f = new Fight(a, b);
+      run(f, 2.05);
+      f.fighters[0].x = -gap / 2;
+      f.fighters[1].x = gap / 2;
+      return f;
+    };
+
+    it('hits harder with power and takes less with defense', () => {
+      const f = ready2(withKit({ power: 1.5 }), { ...B, kit: { defense: 0.5 } }, 1);
+      run(f, 0.4, (t) => ({ lp: t < 0.02 }));
+      expect(f.fighters[1].hp).toBe(MAX_HP - Math.round(MOVES.jab.damage * 1.5 * 0.5));
+    });
+
+    it('heals by lifesteal (Raktabija)', () => {
+      const f = ready2(withKit({ lifesteal: 0.5 }), B, 1);
+      f.fighters[0].hp = 500;
+      run(f, 0.4, (t) => ({ lp: t < 0.02 }));
+      expect(f.fighters[0].hp).toBe(500 + MOVES.jab.damage / 2);
+    });
+
+    it('fires a low blast that passes under a jump and must be blocked crouching (Kumbhakarna)', () => {
+      const quake = withKit({ blast: { speed: 6, size: 0.5, damage: 110, chip: 10, style: 'quake', low: true } });
+      const standing = ready2(quake, B, 4);
+      run(standing, 1.6, (t) => ({ blast: t < 0.02 }), () => ({ x: 1 }));
+      expect(standing.fighters[1].hp).toBe(MAX_HP - 110);
+      const crouching = ready2(quake, B, 4);
+      run(crouching, 1.6, (t) => ({ blast: t < 0.02 }), () => ({ x: 1, y: -1 }));
+      expect(crouching.fighters[1].hp).toBeGreaterThan(MAX_HP - 20);
+    });
+
+    it('keeps attacking through a light blow with super armour (Hiranyakashipu)', () => {
+      const f = ready2(A, { ...B, kit: { armour: 60 } }, 1);
+      // The armoured one starts a slow heavy; a jab lands mid-swing.
+      run(f, 0.06, () => ({}), (t) => ({ hk: t < 0.02 }));
+      run(f, 0.1, (t) => ({ lp: t < 0.02 }));
+      expect(f.fighters[1].state).toBe('attack');
+    });
+
+    it('arcs a boulder that comes down to hit (Tataka)', () => {
+      const f = ready2(withKit({ blast: { speed: 4.5, size: 0.5, damage: 130, chip: 18, style: 'boulder', arc: true } }), B, 3);
+      let highest = 0;
+      for (let i = 0; i < 240; i++) {
+        run(f, STEP, (t) => ({ blast: i === 0 && t < 0.01 }));
+        for (const p of f.projectiles) highest = Math.max(highest, p.y);
+      }
+      // It rises above where it was thrown from (1.8 m) before coming down on them.
+      expect(highest).toBeGreaterThan(1.85);
+      expect(f.fighters[1].hp).toBeLessThan(MAX_HP);
+    });
+  });
 });
