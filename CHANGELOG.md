@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-25
+
+The first release: VORIXA's game modes, led by Akhada, a 3D fighter of the epics.
+
 ### Added
+- **Akhada** (`?mode=akhada`): a one-on-one 3D fighter in the style of Street Fighter.
+  - Eight asuras and rakshasas of the Ramayana, Mahabharata, Devi Mahatmya and Bhagavata Purana, each with their own look and powers: Ravana and his ten heads, Mahishasura, Kumbhakarna, Hiranyakashipu, Raktabija, Tataka, Holika and Bakasura.
+  - Four arenas in four states, each with three rounds of weather: the ghats of Varanasi, the field of Kurukshetra, the shore of Rameswaram and the golden fort of Jaisalmer.
+  - Frame data, blocking high and low, motion-input specials, dashes, throws, special cancels, a super meter, rounds and a 99-second clock.
+  - A fighting stance, hit-stop, impact sparks and a fighting-game camera.
+  - Arcade ladder with versus screens and an ending, versus CPU at three difficulties, and two players on one keyboard or gamepads.
+  - Live-synthesised ragas, the shankh and temple bells.
+- **Neon Knuckles** (`?mode=brawler`): a co-op side-scrolling brawler with painted art and story scenes.
+- **Rush** (`?mode=rush`) and **On Foot** (`?mode=onfoot`): the car racer and the platformer, restored.
+- **VORIXA City** (the default page): an open city with its outposts, chaos, radio and wild country.
+
+### Engine and tooling (earlier work)
 - Master repository bootstrap prompt and engineering constitution.
 - Initial repository audit and technology baseline.
 - Complete documentation system: Vision, Game Design (GDD), Architecture, ADRs, Design System, Performance Budgets, Testing Strategy, and Phased Roadmap (Phases 00–08).
