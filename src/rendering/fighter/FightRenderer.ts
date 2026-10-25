@@ -72,7 +72,15 @@ export class FightRenderer {
   private readonly look = new THREE.Vector3(0, 1.1, 0);
   private shake = 0;
   /** A push-in on a super or a KO: where to, and for how long. */
-  private focus: { x: number; time: number } | null = null;
+  /**
+   * A cinematic push-in: where to, for how long, how close and how low, and how far round the
+   * subject the camera swings (radians) over it. Supers push in; a KO swings low round the fallen;
+   * the winner gets a slow orbit for their victory.
+   */
+  private focus: { x: number; time: number; total: number; dist: number; height: number; orbit: number } | null = null;
+  /** The camera's angle round its subject, eased; 0 is straight on from the side. */
+  private angle = 0;
+  private winShown = false;
   private readonly tmp = new THREE.Vector3();
   private roundShown = 0;
   private readonly sparks: Spark[] = [];
@@ -147,7 +155,7 @@ export class FightRenderer {
         for (let i = 0; i < 18; i++) smoke.emit({ x: f.x + (Math.random() - 0.5) * 1.2, y: 0.1, z: (Math.random() - 0.5) * 0.8, vx: (Math.random() - 0.5) * 1.5, vy: 0.4 + Math.random() * 0.6, size: 0.4, grow: 1.6, life: 1.4, color: 0xb8a088, alpha: 0.35, drag: 0.3 });
       } else if (e.type === 'projectile' && e.super) {
         const f = fight.fighters[e.slot];
-        this.focus = { x: f.x, time: 0.9 };
+        this.focus = { x: f.x, time: 0.9, total: 0.9, dist: 4.2, height: 1.45, orbit: 0 };
         for (let i = 0; i < 40; i++) {
           const a = Math.random() * Math.PI * 2;
           smoke.emit({ x: f.x + Math.cos(a) * 0.3, y: 0.2 + Math.random() * 1.8, z: Math.sin(a) * 0.3, vx: Math.cos(a) * 2, vz: Math.sin(a) * 2, vy: 1, size: 0.5, grow: 2.2, life: 1.6, color: f.def.colour, alpha: 0.3, drag: 0.4 });
@@ -160,9 +168,13 @@ export class FightRenderer {
         this.shake = 0.12;
       } else if (e.type === 'ko') {
         const f = fight.fighters[e.slot];
-        this.focus = { x: f.x, time: 2.2 };
+        // The KO: low, close, swinging round the fallen as the fight slows.
+        this.focus = { x: f.x, time: 2.4, total: 2.4, dist: 3.3, height: 0.85, orbit: 0.75 * (f.facing > 0 ? -1 : 1) };
         this.shake = 0.22;
-      } else if (e.type === 'round' && e.round !== this.roundShown) {
+      } else if (e.type === 'round') {
+        this.winShown = false;
+      }
+      if (e.type === 'round' && e.round !== this.roundShown) {
         this.roundShown = e.round;
         void this.arena.setWeather(WEATHER_BY_ROUND[(e.round - 1) % WEATHER_BY_ROUND.length]);
       }
@@ -213,6 +225,12 @@ export class FightRenderer {
     this.updateSparks(dt);
     const [a, b] = fight.fighters;
     const mid = (a.x + b.x) / 2;
+    // The winner's moment: once the KO has played, a slow orbit round them in their victory pose.
+    const winner = fight.fighters.find((f) => f.state === 'win' && f.t > 1.1);
+    if (winner && !this.winShown && !this.focus) {
+      this.winShown = true;
+      this.focus = { x: winner.x, time: 3.2, total: 3.2, dist: 3.0, height: 1.55, orbit: 0.55 * (winner.facing > 0 ? 1 : -1) };
+    }
     this.arena.update(dt, mid);
     this.placeCamera(mid, Math.abs(a.x - b.x), dt);
     if (this.post) this.post.render(dt);
@@ -260,21 +278,28 @@ export class FightRenderer {
     // pulling back only as far as it must to keep both in frame.
     let dist = 4.9 + Math.max(0, gap - 1.6) * 0.62;
     let height = 1.3;
+    let angle = 0;
     if (this.focus) {
       this.focus.time -= dt;
       x = this.focus.x;
-      dist = 4.2;
-      height = 1.45;
+      dist = this.focus.dist;
+      height = this.focus.height;
+      // The swing grows over the shot.
+      angle = this.focus.orbit * (1 - this.focus.time / this.focus.total);
       if (this.focus.time <= 0) this.focus = null;
     }
     const ease = 1 - Math.exp(-5 * dt);
     this.camPos.x += (x - this.camPos.x) * ease;
     this.camPos.y += (height - this.camPos.y) * ease;
     this.camPos.z += (dist - this.camPos.z) * ease;
-    this.look.set(this.camPos.x, 1.08, 0);
+    this.angle += (angle - this.angle) * ease;
+    this.look.set(this.camPos.x, this.focus ? Math.max(0.7, height - 0.2) : 1.08, 0);
     this.shake = Math.max(0, this.shake - dt * 0.6);
     const s = this.shake;
-    this.camera.position.set(this.camPos.x + (Math.random() - 0.5) * s, this.camPos.y + (Math.random() - 0.5) * s, this.camPos.z);
+    // Round the subject by the angle: x swings sideways, z comes in.
+    const px = this.camPos.x + Math.sin(this.angle) * this.camPos.z;
+    const pz = Math.cos(this.angle) * this.camPos.z;
+    this.camera.position.set(px + (Math.random() - 0.5) * s, this.camPos.y + (Math.random() - 0.5) * s, pz);
     this.camera.lookAt(this.look);
   }
 
