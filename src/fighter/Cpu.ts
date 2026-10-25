@@ -28,6 +28,11 @@ export class Cpu {
   /** The current plan, held for a short while so it does not twitch every step. */
   private plan: FightInput = blank();
   private planFor = 0;
+  /**
+   * A technique being typed out, step by step, as a player's hands would: a dash's two taps, a
+   * jab cancelled into a blast's quarter circle. Each entry is an input held for some steps.
+   */
+  private script: { input: Partial<FightInput>; steps: number }[] = [];
   /** When it first saw the threat it is reacting to. */
   private sawAt = -1;
   private time = 0;
@@ -43,6 +48,13 @@ export class Cpu {
 
   public think(fight: Fight, dt: number): FightInput {
     this.time += dt;
+    // A technique in progress plays out to its end.
+    if (this.script.length) {
+      const next = this.script[0];
+      next.steps -= 1;
+      if (next.steps <= 0) this.script.shift();
+      return { ...blank(), ...next.input };
+    }
     const me = fight.fighters[this.slot];
     const them = fight.fighters[1 - this.slot];
     const toward = Math.sign(them.x - me.x) || 1;
@@ -95,10 +107,38 @@ export class Cpu {
     return plan;
   }
 
+  /** Starts a technique: `x` values are toward (+1) or away (-1) from the opponent. */
+  private perform(toward: number, steps: [Partial<FightInput>, number][]): void {
+    this.script = steps.map(([input, n]) => ({ input: { ...input, ...(input.x !== undefined ? { x: input.x * toward } : {}) }, steps: n }));
+  }
+
   private choose(fight: Fight, gap: number, toward: number, back: number): void {
     const me = fight.fighters[this.slot];
     const smart = this.random() < this.level.smart;
     const r = this.random();
+    const them = fight.fighters[1 - this.slot];
+    // The techniques, chosen more often the better the CPU: a jab cancelled into a blast up close,
+    // a dash to close from mid range, a back-dash away when crowded in the corner.
+    const technique = this.random() < this.level.smart * 0.45;
+    if (technique) {
+      if (gap < 1.15 && them.y === 0 && !fight.projectiles.some((q) => q.owner === this.slot)) {
+        this.perform(toward, [[{ lp: true }, 3], [{}, 6], [{ y: -1 }, 4], [{ y: -1, x: 1 }, 4], [{ x: 1 }, 3], [{ x: 1, lp: true }, 3]]);
+        return;
+      }
+      if (gap > 1.8 && gap < 3.4) {
+        this.perform(toward, [[{ x: 1 }, 3], [{}, 3], [{ x: 1 }, 4]]);
+        return;
+      }
+      if (gap < 1.4 && Math.abs(me.x) > 4.6 && Math.sign(me.x) === -toward) {
+        // Cornered: a back-dash would hit the wall, so dash through the gap toward the centre.
+        this.perform(toward, [[{ x: 1 }, 3], [{}, 3], [{ x: 1 }, 4]]);
+        return;
+      }
+      if (gap < 1.3 && them.state === 'attack') {
+        this.perform(toward, [[{ x: -1 }, 3], [{}, 3], [{ x: -1 }, 4]]);
+        return;
+      }
+    }
     const p = blank();
     let hold = 0.2 + this.random() * 0.35;
     if (me.meter >= 100 && gap > 2 && smart) p.super = true;

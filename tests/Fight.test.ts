@@ -110,13 +110,19 @@ describe('Fight', () => {
     const play = () => {
       const f = ready(2);
       const cpu = new Cpu(1, DIFFICULTY.hard, 3);
-      for (let i = 0; i < 120 * 20; i++) f.step([{ ...blank(), lp: Math.floor(i / 20) % 3 === 0, x: 1 }, cpu.think(f, STEP)]);
-      return f;
+      // Rounds can end and reset health within the run, so count the CPU's hits as they land.
+      let landed = 0;
+      for (let i = 0; i < 120 * 20; i++) {
+        f.step([{ ...blank(), lp: Math.floor(i / 20) % 3 === 0, x: 1 }, cpu.think(f, STEP)]);
+        landed += f.events.filter((e) => e.type === 'hit' && e.slot === 0).length;
+      }
+      return { f, landed };
     };
     const a = play();
     const b = play();
-    expect(a.fighters.map((x) => x.hp)).toEqual(b.fighters.map((x) => x.hp));
-    expect(a.fighters[0].hp).toBeLessThan(MAX_HP);
+    expect(a.f.fighters.map((x) => x.hp)).toEqual(b.f.fighters.map((x) => x.hp));
+    expect(a.landed).toBe(b.landed);
+    expect(a.landed).toBeGreaterThan(0);
   });
 
   describe('asura kits', () => {
@@ -244,5 +250,25 @@ describe('arcade ladder', () => {
 
   it('is the same ladder for the same seed', () => {
     expect(buildLadder('bakasura', roster, stages, 42)).toEqual(buildLadder('bakasura', roster, stages, 42));
+  });
+});
+
+describe('CPU techniques', () => {
+  it('dashes in and lands cancel combos against an opponent who stands still', () => {
+    const f = new Fight(A, B);
+    const cpu = new Cpu(1, DIFFICULTY.hard, 11);
+    let dashes = 0;
+    let combos = 0;
+    for (let i = 0; i < 120 * 40 && f.phase !== 'over'; i++) {
+      f.step([blank(), cpu.think(f, STEP)]);
+      for (const e of f.events) {
+        if (e.type === 'attack' && e.slot === 1 && e.move === 'dashForward') dashes++;
+        if (e.type === 'hit' && e.slot === 0 && e.combo >= 2) combos++;
+      }
+      // Keep the dummy upright between rounds' knockdowns so the CPU keeps working.
+      if (f.phase === 'ended') break;
+    }
+    expect(dashes).toBeGreaterThan(0);
+    expect(combos).toBeGreaterThan(0);
   });
 });
