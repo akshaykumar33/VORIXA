@@ -67,6 +67,16 @@ const CSS = `
 .ak-vs > span { font-size:72px; font-weight:900; font-style:italic; color:#ffb21f; text-shadow:0 0 30px #ff6a10; }
 .ak-train { position:absolute; left:50%; bottom:46px; transform:translateX(-50%); padding:8px 16px; background:rgba(8,4,0,.7); border:1px solid rgba(255,178,31,.5); font-size:15px; letter-spacing:.04em; text-align:center; line-height:1.6; font-family:'Space Grotesk Variable',system-ui,sans-serif; }
 .ak-train b { color:#ffb21f; }
+.ak-cutin { position:absolute; inset:0; pointer-events:none; opacity:0; }
+.ak-cutin.go { animation:akdark 1.1s ease-out forwards; }
+.ak-cutin .band { position:absolute; top:38%; left:-10%; right:-10%; height:110px; transform:skewY(-6deg); background:linear-gradient(90deg,transparent,var(--c) 18%,#1a0802 50%,var(--c) 82%,transparent); display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 0 60px var(--c); }
+.ak-cutin.go .band { animation:akslide 1.1s cubic-bezier(.2,.9,.3,1) forwards; }
+.ak-cutin.r.go .band { animation-name:akslider; }
+.ak-cutin b { font-size:56px; font-weight:900; font-style:italic; letter-spacing:.06em; text-transform:uppercase; color:#fff; text-shadow:0 0 18px var(--c); }
+.ak-cutin span { font-size:22px; letter-spacing:.3em; text-transform:uppercase; color:#ffe9b0; }
+@keyframes akdark { 0% { opacity:0; background:rgba(0,0,0,0); } 12% { opacity:1; background:rgba(0,0,0,.55); } 80% { opacity:1; } 100% { opacity:0; background:rgba(0,0,0,0); } }
+@keyframes akslide { 0% { transform:translateX(-110%) skewY(-6deg); } 25% { transform:translateX(0) skewY(-6deg); } 80% { transform:translateX(3%) skewY(-6deg); } 100% { transform:translateX(110%) skewY(-6deg); } }
+@keyframes akslider { 0% { transform:translateX(110%) skewY(6deg); } 25% { transform:translateX(0) skewY(6deg); } 80% { transform:translateX(-3%) skewY(6deg); } 100% { transform:translateX(-110%) skewY(6deg); } }
 .ak-bio { max-width:640px; text-align:center; font-size:18px; opacity:.9; min-height:48px; margin-bottom:14px; font-family:'Space Grotesk Variable',system-ui,sans-serif; }
 .ak-loading { position:absolute; bottom:40px; left:50%; transform:translateX(-50%); width:320px; height:4px; background:rgba(255,255,255,.15); }
 .ak-loading i { display:block; height:100%; background:#ffb21f; width:0; transition:width .2s; }
@@ -173,6 +183,21 @@ export class AkhadaHud {
   }
 
   private trainingPanel: HTMLElement | null = null;
+  private cutin: HTMLElement | null = null;
+
+  /** A super's cut-in: the screen darkens and a band slides across, their name and their super's. */
+  public superCutIn(who: Contender, side: 0 | 1): void {
+    if (!this.cutin) {
+      this.cutin = document.createElement('div');
+      this.cutin.className = 'ak-cutin';
+      this.el.appendChild(this.cutin);
+    }
+    const c = this.cutin;
+    c.innerHTML = `<div class="band" style="--c:${hex(who.colour)}"><b>${who.name}</b><span>${who.superName}</span></div>`;
+    c.classList.remove('l', 'r', 'go');
+    void c.offsetWidth;
+    c.classList.add(side === 0 ? 'l' : 'r', 'go');
+  }
 
   /** Training's readout: the dummy's behaviour, and the last move's frame data and damage. */
   public training(dummy: string, last: { move: MoveId; damage: number; combo: number } | null, move: Move | null): void {

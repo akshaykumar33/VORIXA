@@ -285,6 +285,10 @@ export class AkhadaGame {
   private react(fight: Fight, events: readonly FightEvent[]): void {
     this.renderer.react(fight, events);
     for (const e of events) {
+      if (e.type === 'attack' && e.move === 'super') {
+        this.hud.superCutIn(this.fighters[e.slot], e.slot);
+        this.say(this.fighters[e.slot].superName);
+      }
       if (e.type === 'attack' && e.slot === 0) this.lastMove = { move: e.move, damage: 0, combo: 0 };
       if (e.type === 'hit' && e.slot === 1 && this.lastMove) {
         this.lastMove.damage = e.damage;
