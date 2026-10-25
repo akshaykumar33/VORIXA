@@ -272,3 +272,47 @@ describe('CPU techniques', () => {
     expect(combos).toBeGreaterThan(0);
   });
 });
+
+describe('signature specials', () => {
+  const withSig = (signature: 'rain' | 'gore' | 'ring' | 'counter'): FighterDef => ({ ...A, kit: { signature } });
+  const start = (a: FighterDef, b: FighterDef, gap: number) => {
+    const f = new Fight(a, b);
+    run(f, 2.05);
+    f.fighters[0].x = -gap / 2;
+    f.fighters[1].x = gap / 2;
+    return f;
+  };
+
+  it('rains a strike down on the opponent at range (Ravana, Tataka)', () => {
+    const f = start(withSig('rain'), B, 5);
+    run(f, 1.8, (t) => ({ signature: t < 0.02 }));
+    expect(f.fighters[1].hp).toBe(MAX_HP - 110);
+  });
+
+  it('gores through a jab with armour (Mahishasura, Bakasura)', () => {
+    const f = start(withSig('gore'), B, 2.2);
+    run(f, 1.2, (t) => ({ signature: t < 0.02 }), (t) => ({ lp: t > 0.1 && t < 0.13 }));
+    expect(f.fighters[1].hp).toBeLessThanOrEqual(MAX_HP - MOVES.sigGore.damage);
+  });
+
+  it('rings a blow on both sides (Kumbhakarna, Holika)', () => {
+    const f = start(withSig('ring'), B, 1.2);
+    // Put the opponent behind them: a ring reaches there too.
+    f.fighters[1].x = f.fighters[0].x - 1;
+    run(f, 0.6, (t) => ({ signature: t < 0.02 }));
+    expect(f.fighters[1].hp).toBe(MAX_HP - MOVES.sigRing.damage);
+  });
+
+  it('counters a strike into the stance and answers it (Hiranyakashipu, Raktabija)', () => {
+    const f = start(withSig('counter'), B, 1);
+    run(f, 0.8, (t) => ({ signature: t < 0.02 }), (t) => ({ hp: t > 0.08 && t < 0.11 }));
+    expect(f.fighters[0].hp).toBe(MAX_HP);
+    expect(f.fighters[1].hp).toBe(MAX_HP - MOVES.counterHit.damage);
+  });
+
+  it('reads quarter circle back and punch as the signature', () => {
+    const f = start(withSig('rain'), B, 5);
+    run(f, 1.8, (t) => (t < 0.05 ? { y: -1 } : t < 0.1 ? { y: -1, x: -1 } : t < 0.15 ? { x: -1 } : t < 0.17 ? { x: -1, lp: true } : {}));
+    expect(f.fighters[1].hp).toBe(MAX_HP - 110);
+  });
+});

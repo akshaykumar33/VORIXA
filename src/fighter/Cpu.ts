@@ -120,6 +120,17 @@ export class Cpu {
     // The techniques, chosen more often the better the CPU: a jab cancelled into a blast up close,
     // a dash to close from mid range, a back-dash away when crowded in the corner.
     const technique = this.random() < this.level.smart * 0.45;
+    // Their signature, now and then, where it works: a counter when crowded, a rain or gore at range,
+    // a ring up close.
+    const sig = me.def.kit?.signature;
+    if (sig && smart && r < 0.2) {
+      const fits = sig === 'counter' ? gap < 1.3 && them.state === 'attack' : sig === 'ring' ? gap < 1.6 : gap > 1.6;
+      if (fits) {
+        this.plan = { ...blank(), signature: true };
+        this.planFor = this.time + 0.1;
+        return;
+      }
+    }
     if (technique) {
       if (gap < 1.15 && them.y === 0 && !fight.projectiles.some((q) => q.owner === this.slot)) {
         this.perform(toward, [[{ lp: true }, 3], [{}, 6], [{ y: -1 }, 4], [{ y: -1, x: 1 }, 4], [{ x: 1 }, 3], [{ x: 1, lp: true }, 3]]);

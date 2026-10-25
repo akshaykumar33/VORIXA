@@ -35,7 +35,12 @@ export type MoveId =
   | 'jab' | 'cross' | 'hook' | 'frontKick' | 'roundhouse'
   | 'lowJab' | 'lowKick' | 'sweep' | 'airPunch' | 'airKick'
   | 'blast' | 'dashStrike' | 'super'
-  | 'dashForward' | 'dashBack' | 'throw';
+  | 'dashForward' | 'dashBack' | 'throw'
+  | 'sigRain' | 'sigGore' | 'sigRing' | 'sigCounter' | 'counterHit';
+
+/** Each asura's signature special (↓↙← + punch), one of four mechanics. */
+export type Signature = 'rain' | 'gore' | 'ring' | 'counter';
+const SIGNATURE_MOVE: Record<Signature, MoveId> = { rain: 'sigRain', gore: 'sigGore', ring: 'sigRing', counter: 'sigCounter' };
 export type Button = 'lp' | 'hp' | 'lk' | 'hk';
 export type State = 'stand' | 'walk' | 'crouch' | 'jump' | 'attack' | 'hitstun' | 'blockstun' | 'knockdown' | 'getup' | 'ko' | 'win';
 
@@ -61,6 +66,10 @@ export interface Move {
   meterCost?: number;
   /** Moves the fighter without striking (dashes). */
   movement?: boolean;
+  /** Hits on both sides of the fighter, not only in front. */
+  around?: boolean;
+  /** No blow short of a knockdown interrupts it (super armour for the move). */
+  armoured?: boolean;
 }
 
 export const MOVES: Record<MoveId, Move> = {
@@ -80,6 +89,13 @@ export const MOVES: Record<MoveId, Move> = {
   dashForward: { startup: 0, active: 0.2, recover: 0.07, damage: 0, reach: 0, height: 'mid', hitstun: 0, blockstun: 0, push: 0, lunge: 6.5, movement: true },
   dashBack: { startup: 0, active: 0.18, recover: 0.1, damage: 0, reach: 0, height: 'mid', hitstun: 0, blockstun: 0, push: 0, lunge: -5.5, movement: true },
   // Light punch and light kick together, up close: a grab that no block stops.
+  // Signatures. Rain: a strike falls from above where the opponent stands. Gore: an armoured lunge.
+  // Ring: a blow all round. Counter: a stance that catches a strike and answers it.
+  sigRain: { startup: 0.35, active: 0.05, recover: 0.45, damage: 0, reach: 0, height: 'mid', hitstun: 0.5, blockstun: 0.3, push: 2, knockdown: true },
+  sigGore: { startup: 0.15, active: 0.4, recover: 0.45, damage: 130, reach: 0.95, height: 'mid', hitstun: 0.6, blockstun: 0.3, push: 3.5, knockdown: true, lunge: 6.5, chip: 14, armoured: true },
+  sigRing: { startup: 0.25, active: 0.12, recover: 0.5, damage: 120, reach: 1.6, height: 'mid', hitstun: 0.6, blockstun: 0.3, push: 3.2, knockdown: true, around: true, chip: 12 },
+  sigCounter: { startup: 0.04, active: 0.6, recover: 0.25, damage: 0, reach: 0, height: 'mid', hitstun: 0, blockstun: 0, push: 0, movement: true },
+  counterHit: { startup: 0, active: 0.01, recover: 0.3, damage: 140, reach: 1.2, height: 'throw', hitstun: 0.6, blockstun: 0, push: 3.5, knockdown: true },
   throw: { startup: 0.06, active: 0.05, recover: 0.45, damage: 130, reach: 0.95, height: 'throw', hitstun: 0, blockstun: 0, push: 3, knockdown: true },
   super: { startup: 0.45, active: 0.05, recover: 0.6, damage: 0, reach: 0, height: 'mid', hitstun: 0.8, blockstun: 0.4, push: 4, knockdown: true, projectile: { speed: 9, damage: 320, chip: 60, size: 0.7 }, meterCost: 100 }
 };
@@ -106,6 +122,8 @@ export interface Kit {
   lifesteal?: number;
   /** Their blast: speed (m/s), size (m), damage, chip, how it flies, and its look. */
   blast?: { speed: number; size: number; damage: number; chip: number; style: BlastStyle; low?: boolean; arc?: boolean };
+  /** Their signature special. */
+  signature?: Signature;
 }
 
 export interface FighterDef {
@@ -130,6 +148,7 @@ export interface FightInput {
   hk: boolean;
   /** Shortcut specials, for the CPU and for anyone who prefers a button to a motion. */
   blast?: boolean;
+  signature?: boolean;
   dash?: boolean;
   super?: boolean;
 }
@@ -381,6 +400,11 @@ export class Fight {
       this.begin(f, 'dashStrike');
       return true;
     }
+    const sig = f.def.kit?.signature;
+    if (sig && ((input.signature && !prev.signature) || (punch && this.motion(f, [2, 1, 4])))) {
+      this.begin(f, SIGNATURE_MOVE[sig]);
+      return true;
+    }
     return false;
   }
 
@@ -416,6 +440,10 @@ export class Fight {
         if (m.projectile && f.t >= m.startup && !f.landed) {
           f.landed = true;
           this.fire(f, m);
+        }
+        if (f.move === 'sigRain' && f.t >= m.startup && !f.landed) {
+          f.landed = true;
+          this.rain(f);
         }
         if (f.t >= m.startup + m.active + m.recover) this.settle(f);
         break;
@@ -496,7 +524,7 @@ export class Fight {
     const o = this.fighters[1 - f.slot];
     if (o.state === 'ko' || o.state === 'knockdown' || o.state === 'getup') return;
     if (m.height === 'throw' && (o.y > 0 || !['stand', 'walk', 'crouch', 'attack'].includes(o.state))) return;
-    const ahead = (o.x - f.x) * fwd(f);
+    const ahead = m.around ? Math.abs(o.x - f.x) : (o.x - f.x) * fwd(f);
     if (ahead < 0 || ahead > m.reach + BODY / 2) return;
     // Lows go under a jump; air attacks only reach someone standing near the height they are at.
     if (m.height === 'low' && o.y > 0.3) return;
@@ -520,6 +548,16 @@ export class Fight {
   }
 
   private connect(by: Fighter, o: Fighter, m: Move, x: number, y: number, damage: number, chip: number): void {
+    const counter = MOVES.sigCounter;
+    if (o.move === 'sigCounter' && o.state === 'attack' && o.t >= counter.startup && o.t < counter.startup + counter.active && m.height !== 'throw') {
+      // Caught: the stance ends and the blow comes back on the attacker.
+      o.move = 'counterHit';
+      o.t = 0;
+      o.landed = true;
+      this.events.push({ type: 'clash', x, y });
+      this.connect(o, by, MOVES.counterHit, by.x, by.y + 1.2, MOVES.counterHit.damage, 0);
+      return;
+    }
     const dir = fwd(by);
     if (this.blocks(o, m.height)) {
       o.state = 'blockstun';
@@ -539,7 +577,8 @@ export class Fight {
     o.hp = Math.max(0, o.hp - dealt);
     if (by.def.kit?.lifesteal) by.hp = Math.min(MAX_HP, by.hp + Math.round(dealt * by.def.kit.lifesteal));
     // Super armour: a light blow lands but does not stop a heavy fighter's attack.
-    if (o.state === 'attack' && o.hp > 0 && !m.knockdown && dealt < (o.def.kit?.armour ?? 0)) {
+    const armour = o.move && MOVES[o.move].armoured ? Infinity : o.def.kit?.armour ?? 0;
+    if (o.state === 'attack' && o.hp > 0 && !m.knockdown && dealt < armour) {
       this.hitstop = 0.05;
       this.events.push({ type: 'hit', slot: o.slot, x, y, damage: dealt, heavy: false, combo: o.comboTaken });
       return;
@@ -564,6 +603,17 @@ export class Fight {
       o.stun = m.hitstun;
       o.vx = dir * m.push;
     }
+  }
+
+  /** A strike from above: it falls on where the opponent stands as it is called down. */
+  private rain(f: Fighter): void {
+    const target = this.fighters[1 - f.slot];
+    const own = f.def.kit?.blast;
+    this.projectiles.push({
+      id: this.nextId++, owner: f.slot, x: target.x, y: 6, vx: 0, damage: 110, chip: 15, size: 0.55,
+      super: false, style: own?.style ?? 'fire', low: false, vy: -2
+    });
+    this.events.push({ type: 'projectile', slot: f.slot, super: false });
   }
 
   private fire(f: Fighter, m: Move): void {
