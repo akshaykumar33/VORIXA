@@ -7,7 +7,7 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
  * and a builder that puts the place together from the arena's kit of parts.
  */
 
-export type StageId = 'varanasi' | 'kurukshetra' | 'rameswaram' | 'jaisalmer';
+export type StageId = 'varanasi' | 'kurukshetra' | 'rameswaram' | 'jaisalmer' | 'kerala';
 /** The look of each round: the first, the second (the dramatic one), the third (night). */
 export type Weather = 'dusk' | 'storm' | 'night';
 export const WEATHER_BY_ROUND: Weather[] = ['dusk', 'storm', 'night'];
@@ -340,6 +340,83 @@ function buildJaisalmer(k: ArenaKit): void {
   k.place(k.models.clay, 4.8, 0, -2.2, 1.2);
 }
 
+// ─── The backwaters, Kerala ───────────────────────────────────────────────────────────────────
+
+/** A kettuvallam: a long hull of jackwood, curved up at both ends, under a barrel roof of thatch. */
+function houseboat(x: number, z: number, rot: number): THREE.Group {
+  const g = new THREE.Group();
+  const hullGeo = new THREE.BoxGeometry(9, 0.8, 2.2, 18, 1, 2);
+  const p = hullGeo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const u = p.getX(i) / 4.5;
+    p.setZ(i, p.getZ(i) * (1 - u * u * 0.7));
+    p.setY(i, p.getY(i) + u * u * 0.8);
+  }
+  hullGeo.computeVertexNormals();
+  g.add(mesh(hullGeo, new THREE.MeshStandardMaterial({ color: 0x4a2e18, roughness: 0.8 })));
+  const thatch = new THREE.MeshStandardMaterial({ color: 0xb08a50, roughness: 1, side: THREE.DoubleSide });
+  // The barrel roof: a cylinder lying along the hull, its lower half hidden in the walls.
+  const roof = mesh(new THREE.CylinderGeometry(1.1, 1.1, 5.6, 20).rotateZ(Math.PI / 2), thatch, -0.4, 0.95, 0);
+  roof.scale.set(1, 0.75, 1);
+  g.add(roof);
+  // Woven bamboo walls under the roof, and a window of lamplight.
+  g.add(mesh(new THREE.BoxGeometry(5.2, 0.9, 1.9), new THREE.MeshStandardMaterial({ color: 0x8a6a3a, roughness: 1 }), -0.4, 0.75, 0));
+  g.add(mesh(new THREE.BoxGeometry(0.6, 0.35, 0.05), new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xff9a30, emissiveIntensity: 1.2 }), 0.6, 0.85, 0.97));
+  g.position.set(x, -0.15, z);
+  g.rotation.y = rot;
+  return g;
+}
+
+/** A Chinese fishing net of Kochi: a cantilever of poles leaning over the water, a net slung beneath. */
+function fishingNet(x: number, z: number, rot: number): THREE.Group {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.9 });
+  // Two long booms rising from the bank and meeting over the water.
+  for (const side of [-1, 1]) {
+    const boom = mesh(new THREE.CylinderGeometry(0.06, 0.08, 9, 6), wood, side * 1.2, 3.2, -2);
+    boom.rotation.set(-0.7, 0, side * 0.12);
+    g.add(boom);
+  }
+  // The net: a square of fine mesh hanging under the tip.
+  const net = new THREE.Mesh(new THREE.PlaneGeometry(4, 4, 8, 8), new THREE.MeshStandardMaterial({ color: 0x8a8070, wireframe: true }));
+  net.rotation.x = -Math.PI / 2.4;
+  net.position.set(0, 3.2, -6.5);
+  g.add(net);
+  // The counterweights of stone strung on ropes at the back.
+  for (let i = 0; i < 4; i++) g.add(mesh(new THREE.DodecahedronGeometry(0.25, 0), new THREE.MeshStandardMaterial({ color: 0x6a645a }), -0.6 + i * 0.4, 1 + i * 0.15, 1.5));
+  g.position.set(x, 0, z);
+  g.rotation.y = rot;
+  return g;
+}
+
+function buildKerala(k: ArenaKit): void {
+  const laterite = k.pbr('red_laterite_soil_stones', [10, 3]);
+  k.add(mesh(new THREE.BoxGeometry(50, 1, 8), laterite, 0, -0.5, 1));
+  // A low bank of laterite blocks, then the backwater, still and green.
+  k.add(mesh(new THREE.BoxGeometry(50, 0.6, 0.8), laterite, 0, -0.3, -3.4));
+  k.water(-0.45, 0x0e2a1c);
+  // Paddy fields on the far side: bright green rows under the palms.
+  const paddy = new THREE.MeshStandardMaterial({ color: 0x5a9a2a, roughness: 0.9 });
+  k.add(mesh(new THREE.BoxGeometry(200, 0.3, 30), paddy, 0, -0.3, -70));
+  for (let i = 0; i < 18; i++) k.add(palm(-60 + i * 7 + Math.sin(i) * 2, -58 - (i % 3) * 4, Math.sin(i * 1.7) * 1.2));
+  k.add(houseboat(-5, -14, 0.15), houseboat(14, -24, -0.2));
+  k.add(fishingNet(-9.5, -3.6, 0.25), fishingNet(10, -3.8, -0.3));
+  for (const [x, z, lean] of [[-7.4, -2.6, 1.3], [7.6, -2.8, -1.2], [-14, -1.5, -0.9], [15, -1.8, 0.8]] as const) k.add(palm(x, z, lean));
+  // A tall brass nilavilakku at either end of the bank, its wicks lit, and diyas between.
+  const brass = new THREE.MeshStandardMaterial({ color: 0xd9a32e, metalness: 1, roughness: 0.3 });
+  for (const x of [-5, 5]) {
+    k.add(mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.1, 16), brass, x, 0.05, -3));
+    k.add(mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.4, 10), brass, x, 0.75, -3));
+    k.add(mesh(new THREE.CylinderGeometry(0.28, 0.06, 0.12, 16), brass, x, 1.5, -3));
+    for (let w = 0; w < 5; w++) {
+      const a = (w / 5) * Math.PI * 2;
+      k.flame(x + Math.cos(a) * 0.22, 1.66, -3 + Math.sin(a) * 0.22, 0.16);
+    }
+    k.lamp(x, 1.7, -2.8, 0xffb050);
+  }
+  for (let x = -3; x <= 3; x += 1.5) k.diya(k.models.diya, x, 0, -3.2);
+}
+
 // ─── The stages ───────────────────────────────────────────────────────────────────────────────
 
 const sun = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -375,6 +452,16 @@ export const STAGES: Record<StageId, StageDef> = {
     },
     build: buildRameswaram
   },
+  kerala: {
+    id: 'kerala', name: 'The Backwaters', state: 'Kerala', raga: 'mohanam', waterY: -0.45,
+    legend: "God's own country, where Parashurama threw his axe into the sea and the land rose from the water.",
+    weather: {
+      dusk: { sky: '/sky/meadow', sun: 0xfff0d0, sunIntensity: 2.6, sunDir: sun(0.4, 0.7, -0.5), hemiSky: 0xbfe0c0, hemiGround: 0x3a4a20, hemi: 0.55, fog: 0x9ab8a0, fogDensity: 0.012, env: 0.8, background: 1, wet: 0.2, diya: 0.6, rain: false },
+      storm: { sky: '/akhada/sky/kloofendal_overcast_puresky', sun: 0x9ab0c0, sunIntensity: 0.9, sunDir: sun(0.3, 0.8, -0.4), hemiSky: 0x7a9488, hemiGround: 0x1e2618, hemi: 0.42, fog: 0x4a5c52, fogDensity: 0.03, env: 0.55, background: 0.75, wet: 1, diya: 0.9, rain: true },
+      night: { sky: '/sky/neon', sun: 0x9ab0ff, sunIntensity: 0.5, sunDir: sun(0.4, 0.6, -0.7), hemiSky: 0x3a5070, hemiGround: 0x0c1410, hemi: 0.22, fog: 0x101c1a, fogDensity: 0.016, env: 0.35, background: 0.8, wet: 0.4, diya: 2.4, rain: false }
+    },
+    build: buildKerala
+  },
   jaisalmer: {
     id: 'jaisalmer', name: 'The Golden Fort', state: 'Rajasthan', raga: 'maand', waterY: null,
     legend: 'Sonar Qila rises from the Thar, gold at noon and fire at sunset, the desert at its feet.',
@@ -387,4 +474,4 @@ export const STAGES: Record<StageId, StageDef> = {
   }
 };
 
-export const STAGE_ORDER: StageId[] = ['varanasi', 'kurukshetra', 'rameswaram', 'jaisalmer'];
+export const STAGE_ORDER: StageId[] = ['varanasi', 'kurukshetra', 'rameswaram', 'jaisalmer', 'kerala'];

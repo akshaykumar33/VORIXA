@@ -27,6 +27,8 @@ export const RAGAS: Record<string, RagaDef> = {
   malkauns: { name: 'Malkauns', notes: [0, 3, 5, 8, 10], sa: 123.5, tempo: 112, tala: 'DG.DG.D.DGDGD.D.', drums: 'nagara', lead: 'shehnai' },
   // Rameswaram: Hamsadhwani, bright and Carnatic, on the flute with mridangam.
   hamsadhwani: { name: 'Hamsadhwani', notes: [0, 2, 4, 7, 11], sa: 146.8, tempo: 104, tala: 'D.T.TD.TD.T.TDTT', drums: 'mridangam', lead: 'flute' },
+  // The backwaters: Mohanam, five bright notes, on the flute over the mridangam.
+  mohanam: { name: 'Mohanam', notes: [0, 2, 4, 7, 9], sa: 146.8, tempo: 100, tala: 'D.TD.T.TD.TTD.T.', drums: 'mridangam', lead: 'flute' },
   // Jaisalmer: Maand, the desert folk raga, with dholak.
   maand: { name: 'Maand', notes: [0, 2, 4, 5, 7, 9, 11], sa: 130.8, tempo: 98, tala: 'D.TD.TD.D.TD.TDT', drums: 'dholak', lead: 'sitar' }
 };
