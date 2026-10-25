@@ -244,6 +244,7 @@ tone-mapped backdrops for the skies, 1k PBR maps as WebP, and models with 512 px
 | White Sandstone Bricks | Rameswaram's gopurams | Rob Tuytel |
 | Sandstone Blocks 08 | Jaisalmer's fort | Rob Tuytel |
 | Rock Wall 08 | Rameswaram's granite pillars | Amal Kumar |
+| Red Laterite Soil Stones | Kerala's riverbank | Amal Kumar |
 
 The night round reuses Qwantani Night (above, under Skies).
 
