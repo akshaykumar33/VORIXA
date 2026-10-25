@@ -20,10 +20,10 @@ const MODES: Mode[] = ['arcade', 'easy', 'normal', 'hard', 'versus'];
 const MODE_LABEL: Record<Mode, string> = { arcade: 'ARCADE LADDER', easy: 'VS CPU · EASY', normal: 'VS CPU · NORMAL', hard: 'VS CPU · HARD', versus: '2 PLAYERS' };
 
 const KEYS = [
-  { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], lp: ['KeyU'], hp: ['KeyI'], lk: ['KeyJ'], hk: ['KeyK'], blast: ['KeyO'], dash: ['KeyL'], super: ['Semicolon'] },
+  { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], lp: ['KeyU'], hp: ['KeyI'], lk: ['KeyJ'], hk: ['KeyK'], blast: ['KeyO'], dash: ['KeyL'], super: ['Semicolon'], signature: ['KeyP'] },
   {
     left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'], down: ['ArrowDown'],
-    lp: ['Numpad4'], hp: ['Numpad5'], lk: ['Numpad1'], hk: ['Numpad2'], blast: ['Numpad6'], dash: ['Numpad3'], super: ['Numpad0']
+    lp: ['Numpad4'], hp: ['Numpad5'], lk: ['Numpad1'], hk: ['Numpad2'], blast: ['Numpad6'], dash: ['Numpad3'], super: ['Numpad0'], signature: ['Numpad7']
   }
 ];
 
@@ -194,7 +194,7 @@ export class AkhadaGame {
       x: (any(k.right) ? 1 : 0) - (any(k.left) ? 1 : 0),
       y: (any(k.up) ? 1 : 0) - (any(k.down) ? 1 : 0),
       lp: any(k.lp), hp: any(k.hp), lk: any(k.lk), hk: any(k.hk),
-      blast: any(k.blast), dash: any(k.dash), super: any(k.super)
+      blast: any(k.blast), dash: any(k.dash), super: any(k.super), signature: any(k.signature)
     };
     // A gamepad per player: X/Y punch, A/B kick, RB blast, LB dash, RT super; stick or d-pad.
     const pad = navigator.getGamepads?.()[slot];

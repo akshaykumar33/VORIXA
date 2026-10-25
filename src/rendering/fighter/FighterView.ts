@@ -32,7 +32,12 @@ const MOVE_CLIP: Record<MoveId, { clip: string; kick?: { lift: number; low?: boo
   super: { clip: 'Spell_Simple_Shoot' },
   dashForward: { clip: 'Jog_Fwd_Loop' },
   dashBack: { clip: 'Walk_Loop' },
-  throw: { clip: 'OverhandThrow' }
+  throw: { clip: 'OverhandThrow' },
+  sigRain: { clip: 'Spell_Simple_Shoot' },
+  sigGore: { clip: 'Shield_Dash' },
+  sigRing: { clip: 'Melee_Hook' },
+  sigCounter: { clip: 'Sword_Block' },
+  counterHit: { clip: 'Punch_Cross' }
 };
 
 /** Crouching moves are played standing with the body lowered. */
