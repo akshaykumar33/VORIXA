@@ -214,3 +214,35 @@ describe('Fight', () => {
     });
   });
 });
+
+import { buildLadder, difficultyAt } from '../src/fighter/Ladder';
+
+describe('arcade ladder', () => {
+  const roster = ['ravana', 'mahishasura', 'kumbhakarna', 'hiranyakashipu', 'raktabija', 'tataka', 'holika', 'bakasura'];
+  const stages = ['varanasi', 'kurukshetra', 'rameswaram', 'jaisalmer'] as const;
+
+  it('meets every other fighter once, ending on the finale', () => {
+    const ladder = buildLadder('holika', roster, stages, 9, 'ravana');
+    expect(ladder).toHaveLength(7);
+    expect(new Set(ladder.map((r) => r.opponent)).size).toBe(7);
+    expect(ladder.map((r) => r.opponent)).not.toContain('holika');
+    expect(ladder[6].opponent).toBe('ravana');
+  });
+
+  it('ends on someone else when the player is the finale fighter', () => {
+    const ladder = buildLadder('ravana', roster, stages, 9, 'ravana');
+    expect(ladder).toHaveLength(7);
+    expect(ladder.map((r) => r.opponent)).not.toContain('ravana');
+  });
+
+  it('cycles the arenas and climbs in difficulty', () => {
+    const ladder = buildLadder('tataka', roster, stages, 3, 'ravana');
+    expect(ladder.map((r) => r.stage).slice(0, 5)).toEqual(['varanasi', 'kurukshetra', 'rameswaram', 'jaisalmer', 'varanasi']);
+    expect(ladder.map((r) => r.difficulty)).toEqual(['easy', 'easy', 'normal', 'normal', 'normal', 'hard', 'hard']);
+    expect(difficultyAt(0, 7)).toBe('easy');
+  });
+
+  it('is the same ladder for the same seed', () => {
+    expect(buildLadder('bakasura', roster, stages, 42)).toEqual(buildLadder('bakasura', roster, stages, 42));
+  });
+});
