@@ -115,8 +115,12 @@ export class Cpu {
       else if (r < 0.8) p.lk = true;
       else p.x = back;
     } else {
-      // Close: pokes, a sweep now and then, a step back to reset.
-      if (r < 0.25) p.lp = true;
+      const them = fight.fighters[1 - this.slot];
+      // Close: throw someone who keeps blocking; otherwise pokes, a sweep, a step back to reset.
+      if (gap < 0.95 && them.blocking && smart && r < 0.35) {
+        p.lp = true;
+        p.lk = true;
+      } else if (r < 0.25) p.lp = true;
       else if (r < 0.42) p.hp = true;
       else if (r < 0.56) p.lk = true;
       else if (r < 0.66) p.hk = true;

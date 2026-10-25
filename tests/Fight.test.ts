@@ -172,4 +172,45 @@ describe('Fight', () => {
       expect(f.fighters[1].hp).toBeLessThan(MAX_HP);
     });
   });
+
+  describe('techniques', () => {
+    it('dashes forward on a double tap toward the opponent', () => {
+      const f = ready(4);
+      const start = f.fighters[0].x;
+      // Tap, release, tap.
+      run(f, 0.25, (t) => (t < 0.04 || (t > 0.09 && t < 0.13) ? { x: 1 } : {}));
+      expect(f.fighters[0].x - start).toBeGreaterThan(0.9);
+    });
+
+    it('dashes back on a double tap away', () => {
+      const f = ready(3);
+      const start = f.fighters[0].x;
+      run(f, 0.3, (t) => (t < 0.04 || (t > 0.09 && t < 0.13) ? { x: -1 } : {}));
+      expect(start - f.fighters[0].x).toBeGreaterThan(0.7);
+    });
+
+    it('throws a blocking opponent up close, through their guard', () => {
+      const f = ready(0.8);
+      run(f, 0.5, (t) => ({ lp: t < 0.02, lk: t < 0.02 }), () => ({ x: 1 }));
+      expect(f.fighters[1].hp).toBe(MAX_HP - MOVES.throw.damage);
+      expect(['knockdown', 'getup']).toContain(f.fighters[1].state);
+    });
+
+    it('cannot throw someone in the air', () => {
+      const f = ready(0.8);
+      run(f, 0.08, () => ({}), (t) => ({ y: t < 0.02 ? 1 : 0 }));
+      run(f, 0.3, (t) => ({ lp: t < 0.02, lk: t < 0.02 }));
+      expect(f.fighters[1].hp).toBe(MAX_HP);
+    });
+
+    it('cancels a landed jab into a blast: a true combo', () => {
+      const f = ready(1.0);
+      // Jab, then quarter circle forward and punch while the jab is still recovering.
+      run(f, 0.6, (t) =>
+        t < 0.02 ? { lp: true } : t < 0.1 ? {} : t < 0.13 ? { y: -1 } : t < 0.16 ? { y: -1, x: 1 } : t < 0.19 ? { x: 1 } : t < 0.21 ? { x: 1, lp: true } : {}
+      );
+      expect(f.fighters[1].comboTaken).toBeGreaterThanOrEqual(2);
+      expect(f.fighters[1].hp).toBe(MAX_HP - MOVES.jab.damage - MOVES.blast.projectile!.damage);
+    });
+  });
 });

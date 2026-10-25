@@ -24,12 +24,18 @@ const JUMP_X = 2.6;
 const BODY = 0.62;
 /** Directions held within this window count toward a motion input. */
 const MOTION_WINDOW = 0.4;
+/** The two taps of a dash must fall within this. */
+const DASH_WINDOW = 0.28;
+/** Normals that can be cancelled into a special once they connect. */
+const CANCELLABLE = new Set<MoveId>(['jab', 'cross', 'lowJab', 'lowKick', 'frontKick']);
 
-export type Height = 'high' | 'mid' | 'low';
+/** Where an attack hits; a throw is not blocked at all. */
+export type Height = 'high' | 'mid' | 'low' | 'throw';
 export type MoveId =
   | 'jab' | 'cross' | 'hook' | 'frontKick' | 'roundhouse'
   | 'lowJab' | 'lowKick' | 'sweep' | 'airPunch' | 'airKick'
-  | 'blast' | 'dashStrike' | 'super';
+  | 'blast' | 'dashStrike' | 'super'
+  | 'dashForward' | 'dashBack' | 'throw';
 export type Button = 'lp' | 'hp' | 'lk' | 'hk';
 export type State = 'stand' | 'walk' | 'crouch' | 'jump' | 'attack' | 'hitstun' | 'blockstun' | 'knockdown' | 'getup' | 'ko' | 'win';
 
@@ -53,11 +59,13 @@ export interface Move {
   /** Damage a block still takes (specials only). */
   chip?: number;
   meterCost?: number;
+  /** Moves the fighter without striking (dashes). */
+  movement?: boolean;
 }
 
 export const MOVES: Record<MoveId, Move> = {
-  jab: { startup: 0.05, active: 0.05, recover: 0.12, damage: 40, reach: 0.95, height: 'mid', hitstun: 0.25, blockstun: 0.15, push: 1.2 },
-  cross: { startup: 0.08, active: 0.06, recover: 0.2, damage: 70, reach: 1.05, height: 'mid', hitstun: 0.35, blockstun: 0.2, push: 1.8 },
+  jab: { startup: 0.05, active: 0.05, recover: 0.12, damage: 40, reach: 0.95, height: 'mid', hitstun: 0.3, blockstun: 0.15, push: 1.2 },
+  cross: { startup: 0.08, active: 0.06, recover: 0.2, damage: 70, reach: 1.05, height: 'mid', hitstun: 0.38, blockstun: 0.2, push: 1.8 },
   hook: { startup: 0.14, active: 0.08, recover: 0.3, damage: 110, reach: 1.05, height: 'mid', hitstun: 0.45, blockstun: 0.26, push: 2.6 },
   frontKick: { startup: 0.1, active: 0.07, recover: 0.22, damage: 60, reach: 1.2, height: 'mid', hitstun: 0.3, blockstun: 0.18, push: 2 },
   roundhouse: { startup: 0.18, active: 0.09, recover: 0.36, damage: 120, reach: 1.35, height: 'mid', hitstun: 0.5, blockstun: 0.28, push: 3 },
@@ -66,8 +74,13 @@ export const MOVES: Record<MoveId, Move> = {
   sweep: { startup: 0.14, active: 0.08, recover: 0.42, damage: 90, reach: 1.35, height: 'low', hitstun: 0.6, blockstun: 0.26, push: 2, knockdown: true },
   airPunch: { startup: 0.05, active: 0.2, recover: 0.05, damage: 70, reach: 1.0, height: 'high', hitstun: 0.4, blockstun: 0.22, push: 1.6 },
   airKick: { startup: 0.07, active: 0.25, recover: 0.05, damage: 95, reach: 1.25, height: 'high', hitstun: 0.45, blockstun: 0.24, push: 2 },
-  blast: { startup: 0.28, active: 0.05, recover: 0.42, damage: 0, reach: 0, height: 'mid', hitstun: 0.4, blockstun: 0.25, push: 2.2, projectile: { speed: 6.5, damage: 100, chip: 15, size: 0.35 } },
+  blast: { startup: 0.22, active: 0.05, recover: 0.42, damage: 0, reach: 0, height: 'mid', hitstun: 0.4, blockstun: 0.25, push: 2.2, projectile: { speed: 6.5, damage: 100, chip: 15, size: 0.35 } },
   dashStrike: { startup: 0.12, active: 0.32, recover: 0.4, damage: 120, reach: 0.9, height: 'mid', hitstun: 0.6, blockstun: 0.3, push: 3, knockdown: true, lunge: 7.5, chip: 12 },
+  // Double-tap forward or back: a quick burst of movement.
+  dashForward: { startup: 0, active: 0.2, recover: 0.07, damage: 0, reach: 0, height: 'mid', hitstun: 0, blockstun: 0, push: 0, lunge: 6.5, movement: true },
+  dashBack: { startup: 0, active: 0.18, recover: 0.1, damage: 0, reach: 0, height: 'mid', hitstun: 0, blockstun: 0, push: 0, lunge: -5.5, movement: true },
+  // Light punch and light kick together, up close: a grab that no block stops.
+  throw: { startup: 0.06, active: 0.05, recover: 0.45, damage: 130, reach: 0.95, height: 'throw', hitstun: 0, blockstun: 0, push: 3, knockdown: true },
   super: { startup: 0.45, active: 0.05, recover: 0.6, damage: 0, reach: 0, height: 'mid', hitstun: 0.8, blockstun: 0.4, push: 4, knockdown: true, projectile: { speed: 9, damage: 320, chip: 60, size: 0.7 }, meterCost: 100 }
 };
 
@@ -311,15 +324,20 @@ export class Fight {
       if (!f.move && (punch || kick)) this.begin(f, kick ? 'airKick' : 'airPunch', true);
       return;
     }
+    // A normal that connected (hit or blocked) can be cancelled into a special: the heart of combos.
+    if (f.state === 'attack' && f.move && CANCELLABLE.has(f.move) && f.landed) {
+      const m = MOVES[f.move];
+      if (f.t < m.startup + m.active + m.recover && this.special(f, input, prev, punch, kick)) return;
+    }
     if (!this.free(f)) return;
-    // Specials first: a super (two quarter circles), a blast (one), the dash strike (back), or their buttons.
-    if ((input.super && !prev.super) || (punch && this.motion(f, [2, 3, 6, 2, 3, 6], MOTION_WINDOW * 2))) {
-      if (f.meter >= 100) return this.begin(f, 'super');
+    if (this.special(f, input, prev, punch, kick)) return;
+    // A throw: light punch and light kick together, close to someone on the ground.
+    if (press('lp') && press('lk')) return this.begin(f, 'throw');
+    // Dashes: tap forward or back twice.
+    if (input.x !== 0 && Math.sign(input.x) !== Math.sign(prev.x)) {
+      if (this.motion(f, [6, 5, 6], DASH_WINDOW)) return this.begin(f, 'dashForward');
+      if (this.motion(f, [4, 5, 4], DASH_WINDOW)) return this.begin(f, 'dashBack');
     }
-    if ((input.blast && !prev.blast) || (punch && this.motion(f, [2, 3, 6]))) {
-      if (!this.projectiles.some((p) => p.owner === f.slot)) return this.begin(f, 'blast');
-    }
-    if ((input.dash && !prev.dash) || (kick && this.motion(f, [2, 1, 4]))) return this.begin(f, 'dashStrike');
 
     const crouching = input.y < 0;
     if (press('lp')) return this.begin(f, crouching ? 'lowJab' : 'jab');
@@ -343,6 +361,27 @@ export class Fight {
     f.vx = crouching ? 0 : input.x * (away ? BACK_WALK : WALK) * (f.def.kit?.speed ?? 1);
     // Holding away is a block, standing or crouching.
     f.blocking = away || (crouching && Math.sign(input.x) === -fwd(f));
+  }
+
+  /** Specials: a super (two quarter circles), a blast (one), the dash strike (back), or their buttons. */
+  private special(f: Fighter, input: FightInput, prev: FightInput, punch: boolean, kick: boolean): boolean {
+    if ((input.super && !prev.super) || (punch && this.motion(f, [2, 3, 6, 2, 3, 6], MOTION_WINDOW * 2))) {
+      if (f.meter >= 100) {
+        this.begin(f, 'super');
+        return true;
+      }
+    }
+    if ((input.blast && !prev.blast) || (punch && this.motion(f, [2, 3, 6]))) {
+      if (!this.projectiles.some((p) => p.owner === f.slot)) {
+        this.begin(f, 'blast');
+        return true;
+      }
+    }
+    if ((input.dash && !prev.dash) || (kick && this.motion(f, [2, 1, 4]))) {
+      this.begin(f, 'dashStrike');
+      return true;
+    }
+    return false;
   }
 
   /** A heavy punch is a hook up close and a cross at range. */
@@ -452,10 +491,11 @@ export class Fight {
   private resolve(f: Fighter): void {
     if (!f.move || f.landed) return;
     const m = MOVES[f.move];
-    if (m.projectile) return;
+    if (m.projectile || m.movement) return;
     if (f.t < m.startup || f.t >= m.startup + m.active) return;
     const o = this.fighters[1 - f.slot];
     if (o.state === 'ko' || o.state === 'knockdown' || o.state === 'getup') return;
+    if (m.height === 'throw' && (o.y > 0 || !['stand', 'walk', 'crouch', 'attack'].includes(o.state))) return;
     const ahead = (o.x - f.x) * fwd(f);
     if (ahead < 0 || ahead > m.reach + BODY / 2) return;
     // Lows go under a jump; air attacks only reach someone standing near the height they are at.
@@ -467,6 +507,7 @@ export class Fight {
 
   /** Whether `o` blocks an attack of this height right now. */
   private blocks(o: Fighter, height: Height): boolean {
+    if (height === 'throw') return false;
     if (!(this.free(o) || o.state === 'blockstun') || !o.blocking) return false;
     const crouched = o.state === 'crouch' || (o.state === 'blockstun' && o.y === 0 && this.prevCrouch(o));
     if (height === 'low') return crouched;

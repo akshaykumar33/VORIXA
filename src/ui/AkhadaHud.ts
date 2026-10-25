@@ -189,6 +189,7 @@ export class AkhadaHud {
         <kbd>A</kbd><kbd>D</kbd> fighter · <kbd>Q</kbd><kbd>E</kbd> arena · <kbd>W</kbd><kbd>S</kbd> mode · <kbd>ENTER</kbd> fight<br>
         P1: <kbd>W A S D</kbd> move, jump, crouch · <kbd>U</kbd> <kbd>I</kbd> punch · <kbd>J</kbd> <kbd>K</kbd> kick · hold back to block<br>
         ↓↘→ + punch: blast (<kbd>O</kbd>) · ↓↙← + kick: dash strike (<kbd>L</kbd>) · ↓↘→↓↘→ + punch with a full bar: super (<kbd>;</kbd>)<br>
+        →→ dash · ←← back-dash · <kbd>U</kbd>+<kbd>J</kbd> up close: throw · cancel a landed jab, cross or kick into a special for a combo<br>
         P2: arrows · numpad <kbd>4</kbd> <kbd>5</kbd> punch, <kbd>1</kbd> <kbd>2</kbd> kick, <kbd>6</kbd> blast, <kbd>3</kbd> dash, <kbd>0</kbd> super · gamepads work too
       </div>`;
   }

@@ -29,7 +29,10 @@ const MOVE_CLIP: Record<MoveId, { clip: string; kick?: { lift: number; low?: boo
   airKick: { clip: 'NinjaJump_Idle_Loop', kick: { lift: 55 } },
   blast: { clip: 'Spell_Simple_Shoot' },
   dashStrike: { clip: 'Shield_Dash' },
-  super: { clip: 'Spell_Simple_Shoot' }
+  super: { clip: 'Spell_Simple_Shoot' },
+  dashForward: { clip: 'Jog_Fwd_Loop' },
+  dashBack: { clip: 'Walk_Loop' },
+  throw: { clip: 'OverhandThrow' }
 };
 
 /** Crouching moves are played standing with the body lowered. */
