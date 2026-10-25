@@ -2,6 +2,8 @@ import { AkhadaAudio } from '../audio/AkhadaAudio';
 import { Cpu, DIFFICULTY } from '../fighter/Cpu';
 import { Fight, MAX_HP, STEP, blank, type FightEvent, type FightInput } from '../fighter/Fight';
 import { ROSTER, type Contender } from '../fighter/Roster';
+import { buildLadder, type Rung } from '../fighter/Ladder';
+import type { StageId } from '../rendering/fighter/Stages';
 import { FightRenderer } from '../rendering/fighter/FightRenderer';
 import { AkhadaHud } from '../ui/AkhadaHud';
 import { RAGAS } from '../audio/Raga';
@@ -12,10 +14,10 @@ import { STAGES, STAGE_ORDER } from '../rendering/fighter/Stages';
  * announcer, and the results screen, around the pure `Fight` and `Cpu`.
  */
 
-type Screen = 'loading' | 'select' | 'fight' | 'paused' | 'results';
-type Mode = 'easy' | 'normal' | 'hard' | 'versus';
-const MODES: Mode[] = ['easy', 'normal', 'hard', 'versus'];
-const MODE_LABEL: Record<Mode, string> = { easy: 'VS CPU · EASY', normal: 'VS CPU · NORMAL', hard: 'VS CPU · HARD', versus: '2 PLAYERS' };
+type Screen = 'loading' | 'select' | 'versus' | 'fight' | 'paused' | 'results' | 'ending';
+type Mode = 'arcade' | 'easy' | 'normal' | 'hard' | 'versus';
+const MODES: Mode[] = ['arcade', 'easy', 'normal', 'hard', 'versus'];
+const MODE_LABEL: Record<Mode, string> = { arcade: 'ARCADE LADDER', easy: 'VS CPU · EASY', normal: 'VS CPU · NORMAL', hard: 'VS CPU · HARD', versus: '2 PLAYERS' };
 
 const KEYS = [
   { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], lp: ['KeyU'], hp: ['KeyI'], lk: ['KeyJ'], hk: ['KeyK'], blast: ['KeyO'], dash: ['KeyL'], super: ['Semicolon'] },
@@ -40,7 +42,10 @@ export class AkhadaGame {
   private readonly held = new Set<string>();
   private screen: Screen = 'loading';
   private pick = 0;
-  private mode = 1;
+  private mode = 0;
+  /** The arcade run: its rungs and the one being fought. */
+  private ladder: Rung<StageId>[] | null = null;
+  private rung = 0;
   private arena = 0;
   private fight: Fight | null = null;
   private cpu: Cpu | null = null;
@@ -101,19 +106,34 @@ export class AkhadaGame {
       else if (code === 'KeyS' || code === 'ArrowDown') this.mode = (this.mode + 1) % MODES.length;
       else if (code === 'KeyQ') this.arena = (this.arena + STAGE_ORDER.length - 1) % STAGE_ORDER.length;
       else if (code === 'KeyE') this.arena = (this.arena + 1) % STAGE_ORDER.length;
-      else if (code === 'Enter' || code === 'Space') return void this.begin();
+      else if (code === 'Enter' || code === 'Space') return void this.start1();
       this.hud.select(ROSTER, this.pick, MODES.map((m) => MODE_LABEL[m]), this.mode, STAGES[STAGE_ORDER[this.arena]]);
     } else if (this.screen === 'fight') {
       if (code === 'Escape') this.pause();
       if (code === 'KeyM') this.audio.toggleMute();
+    } else if (this.screen === 'versus') {
+      if (code === 'Enter' || code === 'Space') void this.begin();
+      else if (code === 'Backspace' || code === 'Escape') this.showSelect();
+    } else if (this.screen === 'ending') {
+      if (code === 'Enter' || code === 'Backspace' || code === 'Escape') this.showSelect();
     } else if (this.screen === 'paused') {
       if (code === 'Escape' || code === 'Enter') {
         this.screen = 'fight';
         this.hud.hideScreen();
       } else if (code === 'Backspace') this.showSelect();
     } else if (this.screen === 'results' && this.resultsIn <= 0) {
-      if (code === 'Enter') void this.begin();
-      else if (code === 'Backspace' || code === 'Escape') this.showSelect();
+      if (code === 'Enter') {
+        // In the ladder, a win climbs to the next rung, a loss retries this one.
+        if (this.ladder) {
+          const won = this.fight?.winner === 0;
+          if (won) this.rung++;
+          if (this.rung >= this.ladder.length) {
+            this.screen = 'ending';
+            this.hud.ending(ROSTER[this.pick]);
+            this.ladder = null;
+          } else this.showVersus();
+        } else void this.begin();
+      } else if (code === 'Backspace' || code === 'Escape') this.showSelect();
     }
   }
 
@@ -122,20 +142,42 @@ export class AkhadaGame {
     this.hud.paused();
   }
 
+  /** From fighter select: the arcade ladder opens on its first VS screen; the others fight now. */
+  private start1(): void {
+    if (MODES[this.mode] === 'arcade') {
+      const ids = ROSTER.map((r) => r.id);
+      this.ladder = buildLadder(ROSTER[this.pick].id, ids, STAGE_ORDER, Date.now() % 100000, 'ravana');
+      this.rung = 0;
+      this.showVersus();
+    } else {
+      this.ladder = null;
+      void this.begin();
+    }
+  }
+
+  private showVersus(): void {
+    const rung = this.ladder![this.rung];
+    const rival = ROSTER.find((r) => r.id === rung.opponent)!;
+    this.screen = 'versus';
+    this.audio.stopMusic();
+    this.hud.versus(ROSTER[this.pick], rival, this.rung + 1, this.ladder!.length, STAGES[rung.stage]);
+  }
+
   private async begin(): Promise<void> {
     const mine = ROSTER[this.pick];
-    // The CPU, or player two, takes someone else at random.
+    const rung = this.ladder?.[this.rung];
+    // The ladder names the rival; otherwise the CPU, or player two, takes someone else at random.
     const others = ROSTER.filter((r) => r.id !== mine.id);
-    const theirs = others[Math.floor(Math.random() * others.length)];
+    const theirs = rung ? ROSTER.find((r) => r.id === rung.opponent)! : others[Math.floor(Math.random() * others.length)];
     this.fighters = [mine, theirs];
     this.hud.loading(0.9);
-    const stage = STAGE_ORDER[this.arena];
+    const stage = rung?.stage ?? STAGE_ORDER[this.arena];
     if (this.renderer.arena.stageId !== stage) await this.renderer.arena.setStage(stage);
     await this.renderer.cast(mine, theirs);
     this.fight = new Fight(mine, theirs);
     this.audio.music(RAGAS[STAGES[stage].raga]);
     const mode = MODES[this.mode];
-    this.cpu = mode === 'versus' ? null : new Cpu(1, DIFFICULTY[mode], Date.now() % 100000);
+    this.cpu = mode === 'versus' ? null : new Cpu(1, DIFFICULTY[rung?.difficulty ?? (mode === 'arcade' ? 'normal' : mode)], Date.now() % 100000);
     this.hud.setFighters(mine, theirs);
     this.hud.hideScreen();
     this.screen = 'fight';
@@ -229,7 +271,7 @@ export class AkhadaGame {
   private showResults(fight: Fight): void {
     this.screen = 'results';
     const w = fight.winner ?? 0;
-    this.hud.results(this.fighters[w], this.fighters[1 - w].name);
+    this.hud.results(this.fighters[w], this.fighters[1 - w].name, this.ladder ? (w === 0 ? 'ENTER next fight' : 'ENTER try again') : 'ENTER rematch');
     this.audio.setRain(false);
     this.audio.stopMusic();
   }

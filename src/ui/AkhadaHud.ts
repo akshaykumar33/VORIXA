@@ -60,6 +60,11 @@ const CSS = `
 .ak-arena > div { text-align:center; min-width:420px; padding:8px 16px; border:2px solid rgba(255,178,31,.6); background:rgba(40,16,4,.6); }
 .ak-arena small { display:block; font-size:14px; opacity:.8; letter-spacing:.02em; font-family:'Space Grotesk Variable',system-ui,sans-serif; margin-top:4px; }
 .ak-arena span { opacity:.7; font-weight:700; }
+.ak-vs { display:flex; align-items:center; gap:40px; margin:12px 0 22px; }
+.ak-vs > div { text-align:center; min-width:260px; }
+.ak-vs b { display:block; font-size:clamp(34px,5vw,64px); font-weight:900; font-style:italic; text-transform:uppercase; text-shadow:0 0 24px currentColor,0 4px 0 #2a0a02; }
+.ak-vs small { display:block; color:#f4e6cc; font-size:16px; letter-spacing:.14em; text-transform:uppercase; }
+.ak-vs > span { font-size:72px; font-weight:900; font-style:italic; color:#ffb21f; text-shadow:0 0 30px #ff6a10; }
 .ak-bio { max-width:640px; text-align:center; font-size:18px; opacity:.9; min-height:48px; margin-bottom:14px; font-family:'Space Grotesk Variable',system-ui,sans-serif; }
 .ak-loading { position:absolute; bottom:40px; left:50%; transform:translateX(-50%); width:320px; height:4px; background:rgba(255,255,255,.15); }
 .ak-loading i { display:block; height:100%; background:#ffb21f; width:0; transition:width .2s; }
@@ -194,14 +199,37 @@ export class AkhadaHud {
       </div>`;
   }
 
+  /** Before an arcade fight: who, where, which fight of how many, and the rival's taunt. */
+  public versus(me: Contender, rival: Contender, round: number, total: number, arena: StageDef): void {
+    this.screen.style.display = 'flex';
+    this.screen.innerHTML = `
+      <div class="sub">FIGHT ${round} OF ${total} · ${arena.name.toUpperCase()} · ${arena.state.toUpperCase()}</div>
+      <div class="ak-vs">
+        <div style="color:${hex(me.colour)}"><b>${me.name}</b><small>${me.title}</small></div>
+        <span>VS</span>
+        <div style="color:${hex(rival.colour)}"><b>${rival.name}</b><small>${rival.title}</small></div>
+      </div>
+      <div class="ak-bio">“${rival.taunt}”<br><small>${rival.name} · ${rival.source}</small></div>
+      <div class="ak-help"><kbd>ENTER</kbd> fight · <kbd>BACKSPACE</kbd> quit the ladder</div>`;
+  }
+
+  /** The ladder won. */
+  public ending(me: Contender): void {
+    this.screen.style.display = 'flex';
+    this.screen.innerHTML = `<h2>${me.name}</h2><div class="sub">MASTER OF THE AKHADA · अखाड़े का स्वामी</div>
+      <div class="ak-bio">Kashi to Kurukshetra, the shore of the Setu to the golden fort: every rival of the epics has
+      fallen to ${me.name}, ${me.title.toLowerCase()}. The diyas burn on the ghats tonight in their name.</div>
+      <div class="ak-help"><kbd>ENTER</kbd> fighter select</div>`;
+  }
+
   public paused(): void {
     this.screen.style.display = 'flex';
     this.screen.innerHTML = `<h2>PAUSED</h2><div class="sub">ESC TO FIGHT ON · BACKSPACE FOR FIGHTER SELECT</div>`;
   }
 
-  public results(winner: Contender, loserName: string): void {
+  public results(winner: Contender, loserName: string, next = 'ENTER rematch'): void {
     this.screen.style.display = 'flex';
     this.screen.innerHTML = `<h2>${winner.name} WINS</h2><div class="sub">${winner.title.toUpperCase()} · ${loserName.toUpperCase()} FALLS</div>
-      <div class="ak-help"><kbd>ENTER</kbd> rematch · <kbd>BACKSPACE</kbd> fighter select</div>`;
+      <div class="ak-help"><kbd>${next.split(' ')[0]}</kbd> ${next.split(' ').slice(1).join(' ')} · <kbd>BACKSPACE</kbd> fighter select</div>`;
   }
 }
