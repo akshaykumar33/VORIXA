@@ -1,4 +1,4 @@
-import { MAX_HP, ROUNDS_TO_WIN, type Fight } from '../fighter/Fight';
+import { MAX_HP, ROUNDS_TO_WIN, type Fight, type Move, type MoveId } from '../fighter/Fight';
 import type { Contender } from '../fighter/Roster';
 import type { StageDef } from '../rendering/fighter/Stages';
 
@@ -65,6 +65,8 @@ const CSS = `
 .ak-vs b { display:block; font-size:clamp(34px,5vw,64px); font-weight:900; font-style:italic; text-transform:uppercase; text-shadow:0 0 24px currentColor,0 4px 0 #2a0a02; }
 .ak-vs small { display:block; color:#f4e6cc; font-size:16px; letter-spacing:.14em; text-transform:uppercase; }
 .ak-vs > span { font-size:72px; font-weight:900; font-style:italic; color:#ffb21f; text-shadow:0 0 30px #ff6a10; }
+.ak-train { position:absolute; left:50%; bottom:46px; transform:translateX(-50%); padding:8px 16px; background:rgba(8,4,0,.7); border:1px solid rgba(255,178,31,.5); font-size:15px; letter-spacing:.04em; text-align:center; line-height:1.6; font-family:'Space Grotesk Variable',system-ui,sans-serif; }
+.ak-train b { color:#ffb21f; }
 .ak-bio { max-width:640px; text-align:center; font-size:18px; opacity:.9; min-height:48px; margin-bottom:14px; font-family:'Space Grotesk Variable',system-ui,sans-serif; }
 .ak-loading { position:absolute; bottom:40px; left:50%; transform:translateX(-50%); width:320px; height:4px; background:rgba(255,255,255,.15); }
 .ak-loading i { display:block; height:100%; background:#ffb21f; width:0; transition:width .2s; }
@@ -170,7 +172,24 @@ export class AkhadaHud {
     this.announceUntil = performance.now() + seconds * 1000;
   }
 
+  private trainingPanel: HTMLElement | null = null;
+
+  /** Training's readout: the dummy's behaviour, and the last move's frame data and damage. */
+  public training(dummy: string, last: { move: MoveId; damage: number; combo: number } | null, move: Move | null): void {
+    if (!this.trainingPanel) {
+      this.trainingPanel = document.createElement('div');
+      this.trainingPanel.className = 'ak-train';
+      this.el.appendChild(this.trainingPanel);
+    }
+    // Frames at 60 per second, the way fighting games count them.
+    const fr = (s: number) => Math.round(s * 60);
+    const data = last && move ? `<b>${last.move}</b> · startup ${fr(move.startup)}f · active ${fr(move.active)}f · recovery ${fr(move.recover)}f · ${move.height}<br>damage ${last.damage} · combo ${last.combo}` : 'Throw a move to see its frame data.';
+    this.trainingPanel.innerHTML = `<div>TRAINING · dummy: <b>${dummy}</b> (<kbd>B</kbd>) · hitboxes <kbd>H</kbd></div><div>${data}</div>`;
+    this.trainingPanel.style.display = 'block';
+  }
+
   public hideScreen(): void {
+    if (this.trainingPanel) this.trainingPanel.style.display = 'none';
     this.screen.style.display = 'none';
     this.screen.innerHTML = '';
   }

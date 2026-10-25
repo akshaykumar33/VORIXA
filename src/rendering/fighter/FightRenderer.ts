@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Fight, FightEvent } from '../../fighter/Fight';
+import { MOVES, type Fight, type FightEvent } from '../../fighter/Fight';
 import { castDef, type Contender } from '../../fighter/Roster';
 import { People } from '../city/People';
 import { PostFX } from '../rush/PostFX';
@@ -83,6 +83,9 @@ export class FightRenderer {
   private winShown = false;
   private readonly tmp = new THREE.Vector3();
   private roundShown = 0;
+  /** Training's hitboxes: a red box where an attack can connect, a blue one round each body. */
+  public showHitboxes = false;
+  private readonly hitboxes: THREE.Mesh[] = [];
   private readonly sparks: Spark[] = [];
   private readonly burst = burstTexture();
   public ready = false;
@@ -181,6 +184,33 @@ export class FightRenderer {
     }
   }
 
+  private drawHitboxes(fight: Fight): void {
+    if (!this.hitboxes.length) {
+      const mat = (c: number) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.28, depthTest: false });
+      for (let i = 0; i < 4; i++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.6), mat(i < 2 ? 0x3d8cff : 0xff2a2a));
+        m.renderOrder = 9;
+        this.hitboxes.push(m);
+        this.scene.add(m);
+      }
+    }
+    fight.fighters.forEach((f, i) => {
+      const body = this.hitboxes[i];
+      const strike = this.hitboxes[2 + i];
+      body.visible = this.showHitboxes;
+      body.position.set(f.x, f.y + 0.9, 0);
+      body.scale.set(0.62, 1.8, 1);
+      const m = f.move ? MOVES[f.move] : null;
+      const live = !!m && m.reach > 0 && f.t >= m.startup && f.t < m.startup + m.active;
+      strike.visible = this.showHitboxes && live;
+      if (live && m) {
+        const from = m.around ? -m.reach : 0;
+        strike.scale.set(m.reach - from, m.height === 'low' ? 0.5 : 0.8, 1);
+        strike.position.set(f.x + f.facing * (from + m.reach) / 2, f.y + (m.height === 'low' ? 0.3 : 1.2), 0);
+      }
+    });
+  }
+
   /** A starburst at an impact: it pops to full size in a few frames and fades. */
   private spark(x: number, y: number, colour: number, size: number, block: boolean): void {
     const material = new THREE.SpriteMaterial({
@@ -221,6 +251,7 @@ export class FightRenderer {
       this.views[i].power(step, f.facing, this.arena.glow, this.arena.smoke, f.state === 'attack');
     });
     this.drawBlasts(fight, dt);
+    this.drawHitboxes(fight);
     // Sparks keep moving through hit-stop: the freeze is the bodies, not the flash.
     this.updateSparks(dt);
     const [a, b] = fight.fighters;

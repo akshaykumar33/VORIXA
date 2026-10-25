@@ -1,6 +1,6 @@
 import { AkhadaAudio } from '../audio/AkhadaAudio';
 import { Cpu, DIFFICULTY } from '../fighter/Cpu';
-import { Fight, MAX_HP, STEP, blank, type FightEvent, type FightInput } from '../fighter/Fight';
+import { Fight, MAX_HP, MOVES, STEP, blank, type FightEvent, type FightInput, type MoveId } from '../fighter/Fight';
 import { ROSTER, type Contender } from '../fighter/Roster';
 import { buildLadder, type Rung } from '../fighter/Ladder';
 import type { StageId } from '../rendering/fighter/Stages';
@@ -15,9 +15,12 @@ import { STAGES, STAGE_ORDER } from '../rendering/fighter/Stages';
  */
 
 type Screen = 'loading' | 'select' | 'versus' | 'fight' | 'paused' | 'results' | 'ending';
-type Mode = 'arcade' | 'easy' | 'normal' | 'hard' | 'versus';
-const MODES: Mode[] = ['arcade', 'easy', 'normal', 'hard', 'versus'];
-const MODE_LABEL: Record<Mode, string> = { arcade: 'ARCADE LADDER', easy: 'VS CPU · EASY', normal: 'VS CPU · NORMAL', hard: 'VS CPU · HARD', versus: '2 PLAYERS' };
+type Mode = 'arcade' | 'easy' | 'normal' | 'hard' | 'versus' | 'training';
+const MODES: Mode[] = ['arcade', 'easy', 'normal', 'hard', 'versus', 'training'];
+const MODE_LABEL: Record<Mode, string> = { arcade: 'ARCADE LADDER', easy: 'VS CPU · EASY', normal: 'VS CPU · NORMAL', hard: 'VS CPU · HARD', versus: '2 PLAYERS', training: 'TRAINING' };
+/** What the training dummy does: stand still, block everything, or crouch. */
+type Dummy = 'stand' | 'block' | 'crouch';
+const DUMMIES: Dummy[] = ['stand', 'block', 'crouch'];
 
 const KEYS = [
   { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], lp: ['KeyU'], hp: ['KeyI'], lk: ['KeyJ'], hk: ['KeyK'], blast: ['KeyO'], dash: ['KeyL'], super: ['Semicolon'], signature: ['KeyP'] },
@@ -47,6 +50,9 @@ export class AkhadaGame {
   private ladder: Rung<StageId>[] | null = null;
   private rung = 0;
   private arena = 0;
+  private dummy = 0;
+  /** The last move the player threw, and what it did, for the training panel. */
+  private lastMove: { move: MoveId; damage: number; combo: number } | null = null;
   private fight: Fight | null = null;
   private cpu: Cpu | null = null;
   private fighters: [Contender, Contender] = [ROSTER[0], ROSTER[1]];
@@ -111,6 +117,8 @@ export class AkhadaGame {
     } else if (this.screen === 'fight') {
       if (code === 'Escape') this.pause();
       if (code === 'KeyM') this.audio.toggleMute();
+      if (code === 'KeyB' && MODES[this.mode] === 'training') this.dummy = (this.dummy + 1) % DUMMIES.length;
+      if (code === 'KeyH') this.renderer.showHitboxes = !this.renderer.showHitboxes;
     } else if (this.screen === 'versus') {
       if (code === 'Enter' || code === 'Space') void this.begin();
       else if (code === 'Backspace' || code === 'Escape') this.showSelect();
@@ -177,12 +185,43 @@ export class AkhadaGame {
     this.fight = new Fight(mine, theirs);
     this.audio.music(RAGAS[STAGES[stage].raga]);
     const mode = MODES[this.mode];
-    this.cpu = mode === 'versus' ? null : new Cpu(1, DIFFICULTY[rung?.difficulty ?? (mode === 'arcade' ? 'normal' : mode)], Date.now() % 100000);
+    this.renderer.showHitboxes = mode === 'training';
+    this.cpu = mode === 'versus' || mode === 'training' ? null : new Cpu(1, DIFFICULTY[rung?.difficulty ?? (mode === 'arcade' ? 'normal' : mode)], Date.now() % 100000);
     this.hud.setFighters(mine, theirs);
     this.hud.hideScreen();
     this.screen = 'fight';
     this.held.clear();
     this.acc = 0;
+  }
+
+  // ─── Training ───────────────────────────────────────────────────────────────────────────────
+
+  /** The dummy: still, guarding (high, or low against lows), or crouched. */
+  private dummyInput(fight: Fight): FightInput {
+    const me = fight.fighters[1];
+    const them = fight.fighters[0];
+    const input = blank();
+    const kind = DUMMIES[this.dummy];
+    if (kind === 'crouch') input.y = -1;
+    if (kind === 'block') {
+      input.x = -Math.sign(them.x - me.x) || 1;
+      if (them.move === 'sweep' || them.move === 'lowKick') input.y = -1;
+    }
+    return input;
+  }
+
+  /** Training never ends: health refills between combos, the bar stays full, the clock stops. */
+  private refill(fight: Fight): void {
+    fight.clock = 99;
+    const [p, d] = fight.fighters;
+    p.meter = 100;
+    if (d.comboTaken === 0 && (d.state === 'stand' || d.state === 'crouch' || d.state === 'walk')) d.hp = MAX_HP;
+    p.hp = MAX_HP;
+    if (fight.phase === 'ended') {
+      fight.phase = 'fight';
+      fight.phaseT = 0;
+    }
+    this.hud.training(DUMMIES[this.dummy], this.lastMove, this.lastMove ? MOVES[this.lastMove.move] : null);
   }
 
   // ─── Input ──────────────────────────────────────────────────────────────────────────────────
@@ -225,10 +264,12 @@ export class AkhadaGame {
       this.acc += dt;
       while (this.acc >= STEP) {
         this.acc -= STEP;
-        inputs = [this.input(0), this.cpu ? this.cpu.think(fight, STEP) : this.input(1)];
+        const training = MODES[this.mode] === 'training';
+        inputs = [this.input(0), training ? this.dummyInput(fight) : this.cpu ? this.cpu.think(fight, STEP) : this.input(1)];
         fight.step(inputs);
         if (fight.events.length) this.react(fight, fight.events);
       }
+      if (MODES[this.mode] === 'training') this.refill(fight);
       if (fight.phase === 'over' && this.screen === 'fight') {
         this.resultsIn -= dt;
         if (this.resultsIn <= -2.4) this.showResults(fight);
@@ -243,6 +284,13 @@ export class AkhadaGame {
 
   private react(fight: Fight, events: readonly FightEvent[]): void {
     this.renderer.react(fight, events);
+    for (const e of events) {
+      if (e.type === 'attack' && e.slot === 0) this.lastMove = { move: e.move, damage: 0, combo: 0 };
+      if (e.type === 'hit' && e.slot === 1 && this.lastMove) {
+        this.lastMove.damage = e.damage;
+        this.lastMove.combo = e.combo;
+      }
+    }
     this.audio.play(events);
     for (const e of events) {
       if (e.type === 'round') {
